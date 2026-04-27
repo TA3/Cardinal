@@ -25,6 +25,7 @@ import { buildCardinalityFlowGraph } from "@/lib/cardinality/flow-transformers"
 import type { MetricDrilldown, SnapshotResponse } from "@/lib/prometheus/types"
 import { cn } from "@/lib/utils"
 import { useTheme } from "next-themes"
+import '@xyflow/react/dist/style.css';
 
 interface CardinalityFlowViewProps {
   snapshot: SnapshotResponse
@@ -221,7 +222,7 @@ function FlowNodeLabel({
   )
 }
 
-interface FlowCardinalityNodeProps extends NodeProps<CardinalityFlowNode> {
+interface FlowCallbackContextValue {
   metricPreviewLoading: Record<string, boolean>
   metricPreviewErrors: Record<string, string>
   labelValuesCache: Record<string, string[]>
@@ -234,19 +235,32 @@ interface FlowCardinalityNodeProps extends NodeProps<CardinalityFlowNode> {
   onFetchLabelValues: (metric: string, label: string) => void
 }
 
-function FlowCardinalityNode({
-  data,
-  metricPreviewLoading,
-  metricPreviewErrors,
-  labelValuesCache,
-  labelValuesLoading,
-  onOpenJob,
-  onOpenJobPrompt,
-  onToggleMetricDrop,
-  onToggleLabelDrop,
-  onToggleMetricLabels,
-  onFetchLabelValues,
-}: FlowCardinalityNodeProps) {
+const FlowCallbackContext = React.createContext<FlowCallbackContextValue>({
+  metricPreviewLoading: {},
+  metricPreviewErrors: {},
+  labelValuesCache: {},
+  labelValuesLoading: {},
+  onOpenJob: () => undefined,
+  onOpenJobPrompt: () => undefined,
+  onToggleMetricDrop: () => undefined,
+  onToggleLabelDrop: () => undefined,
+  onToggleMetricLabels: () => undefined,
+  onFetchLabelValues: () => undefined,
+})
+
+function FlowCardinalityNode({ data }: NodeProps<CardinalityFlowNode>) {
+  const {
+    metricPreviewLoading,
+    metricPreviewErrors,
+    labelValuesCache,
+    labelValuesLoading,
+    onOpenJob,
+    onOpenJobPrompt,
+    onToggleMetricDrop,
+    onToggleLabelDrop,
+    onToggleMetricLabels,
+    onFetchLabelValues,
+  } = React.useContext(FlowCallbackContext)
   return (
     <>
       {data.kind !== "job" ? (
@@ -279,6 +293,11 @@ function FlowCardinalityNode({
     </>
   )
 }
+
+// Defined outside the component so it never changes reference between renders.
+// Changing nodeTypes causes React Flow to remount all nodes and fitView fires
+// before nodes are measured, resulting in a blank canvas.
+const FLOW_NODE_TYPES = { cardinality: FlowCardinalityNode }
 
 export function CardinalityFlowView({
   snapshot,
@@ -319,23 +338,20 @@ export function CardinalityFlowView({
     ]
   )
 
-  const nodeTypes = React.useMemo(
+  const { theme } = useTheme()
+
+  const contextValue = React.useMemo<FlowCallbackContextValue>(
     () => ({
-      cardinality: (props: NodeProps<CardinalityFlowNode>) => (
-        <FlowCardinalityNode
-          {...props}
-          metricPreviewLoading={metricPreviewLoading}
-          metricPreviewErrors={metricPreviewErrors}
-          labelValuesCache={labelValuesCache}
-          labelValuesLoading={labelValuesLoading}
-          onOpenJob={onOpenJob}
-          onOpenJobPrompt={onOpenJobPrompt}
-          onToggleMetricDrop={onToggleMetricDrop}
-          onToggleLabelDrop={onToggleLabelDrop}
-          onToggleMetricLabels={onToggleMetricLabels}
-          onFetchLabelValues={onFetchLabelValues}
-        />
-      ),
+      metricPreviewLoading,
+      metricPreviewErrors,
+      labelValuesCache,
+      labelValuesLoading,
+      onOpenJob,
+      onOpenJobPrompt,
+      onToggleMetricDrop,
+      onToggleLabelDrop,
+      onToggleMetricLabels,
+      onFetchLabelValues,
     }),
     [
       labelValuesCache,
@@ -350,9 +366,6 @@ export function CardinalityFlowView({
       onToggleMetricLabels,
     ]
   )
-
-//   useTheme
-const { theme } = useTheme()
 
   return (
     <div className="rounded-2xl border bg-card">
@@ -383,26 +396,28 @@ const { theme } = useTheme()
       </div>
 
       <div className="h-[70svh] w-full overflow-hidden">
-        <ReactFlow<CardinalityFlowNode, CardinalityFlowEdge>
-          nodes={graph.nodes}
-          edges={graph.edges}
-          nodeTypes={nodeTypes}
-          fitView
-          fitViewOptions={{ padding: 0.15, minZoom: 0.35 }}
-          minZoom={0.1}
-          maxZoom={1.5}
-          nodesDraggable
-          nodesConnectable={false}
-          elementsSelectable
-          zoomOnDoubleClick={false}
-          colorMode={theme === "dark" ? "dark" : "light"}
-          preventScrolling={false}
-          proOptions={{ hideAttribution: true }}
-        >
-          <Background gap={20} size={1} />
-          <Controls showInteractive={false} />
-          <MiniMap pannable zoomable />
-        </ReactFlow>
+        <FlowCallbackContext.Provider value={contextValue}>
+          <ReactFlow<CardinalityFlowNode, CardinalityFlowEdge>
+            nodes={graph.nodes}
+            edges={graph.edges}
+            nodeTypes={FLOW_NODE_TYPES}
+            fitView
+            fitViewOptions={{ padding: 0.15 }}
+            minZoom={0.05}
+            maxZoom={1.5}
+            nodesDraggable
+            nodesConnectable={false}
+            elementsSelectable
+            zoomOnDoubleClick={false}
+            colorMode={theme === "dark" ? "dark" : "light"}
+            preventScrolling={false}
+            proOptions={{ hideAttribution: true }}
+          >
+            <Background gap={20} size={1} />
+            <Controls showInteractive={false} />
+            <MiniMap pannable zoomable />
+          </ReactFlow>
+        </FlowCallbackContext.Provider>
       </div>
     </div>
   )
