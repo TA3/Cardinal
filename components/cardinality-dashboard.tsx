@@ -823,7 +823,12 @@ export function CardinalityDashboard() {
               {/* RIGHT PANE */}
               <div className="flex flex-col gap-4">
                 {activePanel === null ? (
-                  <RightPaneEmpty chartRows={chartRows} />
+                  <RightPaneEmpty
+                    chartRows={chartRows}
+                    snapshot={snapshot}
+                    onMetricClick={(metric) => { void loadMetricDrilldown(metric) }}
+                    onJobClick={(job) => { void loadJobDrilldown(job) }}
+                  />
                 ) : null}
 
                 {activePanel === "job" ? (
@@ -855,10 +860,8 @@ export function CardinalityDashboard() {
                     metricDrilldown={metricDrilldown}
                     isLoadingMetric={isLoadingMetric}
                     dropMetrics={dropMetrics}
-                    selectedLabels={selectedMetric ? selectedLabelsByMetric[selectedMetric] ?? [] : []}
-                    labelValuesCache={labelValuesCache}
-                    labelValuesLoading={labelValuesLoading}
-                    jobDrilldownCollapsed={false}
+                    jobDrilldownCollapsed={jobDrilldownCollapsed}
+                    connection={connection}
                     onToggleDrop={toggleDropMetric}
                     onToggleLabel={toggleDropLabel}
                     onFetchLabelValues={(metric, label) => {

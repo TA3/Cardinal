@@ -1,11 +1,13 @@
 "use client"
 
-import { ArrowLeft, Check, List, Loader2, Trash2, X } from "lucide-react"
-import { getScaleTextStyle } from "@/lib/cardinality/color-scale"
+import * as React from "react"
+import { Check, Loader2, Sparkles, X } from "lucide-react"
+import { cn } from "@/lib/utils"
 import {
   formatNumber,
 } from "@/lib/cardinality/dashboard-helpers"
-import type { MetricDrilldown } from "@/lib/prometheus/types"
+import { fetchLabelValues } from "@/lib/prometheus/client"
+import type { MetricDrilldown, PrometheusConnectionInput } from "@/lib/prometheus/types"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -36,6 +38,7 @@ interface MetricDrilldownPanelProps {
   labelValuesCache: Record<string, string[]>
   labelValuesLoading: Record<string, boolean>
   jobDrilldownCollapsed: boolean
+  connection: PrometheusConnectionInput | null
   onToggleDrop: (metric: string) => void
   onToggleLabel: (metric: string, label: string) => void
   onFetchLabelValues: (metric: string, label: string) => void
@@ -53,6 +56,7 @@ export function MetricDrilldownPanel({
   labelValuesCache,
   labelValuesLoading,
   jobDrilldownCollapsed,
+  connection,
   onToggleDrop,
   onToggleLabel,
   onFetchLabelValues,
@@ -63,6 +67,54 @@ export function MetricDrilldownPanel({
   const isDropped = metricDrilldown
     ? dropMetrics.includes(metricDrilldown.metric)
     : false
+
+  // Label-value sampling state — keyed by metric so it auto-resets on change
+  const [labelState, setLabelState] = React.useState<{
+    metric: string | null
+    values: Record<string, string[]>
+    loading: Record<string, boolean>
+  }>({ metric: null, values: {}, loading: {} })
+
+  const currentMetric = metricDrilldown?.metric ?? null
+  const labelValues =
+    labelState.metric === currentMetric ? labelState.values : {}
+  const loadingLabels =
+    labelState.metric === currentMetric ? labelState.loading : {}
+
+  async function handleFetchLabelValues(labelName: string) {
+    if (!connection) return
+    setLabelState((prev) => ({
+      metric: currentMetric,
+      values: prev.metric === currentMetric ? prev.values : {},
+      loading: {
+        ...(prev.metric === currentMetric ? prev.loading : {}),
+        [labelName]: true,
+      },
+    }))
+    try {
+      const values = await fetchLabelValues(connection, labelName)
+      setLabelState((prev) => ({
+        metric: currentMetric,
+        values: {
+          ...(prev.metric === currentMetric ? prev.values : {}),
+          [labelName]: values,
+        },
+        loading: {
+          ...(prev.metric === currentMetric ? prev.loading : {}),
+          [labelName]: false,
+        },
+      }))
+    } catch {
+      setLabelState((prev) => ({
+        metric: currentMetric,
+        values: prev.metric === currentMetric ? prev.values : {},
+        loading: {
+          ...(prev.metric === currentMetric ? prev.loading : {}),
+          [labelName]: false,
+        },
+      }))
+    }
+  }
 
   return (
     <Card>
@@ -135,121 +187,86 @@ export function MetricDrilldownPanel({
         {metricDrilldown ? (() => {
           const maxCard = metricDrilldown.labels[0]?.cardinality ?? 1
           return (
-            <div className="flex flex-col gap-4">
-              <div className="rounded-2xl border bg-muted/10 p-4">
-                <div className="mb-3 flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-medium">Label share by metric series</p>
-                    <p className="text-xs text-muted-foreground">
-                      Pie chart shows how much each label contributes to the metric cardinality footprint.
-                    </p>
-                  </div>
-                  {selectedLabels.length > 0 ? (
-                    <Badge variant="outline">{selectedLabels.length} labels selected</Badge>
-                  ) : null}
-                </div>
-                <LabelSplitPieChart labels={metricDrilldown.labels} />
-              </div>
-
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Label key</TableHead>
-                    <TableHead className="text-right">Cardinality</TableHead>
-                    <TableHead className="text-right">Drop</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {metricDrilldown.labels.map((label, index) => {
-                    const relPct = Math.min(
-                      100,
-                      (label.cardinality / maxCard) * 100
-                    )
-                    const absPct =
-                      (label.cardinality / metricDrilldown.seriesCount) * 100
-                    const isSelectedLabel = selectedLabels.includes(label.label)
-                    const valuesKey = `${metricDrilldown.metric}::${label.label}`
-                    const isLoadingValues = Boolean(labelValuesLoading[valuesKey])
-                    const labelValues = labelValuesCache[valuesKey]
-                    return (
-                      <TableRow key={label.label}>
-                        <TableCell>
-                          <div className="flex flex-col gap-1.5">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="font-mono text-sm">{label.label}</span>
-                              {index < 3 ? (
-                                <Badge variant="secondary">High</Badge>
-                              ) : null}
-                              {isSelectedLabel ? (
-                                <Badge variant="outline">Will blank values</Badge>
-                              ) : null}
-                              <Button
-                                size="icon-xs"
-                                variant="ghost"
-                                title="Fetch example values"
-                                onClick={() => onFetchLabelValues(metricDrilldown.metric, label.label)}
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Label key</TableHead>
+                  <TableHead className="text-right">Cardinality</TableHead>
+                  <TableHead className="w-8" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {metricDrilldown.labels.map((label, index) => {
+                  const relPct = Math.min(
+                    100,
+                    (label.cardinality / maxCard) * 100
+                  )
+                  const absPct =
+                    (label.cardinality / metricDrilldown.seriesCount) * 100
+                  const examples = labelValues[label.label]
+                  const isLoadingThis = !!loadingLabels[label.label]
+                  return (
+                    <TableRow key={label.label}>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-sm">{label.label}</span>
+                          {index < 3 ? (
+                            <Badge variant="secondary">High</Badge>
+                          ) : null}
+                        </div>
+                        {examples ? (
+                          <div className="mt-1.5 flex flex-wrap gap-1">
+                            {examples.slice(0, 6).map((v) => (
+                              <Badge
+                                key={v}
+                                variant="outline"
+                                className="max-w-[120px] truncate font-mono text-xs"
                               >
-                                {isLoadingValues ? (
-                                  <Loader2 className="size-3 animate-spin" />
-                                ) : (
-                                  <List className="size-3" />
-                                )}
-                              </Button>
-                            </div>
-                            {labelValues ? (
-                              <div className="flex flex-wrap gap-1">
-                                {labelValues.slice(0, 12).map((value) => (
-                                  <Badge
-                                    key={value}
-                                    variant="secondary"
-                                    className="font-mono text-xs"
-                                  >
-                                    {value}
-                                  </Badge>
-                                ))}
-                                {labelValues.length > 12 ? (
-                                  <Badge variant="outline" className="text-xs">
-                                    +{labelValues.length - 12} more
-                                  </Badge>
-                                ) : null}
-                                {labelValues.length === 0 ? (
-                                  <span className="text-xs text-muted-foreground">
-                                    No values found
-                                  </span>
-                                ) : null}
-                              </div>
+                                {v}
+                              </Badge>
+                            ))}
+                            {examples.length > 6 ? (
+                              <Badge variant="outline" className="text-xs text-muted-foreground">
+                                +{examples.length - 6} more
+                              </Badge>
                             ) : null}
                           </div>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <span style={getScaleTextStyle(absPct, "risk")}>
-                            {formatNumber(label.cardinality)}
-                          </span>
-                          <Progress
-                            value={relPct}
-                            className="mt-1 ml-auto h-1 max-w-[120px]"
-                          />
-                        </TableCell>
-                        <TableCell className="text-right">
+                        ) : null}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <span className={cn(seriesColor(absPct))}>
+                          {formatNumber(label.cardinality)}
+                        </span>
+                        <Progress
+                          value={relPct}
+                          className="mt-1 ml-auto h-1 max-w-[80px]"
+                        />
+                      </TableCell>
+                      <TableCell className="w-8">
+                        {connection ? (
                           <Button
-                            size="sm"
-                            variant={isSelectedLabel ? "secondary" : "outline"}
-                            onClick={() => onToggleLabel(metricDrilldown.metric, label.label)}
+                            size="icon-sm"
+                            variant="ghost"
+                            title="Fetch example values"
+                            disabled={isLoadingThis}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              void handleFetchLabelValues(label.label)
+                            }}
                           >
-                            {isSelectedLabel ? (
-                              <Check className="size-3" />
+                            {isLoadingThis ? (
+                              <Loader2 className="size-3 animate-spin" />
                             ) : (
-                              <X className="size-3" />
+                              <Sparkles className="size-3" />
                             )}
-                            {isSelectedLabel ? "Selected" : "Drop label"}
                           </Button>
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })}
-                </TableBody>
-              </Table>
-            </div>
+                        ) : null}
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
           )
         })() : null}
       </CardContent>
