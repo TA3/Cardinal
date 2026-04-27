@@ -150,6 +150,20 @@ export async function fetchLabelValues(
   return prometheusGet<string[]>(connection, `/label/${encodeURIComponent(label)}/values`)
 }
 
+export async function fetchLabelValuesForMetricScoped(
+  connection: PrometheusConnectionInput,
+  metricName: string,
+  label: string
+): Promise<string[]> {
+  return prometheusGet<string[]>(
+    connection,
+    `/label/${encodeURIComponent(label)}/values`,
+    {
+      "match[]": `{__name__="${metricName}"}`,
+    }
+  )
+}
+
 export async function fetchMetricSeriesForDrilldown(
   connection: PrometheusConnectionInput,
   metricName: string

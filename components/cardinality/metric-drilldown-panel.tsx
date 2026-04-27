@@ -1,6 +1,6 @@
 "use client"
 
-import { ArrowLeft, Check, Trash2, X } from "lucide-react"
+import { ArrowLeft, Check, List, Loader2, Trash2, X } from "lucide-react"
 import { getScaleTextStyle } from "@/lib/cardinality/color-scale"
 import {
   formatNumber,
@@ -33,9 +33,12 @@ interface MetricDrilldownPanelProps {
   isLoadingMetric: boolean
   dropMetrics: string[]
   selectedLabels: string[]
+  labelValuesCache: Record<string, string[]>
+  labelValuesLoading: Record<string, boolean>
   jobDrilldownCollapsed: boolean
   onToggleDrop: (metric: string) => void
   onToggleLabel: (metric: string, label: string) => void
+  onFetchLabelValues: (metric: string, label: string) => void
   onBackToJobs?: () => void
   onClearContext?: () => void
   onClose: () => void
@@ -47,9 +50,12 @@ export function MetricDrilldownPanel({
   isLoadingMetric,
   dropMetrics,
   selectedLabels,
+  labelValuesCache,
+  labelValuesLoading,
   jobDrilldownCollapsed,
   onToggleDrop,
   onToggleLabel,
+  onFetchLabelValues,
   onBackToJobs,
   onClearContext,
   onClose,
@@ -162,16 +168,56 @@ export function MetricDrilldownPanel({
                     const absPct =
                       (label.cardinality / metricDrilldown.seriesCount) * 100
                     const isSelectedLabel = selectedLabels.includes(label.label)
+                    const valuesKey = `${metricDrilldown.metric}::${label.label}`
+                    const isLoadingValues = Boolean(labelValuesLoading[valuesKey])
+                    const labelValues = labelValuesCache[valuesKey]
                     return (
                       <TableRow key={label.label}>
                         <TableCell>
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono text-sm">{label.label}</span>
-                            {index < 3 ? (
-                              <Badge variant="secondary">High</Badge>
-                            ) : null}
-                            {isSelectedLabel ? (
-                              <Badge variant="outline">Will blank values</Badge>
+                          <div className="flex flex-col gap-1.5">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-mono text-sm">{label.label}</span>
+                              {index < 3 ? (
+                                <Badge variant="secondary">High</Badge>
+                              ) : null}
+                              {isSelectedLabel ? (
+                                <Badge variant="outline">Will blank values</Badge>
+                              ) : null}
+                              <Button
+                                size="icon-xs"
+                                variant="ghost"
+                                title="Fetch example values"
+                                onClick={() => onFetchLabelValues(metricDrilldown.metric, label.label)}
+                              >
+                                {isLoadingValues ? (
+                                  <Loader2 className="size-3 animate-spin" />
+                                ) : (
+                                  <List className="size-3" />
+                                )}
+                              </Button>
+                            </div>
+                            {labelValues ? (
+                              <div className="flex flex-wrap gap-1">
+                                {labelValues.slice(0, 12).map((value) => (
+                                  <Badge
+                                    key={value}
+                                    variant="secondary"
+                                    className="font-mono text-xs"
+                                  >
+                                    {value}
+                                  </Badge>
+                                ))}
+                                {labelValues.length > 12 ? (
+                                  <Badge variant="outline" className="text-xs">
+                                    +{labelValues.length - 12} more
+                                  </Badge>
+                                ) : null}
+                                {labelValues.length === 0 ? (
+                                  <span className="text-xs text-muted-foreground">
+                                    No values found
+                                  </span>
+                                ) : null}
+                              </div>
                             ) : null}
                           </div>
                         </TableCell>

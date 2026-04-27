@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { List, Loader2, WandSparkles } from "lucide-react"
 import {
   Background,
   Controls,
@@ -33,37 +34,51 @@ interface CardinalityFlowViewProps {
   metricPreviewCache: Record<string, MetricDrilldown>
   metricPreviewLoading: Record<string, boolean>
   metricPreviewErrors: Record<string, string>
+  labelValuesCache: Record<string, string[]>
+  labelValuesLoading: Record<string, boolean>
   dropMetrics: string[]
   selectedLabelsByMetric: Record<string, string[]>
   onOpenJob: (job: string) => void
-  onOpenMetric: (metric: string) => void
+  onOpenJobPrompt: (job: string) => void
   onToggleMetricDrop: (metric: string) => void
   onToggleLabelDrop: (metric: string, label: string) => void
   onToggleMetricLabels: (metric: string) => void
+  onFetchLabelValues: (metric: string, label: string) => void
 }
 
 function FlowNodeLabel({
   data,
   metricPreviewLoading,
   metricPreviewErrors,
+  labelValuesCache,
+  labelValuesLoading,
   onOpenJob,
-  onOpenMetric,
+  onOpenJobPrompt,
   onToggleMetricDrop,
   onToggleLabelDrop,
   onToggleMetricLabels,
+  onFetchLabelValues,
 }: {
   data: CardinalityFlowNodeData
   metricPreviewLoading: Record<string, boolean>
   metricPreviewErrors: Record<string, string>
+  labelValuesCache: Record<string, string[]>
+  labelValuesLoading: Record<string, boolean>
   onOpenJob: (job: string) => void
-  onOpenMetric: (metric: string) => void
+  onOpenJobPrompt: (job: string) => void
   onToggleMetricDrop: (metric: string) => void
   onToggleLabelDrop: (metric: string, label: string) => void
   onToggleMetricLabels: (metric: string) => void
+  onFetchLabelValues: (metric: string, label: string) => void
 }) {
   const isMetric = data.kind === "metric"
   const isLabel = data.kind === "label"
   const isJob = data.kind === "job"
+  const labelValuesKey = data.metricName && data.labelName
+    ? `${data.metricName}::${data.labelName}`
+    : null
+  const labelValues = labelValuesKey ? labelValuesCache[labelValuesKey] : undefined
+  const isLoadingLabelValues = labelValuesKey ? Boolean(labelValuesLoading[labelValuesKey]) : false
 
   return (
     <div
@@ -91,20 +106,6 @@ function FlowNodeLabel({
 
       <div className="mt-2 flex flex-wrap gap-1">
         {isJob && data.jobName ? (
-          <Button
-            size="xs"
-            variant="outline"
-            className="nodrag h-6 px-2 text-[10px]"
-            onClick={(event) => {
-              event.stopPropagation()
-              onOpenJob(data.jobName!)
-            }}
-          >
-            Open job
-          </Button>
-        ) : null}
-
-        {isMetric && data.metricName ? (
           <>
             <Button
               size="xs"
@@ -112,11 +113,28 @@ function FlowNodeLabel({
               className="nodrag h-6 px-2 text-[10px]"
               onClick={(event) => {
                 event.stopPropagation()
-                onOpenMetric(data.metricName!)
+                onOpenJob(data.jobName!)
               }}
             >
               Open
             </Button>
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              className="nodrag"
+              title="Generate AI prompt"
+              onClick={(event) => {
+                event.stopPropagation()
+                onOpenJobPrompt(data.jobName!)
+              }}
+            >
+              <WandSparkles className="size-3" />
+            </Button>
+          </>
+        ) : null}
+
+        {isMetric && data.metricName ? (
+          <>
             <Button
               size="xs"
               variant={data.isDropped ? "secondary" : "outline"}
@@ -149,17 +167,54 @@ function FlowNodeLabel({
         ) : null}
 
         {isLabel && data.metricName && data.labelName ? (
-          <Button
-            size="xs"
-            variant={data.isLabelDropped ? "secondary" : "outline"}
-            className="nodrag h-6 px-2 text-[10px]"
-            onClick={(event) => {
-              event.stopPropagation()
-              onToggleLabelDrop(data.metricName!, data.labelName!)
-            }}
-          >
-            {data.isLabelDropped ? "Undrop" : "Drop"}
-          </Button>
+          <>
+            <Button
+              size="xs"
+              variant={data.isLabelDropped ? "secondary" : "outline"}
+              className="nodrag h-6 px-2 text-[10px]"
+              onClick={(event) => {
+                event.stopPropagation()
+                onToggleLabelDrop(data.metricName!, data.labelName!)
+              }}
+            >
+              {data.isLabelDropped ? "Undrop" : "Drop"}
+            </Button>
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              className="nodrag"
+              title="Fetch example values"
+              onClick={(event) => {
+                event.stopPropagation()
+                onFetchLabelValues(data.metricName!, data.labelName!)
+              }}
+            >
+              {isLoadingLabelValues ? (
+                <Loader2 className="size-3 animate-spin" />
+              ) : (
+                <List className="size-3" />
+              )}
+            </Button>
+            {labelValues ? (
+              <div className="mt-1 flex w-full flex-col gap-0.5">
+                {labelValues.slice(0, 5).map((value) => (
+                  <span key={value} className="truncate font-mono text-[9px] text-muted-foreground">
+                    {value}
+                  </span>
+                ))}
+                {labelValues.length > 5 ? (
+                  <span className="text-[9px] text-muted-foreground">
+                    +{labelValues.length - 5} more
+                  </span>
+                ) : null}
+                {labelValues.length === 0 ? (
+                  <span className="text-[9px] text-muted-foreground">
+                    No values found
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
+          </>
         ) : null}
       </div>
     </div>
@@ -169,22 +224,28 @@ function FlowNodeLabel({
 interface FlowCardinalityNodeProps extends NodeProps<CardinalityFlowNode> {
   metricPreviewLoading: Record<string, boolean>
   metricPreviewErrors: Record<string, string>
+  labelValuesCache: Record<string, string[]>
+  labelValuesLoading: Record<string, boolean>
   onOpenJob: (job: string) => void
-  onOpenMetric: (metric: string) => void
+  onOpenJobPrompt: (job: string) => void
   onToggleMetricDrop: (metric: string) => void
   onToggleLabelDrop: (metric: string, label: string) => void
   onToggleMetricLabels: (metric: string) => void
+  onFetchLabelValues: (metric: string, label: string) => void
 }
 
 function FlowCardinalityNode({
   data,
   metricPreviewLoading,
   metricPreviewErrors,
+  labelValuesCache,
+  labelValuesLoading,
   onOpenJob,
-  onOpenMetric,
+  onOpenJobPrompt,
   onToggleMetricDrop,
   onToggleLabelDrop,
   onToggleMetricLabels,
+  onFetchLabelValues,
 }: FlowCardinalityNodeProps) {
   return (
     <>
@@ -199,11 +260,14 @@ function FlowCardinalityNode({
         data={data}
         metricPreviewLoading={metricPreviewLoading}
         metricPreviewErrors={metricPreviewErrors}
+        labelValuesCache={labelValuesCache}
+        labelValuesLoading={labelValuesLoading}
         onOpenJob={onOpenJob}
-        onOpenMetric={onOpenMetric}
+        onOpenJobPrompt={onOpenJobPrompt}
         onToggleMetricDrop={onToggleMetricDrop}
         onToggleLabelDrop={onToggleLabelDrop}
         onToggleMetricLabels={onToggleMetricLabels}
+        onFetchLabelValues={onFetchLabelValues}
       />
       {data.kind !== "label" ? (
         <Handle
@@ -224,13 +288,16 @@ export function CardinalityFlowView({
   metricPreviewCache,
   metricPreviewLoading,
   metricPreviewErrors,
+  labelValuesCache,
+  labelValuesLoading,
   dropMetrics,
   selectedLabelsByMetric,
   onOpenJob,
-  onOpenMetric,
+  onOpenJobPrompt,
   onToggleMetricDrop,
   onToggleLabelDrop,
   onToggleMetricLabels,
+  onFetchLabelValues,
 }: CardinalityFlowViewProps) {
   const graph = React.useMemo(
     () =>
@@ -259,19 +326,25 @@ export function CardinalityFlowView({
           {...props}
           metricPreviewLoading={metricPreviewLoading}
           metricPreviewErrors={metricPreviewErrors}
+          labelValuesCache={labelValuesCache}
+          labelValuesLoading={labelValuesLoading}
           onOpenJob={onOpenJob}
-          onOpenMetric={onOpenMetric}
+          onOpenJobPrompt={onOpenJobPrompt}
           onToggleMetricDrop={onToggleMetricDrop}
           onToggleLabelDrop={onToggleLabelDrop}
           onToggleMetricLabels={onToggleMetricLabels}
+          onFetchLabelValues={onFetchLabelValues}
         />
       ),
     }),
     [
+      labelValuesCache,
+      labelValuesLoading,
       metricPreviewErrors,
       metricPreviewLoading,
       onOpenJob,
-      onOpenMetric,
+      onOpenJobPrompt,
+      onFetchLabelValues,
       onToggleLabelDrop,
       onToggleMetricDrop,
       onToggleMetricLabels,
@@ -315,7 +388,9 @@ const { theme } = useTheme()
           edges={graph.edges}
           nodeTypes={nodeTypes}
           fitView
-          fitViewOptions={{ padding: 0.15 }}
+          fitViewOptions={{ padding: 0.15, minZoom: 0.35 }}
+          minZoom={0.1}
+          maxZoom={1.5}
           nodesDraggable
           nodesConnectable={false}
           elementsSelectable

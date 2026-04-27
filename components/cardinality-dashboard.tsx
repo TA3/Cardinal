@@ -5,6 +5,7 @@ import { AlertTriangle, Layers, Terminal } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { runWithConcurrency } from "@/lib/cardinality/concurrency"
+import { fetchLabelValuesForMetricScoped } from "@/lib/prometheus/client"
 import {
   buildJobDrilldownClient,
   buildMetricDrilldownClient,
@@ -134,6 +135,12 @@ export function CardinalityDashboard() {
   const [metricPreviewErrors, setMetricPreviewErrors] = React.useState<
     Record<string, string>
   >(storedSession?.metricPreviewErrors ?? {})
+  const [labelValuesCache, setLabelValuesCache] = React.useState<
+    Record<string, string[]>
+  >({})
+  const [labelValuesLoading, setLabelValuesLoading] = React.useState<
+    Record<string, boolean>
+  >({})
 
   // ── UI overlay state ────────────────────────────────────────────────────
   const [activityLog, setActivityLog] = React.useState<string[]>(
@@ -448,6 +455,31 @@ export function CardinalityDashboard() {
     await toggleMetricPreview(metric)
   }
 
+  async function fetchLabelValuesForMetric(metric: string, label: string) {
+    if (!connection) {
+      return
+    }
+
+    const cacheKey = `${metric}::${label}`
+    if (cacheKey in labelValuesCache || labelValuesLoading[cacheKey]) {
+      return
+    }
+
+    setLabelValuesLoading((prev) => ({ ...prev, [cacheKey]: true }))
+    try {
+      const values = await fetchLabelValuesForMetricScoped(connection, metric, label)
+      setLabelValuesCache((prev) => ({ ...prev, [cacheKey]: values }))
+    } catch {
+      setLabelValuesCache((prev) => ({ ...prev, [cacheKey]: [] }))
+    } finally {
+      setLabelValuesLoading((prev) => {
+        const next = { ...prev }
+        delete next[cacheKey]
+        return next
+      })
+    }
+  }
+
   async function generateJobPromptForJob(job: string) {
     if (!connection || !snapshot) {
       return
@@ -579,6 +611,8 @@ export function CardinalityDashboard() {
     setMetricPreviewCache({})
     setMetricPreviewLoading({})
     setMetricPreviewErrors({})
+    setLabelValuesCache({})
+    setLabelValuesLoading({})
     setDropRuleMode("combined")
     setViewMode("table")
     setTopMetricsPerJobInFlow(10)
@@ -724,18 +758,23 @@ export function CardinalityDashboard() {
                 metricPreviewCache={metricPreviewCache}
                 metricPreviewLoading={metricPreviewLoading}
                 metricPreviewErrors={metricPreviewErrors}
+                labelValuesCache={labelValuesCache}
+                labelValuesLoading={labelValuesLoading}
                 dropMetrics={dropMetrics}
                 selectedLabelsByMetric={selectedLabelsByMetric}
                 onOpenJob={(job) => {
                   void loadJobDrilldown(job)
                 }}
-                onOpenMetric={(metric) => {
-                  void loadMetricDrilldown(metric, false)
+                onOpenJobPrompt={(job) => {
+                  void generateJobPromptForJob(job)
                 }}
                 onToggleMetricDrop={toggleDropMetric}
                 onToggleLabelDrop={toggleDropLabel}
                 onToggleMetricLabels={(metric) => {
                   void toggleMetricLabelsInFlow(metric)
+                }}
+                onFetchLabelValues={(metric, label) => {
+                  void fetchLabelValuesForMetric(metric, label)
                 }}
               />
             ) : null}
@@ -753,9 +792,14 @@ export function CardinalityDashboard() {
                     isLoadingMetric={isLoadingMetric}
                     dropMetrics={dropMetrics}
                     selectedLabels={selectedMetric ? selectedLabelsByMetric[selectedMetric] ?? [] : []}
+                    labelValuesCache={labelValuesCache}
+                    labelValuesLoading={labelValuesLoading}
                     jobDrilldownCollapsed={false}
                     onToggleDrop={toggleDropMetric}
                     onToggleLabel={toggleDropLabel}
+                    onFetchLabelValues={(metric, label) => {
+                      void fetchLabelValuesForMetric(metric, label)
+                    }}
                     onBackToJobs={restoreJobsPane}
                     onClearContext={clearJobContext}
                     onClose={restoreJobsPane}
@@ -810,9 +854,14 @@ export function CardinalityDashboard() {
                     isLoadingMetric={isLoadingMetric}
                     dropMetrics={dropMetrics}
                     selectedLabels={selectedMetric ? selectedLabelsByMetric[selectedMetric] ?? [] : []}
+                    labelValuesCache={labelValuesCache}
+                    labelValuesLoading={labelValuesLoading}
                     jobDrilldownCollapsed={false}
                     onToggleDrop={toggleDropMetric}
                     onToggleLabel={toggleDropLabel}
+                    onFetchLabelValues={(metric, label) => {
+                      void fetchLabelValuesForMetric(metric, label)
+                    }}
                     onClose={() => {
                       setActivePanel(null)
                     }}
