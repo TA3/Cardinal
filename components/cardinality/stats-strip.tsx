@@ -14,10 +14,18 @@ import { Progress } from "@/components/ui/progress"
 interface StatsStripProps {
   snapshot: SnapshotResponse
   dropMetrics: string[]
+  selectedLabelCount: number
   savings: Savings
 }
 
-export function StatsStrip({ snapshot, dropMetrics, savings }: StatsStripProps) {
+export function StatsStrip({
+  snapshot,
+  dropMetrics,
+  selectedLabelCount,
+  savings,
+}: StatsStripProps) {
+  const hasRuleSelection = dropMetrics.length > 0 || selectedLabelCount > 0
+
   return (
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       <Card>
@@ -46,7 +54,7 @@ export function StatsStrip({ snapshot, dropMetrics, savings }: StatsStripProps) 
       </Card>
       <Card
         className={cn(
-          dropMetrics.length > 0 && "border-primary/40 bg-primary/5"
+          hasRuleSelection && "border-primary/40 bg-primary/5"
         )}
       >
         <CardHeader className="py-4">
@@ -54,13 +62,13 @@ export function StatsStrip({ snapshot, dropMetrics, savings }: StatsStripProps) 
           <CardTitle className="flex items-baseline gap-2 text-2xl">
             {savings.isEstimate ? "~" : ""}
             {formatNumber(savings.savedSeries)}
-            {dropMetrics.length > 0 ? (
+            {hasRuleSelection ? (
               <span className="text-base font-normal text-muted-foreground">
                 ({savings.percent.toFixed(1)}%)
               </span>
             ) : null}
           </CardTitle>
-          {dropMetrics.length > 0 ? (
+          {hasRuleSelection ? (
             <Progress value={savings.percent} className="mt-1.5 h-1.5" />
           ) : null}
         </CardHeader>

@@ -1,5 +1,5 @@
 import type { ChartConfig } from "@/components/ui/chart"
-import type { SnapshotResponse } from "@/lib/prometheus/types"
+import type { MetricDrilldown, SnapshotResponse } from "@/lib/prometheus/types"
 
 // ---------------------------------------------------------------------------
 // Chart config
@@ -32,13 +32,6 @@ export function toChartRows(snapshot: SnapshotResponse | null) {
   }))
 }
 
-/** Returns a text-colour class based on the metric's share of total series. */
-export function seriesColor(pct: number) {
-  if (pct >= 5) return "text-red-500"
-  if (pct >= 1) return "text-amber-500"
-  return ""
-}
-
 // ---------------------------------------------------------------------------
 // Savings helper
 // ---------------------------------------------------------------------------
@@ -55,9 +48,15 @@ export interface Savings {
  */
 export function computeExpectedSavings(
   dropMetrics: string[],
-  snapshot: SnapshotResponse | null
+  snapshot: SnapshotResponse | null,
+  selectedLabelsByMetric: Record<string, string[]>,
+  metricDrilldownCache: Record<string, MetricDrilldown>
 ): Savings {
-  if (!snapshot || dropMetrics.length === 0) {
+  const hasLabelSelections = Object.values(selectedLabelsByMetric).some(
+    (labels) => labels.length > 0
+  )
+
+  if (!snapshot || (dropMetrics.length === 0 && !hasLabelSelections)) {
     return { savedSeries: 0, percent: 0, isEstimate: false }
   }
   const seriesMap = new Map<string, number>()
@@ -73,6 +72,42 @@ export function computeExpectedSavings(
       isEstimate = true
     }
   }
+
+  for (const [metric, labels] of Object.entries(selectedLabelsByMetric)) {
+    if (labels.length === 0 || dropMetrics.includes(metric)) {
+      continue
+    }
+
+    const metricSeriesCount = seriesMap.get(metric)
+    const drilldown = metricDrilldownCache[metric]
+    if (metricSeriesCount === undefined || !drilldown) {
+      isEstimate = true
+      continue
+    }
+
+    // Conservative heuristic: use the single strongest selected label as the
+    // estimated reduction factor rather than summing overlapping labels.
+    let strongestEstimatedReduction = 0
+
+    for (const label of labels) {
+      const labelInfo = drilldown.labels.find((item) => item.label === label)
+      if (!labelInfo || labelInfo.cardinality <= 1) {
+        isEstimate = true
+        continue
+      }
+
+      const estimatedReduction =
+        metricSeriesCount * (1 - 1 / labelInfo.cardinality)
+      strongestEstimatedReduction = Math.max(
+        strongestEstimatedReduction,
+        estimatedReduction
+      )
+      isEstimate = true
+    }
+
+    savedSeries += Math.min(metricSeriesCount, strongestEstimatedReduction)
+  }
+
   const percent =
     snapshot.totalSeries > 0
       ? Math.min(100, (savedSeries / snapshot.totalSeries) * 100)

@@ -5,7 +5,6 @@ import { Check, Loader2, Sparkles, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
   formatNumber,
-  seriesColor,
 } from "@/lib/cardinality/dashboard-helpers"
 import { fetchLabelValues } from "@/lib/prometheus/client"
 import type { MetricDrilldown, PrometheusConnectionInput } from "@/lib/prometheus/types"
@@ -28,15 +27,23 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { LabelSplitPieChart } from "@/components/cardinality/label-split-pie-chart"
 
 interface MetricDrilldownPanelProps {
   selectedMetric: string | null
   metricDrilldown: MetricDrilldown | null
   isLoadingMetric: boolean
   dropMetrics: string[]
+  selectedLabels: string[]
+  labelValuesCache: Record<string, string[]>
+  labelValuesLoading: Record<string, boolean>
   jobDrilldownCollapsed: boolean
   connection: PrometheusConnectionInput | null
   onToggleDrop: (metric: string) => void
+  onToggleLabel: (metric: string, label: string) => void
+  onFetchLabelValues: (metric: string, label: string) => void
+  onBackToJobs?: () => void
+  onClearContext?: () => void
   onClose: () => void
 }
 
@@ -45,9 +52,16 @@ export function MetricDrilldownPanel({
   metricDrilldown,
   isLoadingMetric,
   dropMetrics,
+  selectedLabels,
+  labelValuesCache,
+  labelValuesLoading,
   jobDrilldownCollapsed,
   connection,
   onToggleDrop,
+  onToggleLabel,
+  onFetchLabelValues,
+  onBackToJobs,
+  onClearContext,
   onClose,
 }: MetricDrilldownPanelProps) {
   const isDropped = metricDrilldown
@@ -116,10 +130,17 @@ export function MetricDrilldownPanel({
                 {formatNumber(metricDrilldown.seriesCount)} active series ·{" "}
                 {metricDrilldown.labels.length} label
                 {metricDrilldown.labels.length !== 1 ? "s" : ""}
+                {selectedLabels.length > 0 ? ` · ${selectedLabels.length} dropped` : ""}
               </CardDescription>
             ) : null}
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            {onBackToJobs ? (
+              <Button size="sm" variant="outline" onClick={onBackToJobs}>
+                <ArrowLeft className="size-3" />
+                Back to jobs
+              </Button>
+            ) : null}
             {metricDrilldown ? (
               <Button
                 size="sm"
@@ -132,6 +153,12 @@ export function MetricDrilldownPanel({
                   <X className="size-3" />
                 )}
                 {isDropped ? "Added" : "Drop"}
+              </Button>
+            ) : null}
+            {onClearContext ? (
+              <Button size="sm" variant="ghost" onClick={onClearContext}>
+                <Trash2 className="size-3" />
+                Clear
               </Button>
             ) : null}
             <Button

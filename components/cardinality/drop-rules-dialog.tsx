@@ -1,13 +1,16 @@
 "use client"
 
 import { Check, Copy, Layers, Trash2, X } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { getScaleTextStyle } from "@/lib/cardinality/color-scale"
 import {
   formatNumber,
-  seriesColor,
   type Savings,
 } from "@/lib/cardinality/dashboard-helpers"
-import type { SnapshotResponse } from "@/lib/prometheus/types"
+import type {
+  DropRuleMetricInput,
+  DropRuleMode,
+  SnapshotResponse,
+} from "@/lib/prometheus/types"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -25,12 +28,15 @@ import { Textarea } from "@/components/ui/textarea"
 interface DropRulesDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  dropMetrics: string[]
+  exportMetrics: DropRuleMetricInput[]
   snapshot: SnapshotResponse | null
   savings: Savings
+  selectedLabelCount: number
+  dropRuleMode: DropRuleMode
   generatedConfigs: { prometheusYaml: string; alloyHcl: string }
   copiedYaml: boolean
   copiedHcl: boolean
+  onModeChange: (mode: DropRuleMode) => void
   onRemoveMetric: (metric: string) => void
   onClearAll: () => void
   onCopyYaml: () => void
@@ -40,12 +46,15 @@ interface DropRulesDialogProps {
 export function DropRulesDialog({
   open,
   onOpenChange,
-  dropMetrics,
+  exportMetrics,
   snapshot,
   savings,
+  selectedLabelCount,
+  dropRuleMode,
   generatedConfigs,
   copiedYaml,
   copiedHcl,
+  onModeChange,
   onRemoveMetric,
   onClearAll,
   onCopyYaml,
@@ -61,9 +70,18 @@ export function DropRulesDialog({
           </DialogTitle>
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
             <span>
-              {dropMetrics.length} metric
-              {dropMetrics.length !== 1 ? "s" : ""} selected
+              {exportMetrics.filter((item) => item.dropMetric).length} metric
+              {exportMetrics.filter((item) => item.dropMetric).length !== 1 ? "s" : ""} selected
             </span>
+            {selectedLabelCount > 0 ? (
+              <>
+                <span>·</span>
+                <span>
+                  {selectedLabelCount} label key
+                  {selectedLabelCount !== 1 ? "s" : ""} selected
+                </span>
+              </>
+            ) : null}
             <span>·</span>
             <span>
               {savings.isEstimate ? "~" : ""}
@@ -81,38 +99,100 @@ export function DropRulesDialog({
         {/* Selected metrics list */}
         <ScrollArea className="max-h-64 flex-1 overflow-y-auto px-6 py-3">
           <div className="flex flex-col gap-0.5">
-            {dropMetrics.map((metric) => {
-              const info = snapshot?.metrics.find((m) => m.metric === metric)
+            {exportMetrics.map((item) => {
+              const info = snapshot?.metrics.find((m) => m.metric === item.metric)
               return (
                 <div
-                  key={metric}
-                  className="flex items-center justify-between gap-3 rounded-lg px-1 py-1.5"
+                  key={item.metric}
+                  className="flex flex-col gap-2 rounded-lg px-1 py-1.5"
                 >
-                  <span className="font-mono text-sm">{metric}</span>
-                  <div className="flex items-center gap-3">
-                    {info ? (
-                      <span
-                        className={cn(
-                          "text-xs",
-                          seriesColor(info.percentageOfTotal)
-                        )}
-                      >
-                        {formatNumber(info.seriesCount)} series
-                      </span>
-                    ) : null}
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono text-sm">{item.metric}</span>
+                        {item.dropMetric ? <span className="text-xs text-muted-foreground">metric drop</span> : null}
+                        {(item.droppedLabels?.length ?? 0) > 0 ? (
+                          <span className="text-xs text-muted-foreground">
+                            {item.droppedLabels?.length} label key{item.droppedLabels?.length !== 1 ? "s" : ""}
+                          </span>
+                        ) : null}
+                      </div>
+                      {info ? (
+                        <span
+                          className="text-xs"
+                          style={getScaleTextStyle(info.percentageOfTotal, "risk")}
+                        >
+                          {formatNumber(info.seriesCount)} series
+                        </span>
+                      ) : null}
+                    </div>
                     <Button
                       variant="ghost"
                       size="icon-sm"
-                      onClick={() => onRemoveMetric(metric)}
+                      onClick={() => onRemoveMetric(item.metric)}
                     >
                       <X className="size-3.5" />
                     </Button>
                   </div>
+                  {(item.droppedLabels?.length ?? 0) > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {item.droppedLabels?.map((label) => (
+                        <span
+                          key={`${item.metric}-${label}`}
+                          className="rounded-full border px-2 py-1 font-mono text-[11px] text-muted-foreground"
+                        >
+                          {label}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               )
             })}
           </div>
         </ScrollArea>
+        <Separator />
+
+        <div className="px-6 py-4">
+          <div className="flex flex-col gap-3 rounded-xl border bg-muted/20 p-3">
+            <div>
+              <p className="text-sm font-medium">Export layout</p>
+              <p className="text-xs text-muted-foreground">
+                Choose whether to emit one rule for all metrics or separate
+                rules grouped by each metric top job.
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Selected label keys are exported as metric-scoped value blanking rules rather than pure labeldrop.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant={dropRuleMode === "combined" ? "default" : "outline"}
+                onClick={() => onModeChange("combined")}
+              >
+                Single combined rule
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={
+                  dropRuleMode === "split-by-job" ? "default" : "outline"
+                }
+                onClick={() => onModeChange("split-by-job")}
+              >
+                Split by job
+              </Button>
+            </div>
+            {dropRuleMode === "split-by-job" ? (
+              <p className="text-xs text-muted-foreground">
+                Metrics without a detected top job fall back to a name-only drop
+                rule.
+              </p>
+            ) : null}
+          </div>
+        </div>
         <Separator />
 
         {/* Config export tabs */}
