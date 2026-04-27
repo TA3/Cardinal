@@ -1,11 +1,11 @@
 "use client"
 
-import { ChevronRight, Database, X } from "lucide-react"
+import { ChevronRight, Database, WandSparkles, X } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { getScaleTextStyle } from "@/lib/cardinality/color-scale"
 import {
   formatNumber,
   formatPercent,
-  seriesColor,
 } from "@/lib/cardinality/dashboard-helpers"
 import type { SnapshotResponse } from "@/lib/prometheus/types"
 import { Button } from "@/components/ui/button"
@@ -31,6 +31,7 @@ interface JobsTableProps {
   activePanel: "job" | "metric" | null
   filterByJob: string | null
   onJobClick: (job: string) => void
+  onGeneratePrompt: (job: string) => void
   onClearFilter: () => void
 }
 
@@ -40,6 +41,7 @@ export function JobsTable({
   activePanel,
   filterByJob,
   onJobClick,
+  onGeneratePrompt,
   onClearFilter,
 }: JobsTableProps) {
   return (
@@ -77,6 +79,7 @@ export function JobsTable({
               <TableHead className="text-right">Series</TableHead>
               <TableHead className="text-right">Share</TableHead>
               <TableHead className="text-right">Metrics</TableHead>
+              <TableHead className="text-right">Prompt</TableHead>
               <TableHead className="w-8" />
             </TableRow>
           </TableHeader>
@@ -94,17 +97,32 @@ export function JobsTable({
               >
                 <TableCell className="font-medium">{job.job}</TableCell>
                 <TableCell
-                  className={cn("text-right", seriesColor(job.percentageOfTotal))}
+                  className="text-right"
+                  style={getScaleTextStyle(job.percentageOfTotal, "risk")}
                 >
                   {formatNumber(job.seriesCount)}
                 </TableCell>
                 <TableCell
-                  className={cn("text-right", seriesColor(job.percentageOfTotal))}
+                  className="text-right"
+                  style={getScaleTextStyle(job.percentageOfTotal, "risk")}
                 >
                   {formatPercent(job.percentageOfTotal)}
                 </TableCell>
                 <TableCell className="text-right text-muted-foreground">
                   {job.metricCount}
+                </TableCell>
+                <TableCell className="text-right">
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="outline"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      onGeneratePrompt(job.job)
+                    }}
+                  >
+                    <WandSparkles data-icon="inline-start" />
+                  </Button>
                 </TableCell>
                 <TableCell className="w-8 text-muted-foreground">
                   <ChevronRight className="size-4" />

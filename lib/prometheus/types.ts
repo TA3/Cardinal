@@ -106,6 +106,15 @@ export interface MetricDrilldownRequest {
   metric: string
 }
 
+export type DropRuleMode = "combined" | "split-by-job"
+
+export interface DropRuleMetricInput {
+  metric: string
+  topJob?: string
+  dropMetric?: boolean
+  droppedLabels?: string[]
+}
+
 export interface GeneratedDropConfig {
   prometheusYaml: string
   alloyHcl: string
