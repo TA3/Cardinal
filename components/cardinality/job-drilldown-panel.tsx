@@ -30,12 +30,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { cn } from "@/lib/utils"
 
 interface JobDrilldownPanelProps {
   selectedJob: string | null
   jobDrilldown: JobDrilldownResponse | null
   isLoadingJob: boolean
   dropMetrics: string[]
+  selectedMetric: string | null
   selectedLabelsByMetric: Record<string, string[]>
   expandedMetrics: string[]
   metricPreviewCache: Record<string, MetricDrilldown>
@@ -52,6 +54,7 @@ export function JobDrilldownPanel({
   jobDrilldown,
   isLoadingJob,
   dropMetrics,
+  selectedMetric,
   selectedLabelsByMetric,
   expandedMetrics,
   metricPreviewCache,
@@ -117,7 +120,10 @@ export function JobDrilldownPanel({
                 return (
                   <React.Fragment key={`${m.job}-${m.metric}`}>
                     <TableRow
-                      className="cursor-pointer hover:bg-muted/40"
+                      className={cn(
+                        "cursor-pointer",
+                        selectedMetric === m.metric ? "bg-muted/60" : "hover:bg-muted/40"
+                      )}
                       onClick={() => onMetricClick(m.metric)}
                     >
                       <TableCell className="max-w-0 w-full">

@@ -631,22 +631,22 @@ export function CardinalityDashboard() {
     <main className="relative min-h-svh bg-background">
       {/* Ambient gradient */}
       <div className="pointer-events-none absolute bottom-0 left-0 right-0 top-0 bg-[linear-gradient(to_right,#4f4f4f2e_1px,transparent_1px),linear-gradient(to_bottom,#8080800a_1px,transparent_1px)] bg-[size:14px_24px] opacity-10" />
-      <div className="pointer-events-none absolute left-0 right-0 top-[-10%] h-[1000px] w-[1000px] rounded-full bg-[radial-gradient(circle_400px_at_50%_300px,#fbfbfb36,#000)] opacity-10" />
+      <div className="pointer-events-none absolute left-0 right-0 top-[-10%] h-[1000px] w-[1000px] rounded-full bg-[radial-gradient(circle_400px_at_50%_300px,#fbfbfb36,#000)] opacity-[.01]" />
 
       <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-6 px-4 py-8 md:px-8">
 
         {/* ── Header ──────────────────────────────────────────────────── */}
         <header className="flex items-start justify-between gap-4">
           <div className="flex flex-col gap-1">
-            <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-              Cardinality Snapshot
-            </p>
             <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
-              Prometheus metric cost navigator
+              Cardinal
             </h1>
-            <p className="max-w-3xl text-sm text-muted-foreground">
+            <p className="max-w-xl text-sm text-muted-foreground">
               Analyze active series in one snapshot, spot high-cardinality
-              metrics, and export production-ready drop rules.
+              metrics and labels, and export production-ready drop rules.
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Everything stays local in your browser. No data is sent to any server.
             </p>
             {snapshot ? (
               <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -807,6 +807,7 @@ export function CardinalityDashboard() {
                 ) : (
                   <JobsTable
                     snapshot={snapshot}
+                    dropMetrics={dropMetrics}
                     selectedJob={selectedJob}
                     activePanel={activePanel}
                     filterByJob={filterByJob}
@@ -831,6 +832,7 @@ export function CardinalityDashboard() {
                     jobDrilldown={jobDrilldown}
                     isLoadingJob={isLoadingJob}
                     dropMetrics={dropMetrics}
+                    selectedMetric={selectedMetric}
                     selectedLabelsByMetric={selectedLabelsByMetric}
                     expandedMetrics={expandedMetricPreviews}
                     metricPreviewCache={metricPreviewCache}
