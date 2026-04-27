@@ -18,8 +18,9 @@ export function generateDropConfigs(metrics: string[]): GeneratedDropConfig {
   const alloyHcl = [
     'prometheus.relabel "drop_metrics" {',
     "  rule {",
-    '    action = "drop"',
-    `    regex  = "${regex}"`,
+    '    source_labels = ["__name__"]',
+    '    action        = "drop"',
+    `    regex         = "${regex}"`,
     "  }",
     "}",
   ].join("\n")

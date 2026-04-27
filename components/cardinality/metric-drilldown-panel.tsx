@@ -1,12 +1,14 @@
 "use client"
 
-import { Check, X } from "lucide-react"
+import * as React from "react"
+import { Check, Loader2, Sparkles, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
   formatNumber,
   seriesColor,
 } from "@/lib/cardinality/dashboard-helpers"
-import type { MetricDrilldown } from "@/lib/prometheus/types"
+import { fetchLabelValues } from "@/lib/prometheus/client"
+import type { MetricDrilldown, PrometheusConnectionInput } from "@/lib/prometheus/types"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -33,6 +35,7 @@ interface MetricDrilldownPanelProps {
   isLoadingMetric: boolean
   dropMetrics: string[]
   jobDrilldownCollapsed: boolean
+  connection: PrometheusConnectionInput | null
   onToggleDrop: (metric: string) => void
   onClose: () => void
 }
@@ -43,12 +46,61 @@ export function MetricDrilldownPanel({
   isLoadingMetric,
   dropMetrics,
   jobDrilldownCollapsed,
+  connection,
   onToggleDrop,
   onClose,
 }: MetricDrilldownPanelProps) {
   const isDropped = metricDrilldown
     ? dropMetrics.includes(metricDrilldown.metric)
     : false
+
+  // Label-value sampling state — keyed by metric so it auto-resets on change
+  const [labelState, setLabelState] = React.useState<{
+    metric: string | null
+    values: Record<string, string[]>
+    loading: Record<string, boolean>
+  }>({ metric: null, values: {}, loading: {} })
+
+  const currentMetric = metricDrilldown?.metric ?? null
+  const labelValues =
+    labelState.metric === currentMetric ? labelState.values : {}
+  const loadingLabels =
+    labelState.metric === currentMetric ? labelState.loading : {}
+
+  async function handleFetchLabelValues(labelName: string) {
+    if (!connection) return
+    setLabelState((prev) => ({
+      metric: currentMetric,
+      values: prev.metric === currentMetric ? prev.values : {},
+      loading: {
+        ...(prev.metric === currentMetric ? prev.loading : {}),
+        [labelName]: true,
+      },
+    }))
+    try {
+      const values = await fetchLabelValues(connection, labelName)
+      setLabelState((prev) => ({
+        metric: currentMetric,
+        values: {
+          ...(prev.metric === currentMetric ? prev.values : {}),
+          [labelName]: values,
+        },
+        loading: {
+          ...(prev.metric === currentMetric ? prev.loading : {}),
+          [labelName]: false,
+        },
+      }))
+    } catch {
+      setLabelState((prev) => ({
+        metric: currentMetric,
+        values: prev.metric === currentMetric ? prev.values : {},
+        loading: {
+          ...(prev.metric === currentMetric ? prev.loading : {}),
+          [labelName]: false,
+        },
+      }))
+    }
+  }
 
   return (
     <Card>
@@ -113,6 +165,7 @@ export function MetricDrilldownPanel({
                 <TableRow>
                   <TableHead>Label key</TableHead>
                   <TableHead className="text-right">Cardinality</TableHead>
+                  <TableHead className="w-8" />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -123,6 +176,8 @@ export function MetricDrilldownPanel({
                   )
                   const absPct =
                     (label.cardinality / metricDrilldown.seriesCount) * 100
+                  const examples = labelValues[label.label]
+                  const isLoadingThis = !!loadingLabels[label.label]
                   return (
                     <TableRow key={label.label}>
                       <TableCell>
@@ -132,6 +187,24 @@ export function MetricDrilldownPanel({
                             <Badge variant="secondary">High</Badge>
                           ) : null}
                         </div>
+                        {examples ? (
+                          <div className="mt-1.5 flex flex-wrap gap-1">
+                            {examples.slice(0, 6).map((v) => (
+                              <Badge
+                                key={v}
+                                variant="outline"
+                                className="max-w-[120px] truncate font-mono text-xs"
+                              >
+                                {v}
+                              </Badge>
+                            ))}
+                            {examples.length > 6 ? (
+                              <Badge variant="outline" className="text-xs text-muted-foreground">
+                                +{examples.length - 6} more
+                              </Badge>
+                            ) : null}
+                          </div>
+                        ) : null}
                       </TableCell>
                       <TableCell className="text-right">
                         <span className={cn(seriesColor(absPct))}>
@@ -141,6 +214,26 @@ export function MetricDrilldownPanel({
                           value={relPct}
                           className="mt-1 ml-auto h-1 max-w-[80px]"
                         />
+                      </TableCell>
+                      <TableCell className="w-8">
+                        {connection ? (
+                          <Button
+                            size="icon-sm"
+                            variant="ghost"
+                            title="Fetch example values"
+                            disabled={isLoadingThis}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              void handleFetchLabelValues(label.label)
+                            }}
+                          >
+                            {isLoadingThis ? (
+                              <Loader2 className="size-3 animate-spin" />
+                            ) : (
+                              <Sparkles className="size-3" />
+                            )}
+                          </Button>
+                        ) : null}
                       </TableCell>
                     </TableRow>
                   )
