@@ -414,7 +414,12 @@ export function CardinalityDashboard() {
                 ) : null}
 
                 {activePanel === null ? (
-                  <RightPaneEmpty chartRows={chartRows} />
+                  <RightPaneEmpty
+                    chartRows={chartRows}
+                    snapshot={snapshot}
+                    onMetricClick={(metric) => { void loadMetricDrilldown(metric) }}
+                    onJobClick={(job) => { void loadJobDrilldown(job) }}
+                  />
                 ) : null}
 
                 {activePanel === "job" ? (
@@ -441,6 +446,7 @@ export function CardinalityDashboard() {
                     isLoadingMetric={isLoadingMetric}
                     dropMetrics={dropMetrics}
                     jobDrilldownCollapsed={jobDrilldownCollapsed}
+                    connection={connection}
                     onToggleDrop={toggleDropMetric}
                     onClose={() => {
                       if (jobDrilldownCollapsed) {
