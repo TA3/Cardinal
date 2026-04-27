@@ -1,0 +1,155 @@
+"use client"
+
+import { Check, X } from "lucide-react"
+import { cn } from "@/lib/utils"
+import {
+  formatNumber,
+  seriesColor,
+} from "@/lib/cardinality/dashboard-helpers"
+import type { MetricDrilldown } from "@/lib/prometheus/types"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+import { Progress } from "@/components/ui/progress"
+import { Skeleton } from "@/components/ui/skeleton"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+
+interface MetricDrilldownPanelProps {
+  selectedMetric: string | null
+  metricDrilldown: MetricDrilldown | null
+  isLoadingMetric: boolean
+  dropMetrics: string[]
+  jobDrilldownCollapsed: boolean
+  onToggleDrop: (metric: string) => void
+  onClose: () => void
+}
+
+export function MetricDrilldownPanel({
+  selectedMetric,
+  metricDrilldown,
+  isLoadingMetric,
+  dropMetrics,
+  jobDrilldownCollapsed,
+  onToggleDrop,
+  onClose,
+}: MetricDrilldownPanelProps) {
+  const isDropped = metricDrilldown
+    ? dropMetrics.includes(metricDrilldown.metric)
+    : false
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">
+              Metric drilldown
+            </p>
+            <CardTitle className="break-all">{selectedMetric}</CardTitle>
+            {metricDrilldown ? (
+              <CardDescription>
+                {formatNumber(metricDrilldown.seriesCount)} active series ·{" "}
+                {metricDrilldown.labels.length} label
+                {metricDrilldown.labels.length !== 1 ? "s" : ""}
+              </CardDescription>
+            ) : null}
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {metricDrilldown ? (
+              <Button
+                size="sm"
+                variant={isDropped ? "secondary" : "outline"}
+                onClick={() => onToggleDrop(metricDrilldown.metric)}
+              >
+                {isDropped ? (
+                  <Check className="size-3" />
+                ) : (
+                  <X className="size-3" />
+                )}
+                {isDropped ? "Added" : "Drop"}
+              </Button>
+            ) : null}
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={onClose}
+              title={
+                jobDrilldownCollapsed
+                  ? "Back to job drilldown"
+                  : "Close panel"
+              }
+            >
+              <X className="size-4" />
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {isLoadingMetric ? (
+          <div className="flex flex-col gap-2">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} className="h-8 w-full" />
+            ))}
+          </div>
+        ) : null}
+        {metricDrilldown ? (() => {
+          const maxCard = metricDrilldown.labels[0]?.cardinality ?? 1
+          return (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Label key</TableHead>
+                  <TableHead className="text-right">Cardinality</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {metricDrilldown.labels.map((label, index) => {
+                  const relPct = Math.min(
+                    100,
+                    (label.cardinality / maxCard) * 100
+                  )
+                  const absPct =
+                    (label.cardinality / metricDrilldown.seriesCount) * 100
+                  return (
+                    <TableRow key={label.label}>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-sm">{label.label}</span>
+                          {index < 3 ? (
+                            <Badge variant="secondary">High</Badge>
+                          ) : null}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <span className={cn(seriesColor(absPct))}>
+                          {formatNumber(label.cardinality)}
+                        </span>
+                        <Progress
+                          value={relPct}
+                          className="mt-1 ml-auto h-1 max-w-[80px]"
+                        />
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          )
+        })() : null}
+      </CardContent>
+    </Card>
+  )
+}
