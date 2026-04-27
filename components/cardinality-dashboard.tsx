@@ -795,6 +795,7 @@ export function CardinalityDashboard() {
                     labelValuesCache={labelValuesCache}
                     labelValuesLoading={labelValuesLoading}
                     jobDrilldownCollapsed={false}
+                    connection={connection}
                     onToggleDrop={toggleDropMetric}
                     onToggleLabel={toggleDropLabel}
                     onFetchLabelValues={(metric, label) => {
@@ -860,7 +861,10 @@ export function CardinalityDashboard() {
                     metricDrilldown={metricDrilldown}
                     isLoadingMetric={isLoadingMetric}
                     dropMetrics={dropMetrics}
-                    jobDrilldownCollapsed={jobDrilldownCollapsed}
+                    selectedLabels={selectedMetric ? selectedLabelsByMetric[selectedMetric] ?? [] : []}
+                    labelValuesCache={labelValuesCache}
+                    labelValuesLoading={labelValuesLoading}
+                    jobDrilldownCollapsed={false}
                     connection={connection}
                     onToggleDrop={toggleDropMetric}
                     onToggleLabel={toggleDropLabel}

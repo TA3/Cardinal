@@ -1,13 +1,5 @@
 "use client"
 
-import * as React from "react"
-import { Check, Loader2, Sparkles, X } from "lucide-react"
-import { cn } from "@/lib/utils"
-import {
-  formatNumber,
-} from "@/lib/cardinality/dashboard-helpers"
-import { fetchLabelValues } from "@/lib/prometheus/client"
-import type { MetricDrilldown, PrometheusConnectionInput } from "@/lib/prometheus/types"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -27,7 +19,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { LabelSplitPieChart } from "@/components/cardinality/label-split-pie-chart"
+import { getScaleTextStyle } from "@/lib/cardinality/color-scale"
+import {
+  formatNumber,
+} from "@/lib/cardinality/dashboard-helpers"
+import { fetchLabelValues } from "@/lib/prometheus/client"
+import type { MetricDrilldown, PrometheusConnectionInput } from "@/lib/prometheus/types"
+import { ArrowLeft, Check, Loader2, Sparkles, Trash2, X } from "lucide-react"
+import * as React from "react"
 
 interface MetricDrilldownPanelProps {
   selectedMetric: string | null
@@ -220,7 +219,7 @@ export function MetricDrilldownPanel({
                               <Badge
                                 key={v}
                                 variant="outline"
-                                className="max-w-[120px] truncate font-mono text-xs"
+                                className="font-mono text-xs"
                               >
                                 {v}
                               </Badge>
@@ -234,7 +233,7 @@ export function MetricDrilldownPanel({
                         ) : null}
                       </TableCell>
                       <TableCell className="text-right">
-                        <span className={cn(seriesColor(absPct))}>
+                        <span style={getScaleTextStyle(absPct, "risk")}>
                           {formatNumber(label.cardinality)}
                         </span>
                         <Progress

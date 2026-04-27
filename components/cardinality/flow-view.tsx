@@ -2,8 +2,8 @@
 
 import * as React from "react"
 import { ChevronDown, ChevronRight, Database, BarChart3 } from "lucide-react"
-import { cn } from "@/lib/utils"
-import { formatNumber, seriesColor } from "@/lib/cardinality/dashboard-helpers"
+import { getScaleTextStyle } from "@/lib/cardinality/color-scale"
+import { formatNumber } from "@/lib/cardinality/dashboard-helpers"
 import type { SnapshotResponse } from "@/lib/prometheus/types"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -97,10 +97,8 @@ export function FlowView({ snapshot, onMetricClick, onJobClick }: FlowViewProps)
                       {job.job}
                     </span>
                     <span
-                      className={cn(
-                        "shrink-0 text-xs",
-                        seriesColor(job.percentageOfTotal)
-                      )}
+                      className="shrink-0 text-xs"
+                      style={getScaleTextStyle(job.percentageOfTotal, "risk")}
                     >
                       {formatNumber(job.seriesCount)}
                     </span>
@@ -129,10 +127,8 @@ export function FlowView({ snapshot, onMetricClick, onJobClick }: FlowViewProps)
                             <Badge className="shrink-0 text-xs">Top</Badge>
                           ) : null}
                           <span
-                            className={cn(
-                              "shrink-0 text-xs",
-                              seriesColor(metric.percentageOfTotal)
-                            )}
+                            className="shrink-0 text-xs"
+                            style={getScaleTextStyle(metric.percentageOfTotal, "risk")}
                           >
                             {formatNumber(metric.seriesCount)}
                           </span>
