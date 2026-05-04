@@ -5,6 +5,7 @@ import {
   JobDrilldownResponse,
   MetricDrilldown,
   MetricDrilldownRequest,
+  PrometheusConnectionInput,
   SnapshotRequest,
   SnapshotResponse,
 } from "@/lib/prometheus/types"
@@ -50,4 +51,19 @@ export function fetchMetricDrilldown(payload: MetricDrilldownRequest) {
     "/api/cardinality/metric",
     payload
   )
+}
+
+export function fetchLabelValuesProxy(
+  connection: PrometheusConnectionInput,
+  metric: string,
+  label: string
+) {
+  return postJson<
+    { connection: PrometheusConnectionInput; metric: string; label: string },
+    string[]
+  >("/api/cardinality/label-values", {
+    connection,
+    metric,
+    label,
+  })
 }

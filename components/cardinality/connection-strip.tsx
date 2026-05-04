@@ -3,6 +3,7 @@
 import { ChevronDown, Database, RefreshCw, Trash2 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 
 interface ConnectionStripProps {
   baseUrl: string
@@ -11,6 +12,7 @@ interface ConnectionStripProps {
   onExpand: () => void
   onRefresh: () => void
   onDisconnect: () => void
+  className?: string
 }
 
 export function ConnectionStrip({
@@ -20,12 +22,13 @@ export function ConnectionStrip({
   onExpand,
   onRefresh,
   onDisconnect,
+  className,
 }: ConnectionStripProps) {
   return (
-    <div className="flex items-center gap-3 rounded-2xl border bg-card px-4 py-3">
+    <div className={cn("flex items-center gap-3 rounded-2xl border bg-card shadow-sm px-4 py-3", className)}>
       <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
         <Database className="size-4 shrink-0 text-muted-foreground" />
-        <span className="truncate text-sm font-medium">{baseUrl}</span>
+        <span className="truncate font-mono font-medium">{baseUrl}</span>
         <Badge
           variant={authMode === "Anonymous" ? "secondary" : "outline"}
           className="shrink-0 text-xs"

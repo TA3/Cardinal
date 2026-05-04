@@ -2,6 +2,11 @@
 
 import { runWithConcurrency } from "@/lib/cardinality/concurrency"
 import {
+  fetchJobDrilldown,
+  fetchSnapshot,
+  fetchMetricDrilldown,
+} from "@/lib/cardinality/api"
+import {
   fetchJobAggregation,
   fetchLabels,
   fetchMetricNames,
@@ -19,6 +24,7 @@ import {
 
 interface ProgressOptions {
   onProgress?: (message: string) => void
+  proxyMode?: boolean
 }
 
 function toPercent(part: number, total: number) {
@@ -34,6 +40,17 @@ export async function buildSnapshotClient(
   concurrency = 10,
   options?: ProgressOptions
 ): Promise<SnapshotResponse> {
+  if (options?.proxyMode) {
+    options?.onProgress?.("Analyzing snapshot via server proxy…")
+    const result = await fetchSnapshot({
+      connection,
+      topN,
+      concurrency,
+    })
+    options?.onProgress?.("Snapshot analysis complete")
+    return result
+  }
+
   options?.onProgress?.("Connecting to Prometheus")
 
   const [metricNames, labels, jobAggregation] = await Promise.all([
@@ -137,6 +154,15 @@ export async function buildJobDrilldownClient(
   job: string,
   options?: ProgressOptions
 ): Promise<JobDrilldownResponse> {
+  if (options?.proxyMode) {
+    options?.onProgress?.(`Loading metrics for job: ${job} via server proxy…`)
+    const result = await fetchJobDrilldown({
+      connection,
+      job,
+    })
+    return result
+  }
+
   options?.onProgress?.(`Loading metrics for job: ${job}`)
 
   const jobAggregation = await fetchJobAggregation(connection)
@@ -164,6 +190,18 @@ export async function buildMetricDrilldownClient(
   metric: string,
   options?: ProgressOptions
 ): Promise<MetricDrilldown> {
+  if (options?.proxyMode) {
+    options?.onProgress?.(`Loading active series for metric: ${metric} via server proxy…`)
+    const result = await fetchMetricDrilldown({
+      connection,
+      metric,
+    })
+    options?.onProgress?.(
+      `Computed label cardinality for ${result.labels.length.toLocaleString()} labels`
+    )
+    return result
+  }
+
   options?.onProgress?.(`Loading active series for metric: ${metric}`)
   const result = await fetchMetricSeriesForDrilldown(connection, metric)
   options?.onProgress?.(

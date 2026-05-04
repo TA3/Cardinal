@@ -1,10 +1,11 @@
 "use client"
 
 import * as React from "react"
-import { AlertTriangle, Layers, Terminal } from "lucide-react"
+import { AlertTriangle, FileUp, Layers, TableIcon, Terminal, WorkflowIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { runWithConcurrency } from "@/lib/cardinality/concurrency"
+import { fetchLabelValuesProxy } from "@/lib/cardinality/api"
 import { fetchLabelValuesForMetricScoped } from "@/lib/prometheus/client"
 import {
   buildJobDrilldownClient,
@@ -44,10 +45,12 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 
+import { Separator } from "@/components/ui/separator"
 import { ActivitySheet } from "@/components/cardinality/activity-sheet"
 import { ConnectionForm } from "@/components/cardinality/connection-form"
 import { ConnectionStrip } from "@/components/cardinality/connection-strip"
 import { DropRulesDialog } from "@/components/cardinality/drop-rules-dialog"
+import { ImportRulesDialog } from "@/components/cardinality/import-rules-dialog"
 import { JobDrilldownPanel } from "@/components/cardinality/job-drilldown-panel"
 import { JobPromptDialog } from "@/components/cardinality/job-prompt-dialog"
 import { JobsTable } from "@/components/cardinality/jobs-table"
@@ -71,7 +74,10 @@ export function CardinalityDashboard() {
     storedSession?.token ?? storedConnection?.token ?? ""
   )
   const [rememberConnection, setRememberConnection] = React.useState(
-    storedSession?.rememberConnection ?? storedConnection?.remember ?? false
+    storedSession?.rememberConnection ?? storedConnection?.remember ?? true
+  )
+  const [proxyMode, setProxyMode] = React.useState(
+    storedSession?.proxyMode ?? storedConnection?.proxyMode ?? false
   )
   const [topN, setTopN] = React.useState(storedSession?.topN ?? 20)
   const [connectionExpanded, setConnectionExpanded] = React.useState(
@@ -147,6 +153,7 @@ export function CardinalityDashboard() {
     storedSession?.activityLog ?? []
   )
   const [activitySheetOpen, setActivitySheetOpen] = React.useState(false)
+  const [importRulesOpen, setImportRulesOpen] = React.useState(false)
   const [dropRulesOpen, setDropRulesOpen] = React.useState(false)
   const [jobPromptOpen, setJobPromptOpen] = React.useState(false)
   const [jobPromptJob, setJobPromptJob] = React.useState<string | null>(null)
@@ -219,7 +226,7 @@ export function CardinalityDashboard() {
   )
 
   const isCorsOrPreflightError =
-    typeof error === "string" && error.includes("CORS_OR_PREFLIGHT")
+    !proxyMode && typeof error === "string" && error.includes("CORS_OR_PREFLIGHT")
 
   const authMode = instanceId.trim() || token ? "Basic Auth" : "Anonymous"
 
@@ -251,6 +258,7 @@ export function CardinalityDashboard() {
       instanceId,
       token,
       rememberConnection,
+      proxyMode,
       topN,
       connectionExpanded,
       snapshot,
@@ -285,6 +293,7 @@ export function CardinalityDashboard() {
     metricDrilldown,
     metricPreviewCache,
     metricPreviewErrors,
+    proxyMode,
     rememberConnection,
     selectedJob,
     selectedLabelsByMetric,
@@ -310,12 +319,19 @@ export function CardinalityDashboard() {
     appendLog(`Starting snapshot analysis against ${connection.baseUrl}`)
     try {
       if (rememberConnection) {
-        saveStoredConnection({ baseUrl, instanceId, token, remember: true })
+        saveStoredConnection({
+          baseUrl,
+          instanceId,
+          token,
+          remember: true,
+          proxyMode,
+        })
       } else {
         clearStoredConnection()
       }
       const data = await buildSnapshotClient(connection, topN, 10, {
         onProgress: appendLog,
+        proxyMode,
       })
       setSnapshot(data)
       appendLog(
@@ -342,6 +358,7 @@ export function CardinalityDashboard() {
     try {
       const data = await buildJobDrilldownClient(connection, job, {
         onProgress: appendLog,
+        proxyMode,
       })
       setJobDrilldown(data)
       appendLog(`Loaded ${data.metrics.length.toLocaleString()} metrics for job ${job}`)
@@ -365,6 +382,7 @@ export function CardinalityDashboard() {
     try {
       const data = await buildMetricDrilldownClient(connection, metric, {
         onProgress: appendLog,
+        proxyMode,
       })
       setMetricDrilldown(data)
       appendLog(`Loaded label split for ${metric}`)
@@ -389,6 +407,57 @@ export function CardinalityDashboard() {
   function clearAllDropMetrics() {
     setDropMetrics([])
     setSelectedLabelsByMetric({})
+  }
+
+  function applyImportedRules(
+    result: {
+      dropMetrics: string[]
+      selectedLabelsByMetric: Record<string, string[]>
+      warnings: string[]
+      format: "prometheus" | "alloy"
+      ruleCount: number
+    },
+    mode: "merge" | "replace"
+  ) {
+    const normalizeLabels = (input: Record<string, string[]>) =>
+      Object.entries(input).reduce<Record<string, string[]>>((acc, [metric, labels]) => {
+        const next = Array.from(new Set(labels)).sort((a, b) => a.localeCompare(b))
+        if (next.length > 0) {
+          acc[metric] = next
+        }
+        return acc
+      }, {})
+
+    if (mode === "replace") {
+      setDropMetrics(Array.from(new Set(result.dropMetrics)).sort((a, b) => a.localeCompare(b)))
+      setSelectedLabelsByMetric(normalizeLabels(result.selectedLabelsByMetric))
+    } else {
+      setDropMetrics((prev) =>
+        Array.from(new Set([...prev, ...result.dropMetrics])).sort((a, b) =>
+          a.localeCompare(b)
+        )
+      )
+
+      setSelectedLabelsByMetric((prev) => {
+        const merged: Record<string, string[]> = { ...prev }
+
+        for (const [metric, labels] of Object.entries(result.selectedLabelsByMetric)) {
+          merged[metric] = Array.from(new Set([...(merged[metric] ?? []), ...labels])).sort(
+            (a, b) => a.localeCompare(b)
+          )
+        }
+
+        return normalizeLabels(merged)
+      })
+    }
+
+    appendLog(
+      `Imported ${result.dropMetrics.length.toLocaleString()} metric drop rules and ${Object.values(result.selectedLabelsByMetric).reduce((sum, labels) => sum + labels.length, 0).toLocaleString()} label rules from ${result.format} (${result.ruleCount.toLocaleString()} parsed blocks, mode: ${mode})`
+    )
+
+    if (result.warnings.length > 0) {
+      appendLog(`Import warnings: ${result.warnings.length.toLocaleString()} unsupported blocks skipped`)
+    }
   }
 
   function clearMetricExportSelection(metric: string) {
@@ -440,7 +509,9 @@ export function CardinalityDashboard() {
     })
 
     try {
-      const data = await buildMetricDrilldownClient(connection, metric)
+      const data = await buildMetricDrilldownClient(connection, metric, {
+        proxyMode,
+      })
       setMetricPreviewCache((prev) => ({ ...prev, [metric]: data }))
     } catch (err) {
       const message =
@@ -467,7 +538,9 @@ export function CardinalityDashboard() {
 
     setLabelValuesLoading((prev) => ({ ...prev, [cacheKey]: true }))
     try {
-      const values = await fetchLabelValuesForMetricScoped(connection, metric, label)
+      const values = proxyMode
+        ? await fetchLabelValuesProxy(connection, metric, label)
+        : await fetchLabelValuesForMetricScoped(connection, metric, label)
       setLabelValuesCache((prev) => ({ ...prev, [cacheKey]: values }))
     } catch {
       setLabelValuesCache((prev) => ({ ...prev, [cacheKey]: [] }))
@@ -495,7 +568,7 @@ export function CardinalityDashboard() {
       const drilldown =
         selectedJob === job && jobDrilldown
           ? jobDrilldown
-          : await buildJobDrilldownClient(connection, job)
+          : await buildJobDrilldownClient(connection, job, { proxyMode })
 
       const topMetrics = drilldown.metrics.slice(0, 20)
       const metricsNeedingLabels = topMetrics
@@ -509,7 +582,7 @@ export function CardinalityDashboard() {
         metricsNeedingLabels,
         async (metric) => {
           try {
-            return await buildMetricDrilldownClient(connection, metric)
+            return await buildMetricDrilldownClient(connection, metric, { proxyMode })
           } catch {
             return null
           }
@@ -594,6 +667,7 @@ export function CardinalityDashboard() {
     setInstanceId("")
     setToken("")
     setRememberConnection(false)
+    setProxyMode(false)
     setTopN(20)
     setSnapshot(null)
     setJobDrilldown(null)
@@ -617,6 +691,7 @@ export function CardinalityDashboard() {
     setViewMode("table")
     setTopMetricsPerJobInFlow(10)
     setDropRulesOpen(false)
+    setImportRulesOpen(false)
     setJobPromptOpen(false)
     setJobPromptJob(null)
     setJobPromptText("")
@@ -633,28 +708,51 @@ export function CardinalityDashboard() {
       <div className="pointer-events-none absolute bottom-0 left-0 right-0 top-0 bg-[linear-gradient(to_right,#4f4f4f2e_1px,transparent_1px),linear-gradient(to_bottom,#8080800a_1px,transparent_1px)] bg-[size:14px_24px] opacity-10" />
       <div className="pointer-events-none absolute left-0 right-0 top-[-10%] h-[1000px] w-[1000px] rounded-full bg-[radial-gradient(circle_400px_at_50%_300px,#fbfbfb36,#000)] opacity-[.01]" />
 
-      <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-6 px-4 py-8 md:px-8">
+      <div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-4 py-8 md:px-8">
 
         {/* ── Header ──────────────────────────────────────────────────── */}
-        <header className="flex items-start justify-between gap-4">
-          <div className="flex flex-col gap-1">
-            <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
-              Cardinal
-            </h1>
-            <p className="max-w-xl text-sm text-muted-foreground">
-              Analyze active series in one snapshot, spot high-cardinality
-              metrics and labels, and export production-ready drop rules.
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Everything stays local in your browser. No data is sent to any server.
-            </p>
+        <header className="flex flex-col items-start justify-between gap-4 bg-muted/20 rounded-xl px-6 py-4 border border-border/50">
+          <div className="flex flex-row gap-1 justify-between items-start w-full">
+            <div className="flex flex-col gap-1">
+              <h1 className="font-heading text-4xl tracking-tight sm:text-5xl">
+                Cardinal
+              </h1>
+              <p className="max-w-xl text-sm text-muted-foreground">
+                Analyze active series in one snapshot, spot high-cardinality
+                metrics and labels, and export production-ready drop rules.
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Everything stays local in your browser. No data is sent to any server.
+              </p>
+            </div>
+            <div className="mt-1 flex shrink-0 items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setImportRulesOpen(true)}
+              >
+                <FileUp className="size-3.5" />
+                Import rules
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setActivitySheetOpen(true)}
+              >
+                <Terminal className="size-3.5" />
+                Activity
+              </Button>
+            </div>
+          </div>
+          <div className="flex flex-col gap-1 w-full">
             {snapshot ? (
-              <div className="mt-2 flex flex-wrap items-center gap-2">
+              <div className="mt-2 flex w-full flex-wrap items-center gap-2 border-y border-muted/50 py-4">
                 <Button
                   size="sm"
                   variant={viewMode === "table" ? "default" : "outline"}
                   onClick={() => setViewMode("table")}
                 >
+                  <TableIcon className="size-3.5" />
                   Table view
                 </Button>
                 <Button
@@ -662,32 +760,29 @@ export function CardinalityDashboard() {
                   variant={viewMode === "flow" ? "default" : "outline"}
                   onClick={() => setViewMode("flow")}
                 >
+                  <WorkflowIcon className="size-3.5" />
                   Flow view
                 </Button>
               </div>
             ) : null}
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            className="mt-1 shrink-0"
-            onClick={() => setActivitySheetOpen(true)}
-          >
-            <Terminal className="size-3.5" />
-            Activity
-          </Button>
+
+          {snapshot && !connectionExpanded ? (
+            <ConnectionStrip
+              className="w-full"
+              baseUrl={baseUrl}
+              authMode={authMode}
+              isLoadingSnapshot={isLoadingSnapshot}
+              onExpand={() => setConnectionExpanded(true)}
+              onRefresh={() => { void runSnapshot() }}
+              onDisconnect={disconnect}
+            />
+          ) : null}
         </header>
 
         {/* ── Connection ───────────────────────────────────────────────── */}
         {snapshot && !connectionExpanded ? (
-          <ConnectionStrip
-            baseUrl={baseUrl}
-            authMode={authMode}
-            isLoadingSnapshot={isLoadingSnapshot}
-            onExpand={() => setConnectionExpanded(true)}
-            onRefresh={() => { void runSnapshot() }}
-            onDisconnect={disconnect}
-          />
+          null
         ) : (
           <ConnectionForm
             baseUrl={baseUrl}
@@ -698,6 +793,8 @@ export function CardinalityDashboard() {
             setToken={setToken}
             rememberConnection={rememberConnection}
             setRememberConnection={setRememberConnection}
+            proxyMode={proxyMode}
+            setProxyMode={setProxyMode}
             topN={topN}
             setTopN={setTopN}
             isLoadingSnapshot={isLoadingSnapshot}
@@ -740,14 +837,23 @@ export function CardinalityDashboard() {
         ) : null}
 
         {/* ── Main content ─────────────────────────────────────────────── */}
-        {snapshot ? (
+        {snapshot && !isLoadingSnapshot ? (
           <>
+            <div className="flex flex-col gap-2">
+              <Separator />
+            </div>
+
             <StatsStrip
               snapshot={snapshot}
               dropMetrics={dropMetrics}
               selectedLabelCount={selectedLabelCount}
               savings={savings}
+              className="bg-muted/20 rounded-4xl border border-border/50 px-3 py-3"
             />
+
+            <div className="flex flex-col gap-2">
+              <Separator />
+            </div>
 
             {viewMode === "flow" ? (
               <CardinalityFlowView
@@ -781,103 +887,104 @@ export function CardinalityDashboard() {
 
             {/* Two-pane layout */}
             {viewMode === "table" ? (
-            <div className={cn("grid gap-6", activePanel ? "xl:grid-cols-[2fr_3fr]" : "xl:grid-cols-[3fr_2fr]")}>
+              <div className={cn("grid gap-6", activePanel ? "lg:grid-cols-[1fr_1fr] xl:grid-cols-[2fr_3fr]" : "lg:grid-cols-[1fr_1fr] xl:grid-cols-[3fr_2fr]")}>
 
-              {/* LEFT PANE */}
-              <div className="flex flex-col gap-6">
-                {showMetricInLeftPane ? (
-                  <MetricDrilldownPanel
-                    selectedMetric={selectedMetric}
-                    metricDrilldown={metricDrilldown}
-                    isLoadingMetric={isLoadingMetric}
-                    dropMetrics={dropMetrics}
-                    selectedLabels={selectedMetric ? selectedLabelsByMetric[selectedMetric] ?? [] : []}
-                    labelValuesCache={labelValuesCache}
-                    labelValuesLoading={labelValuesLoading}
-                    jobDrilldownCollapsed={false}
-                    connection={connection}
-                    onToggleDrop={toggleDropMetric}
-                    onToggleLabel={toggleDropLabel}
-                    onFetchLabelValues={(metric, label) => {
-                      void fetchLabelValuesForMetric(metric, label)
-                    }}
-                    onBackToJobs={restoreJobsPane}
-                    onClearContext={clearJobContext}
-                    onClose={restoreJobsPane}
-                  />
-                ) : (
-                  <JobsTable
-                    snapshot={snapshot}
-                    dropMetrics={dropMetrics}
-                    selectedJob={selectedJob}
-                    activePanel={activePanel}
-                    filterByJob={filterByJob}
-                    onJobClick={(job) => { void loadJobDrilldown(job) }}
-                    onGeneratePrompt={(job) => {
-                      void generateJobPromptForJob(job)
-                    }}
-                    onClearFilter={clearJobContext}
-                  />
-                )}
+                {/* LEFT PANE */}
+                <div className="flex flex-col gap-6">
+                  {showMetricInLeftPane ? (
+                    <MetricDrilldownPanel
+                      selectedMetric={selectedMetric}
+                      metricDrilldown={metricDrilldown}
+                      isLoadingMetric={isLoadingMetric}
+                      dropMetrics={dropMetrics}
+                      selectedLabels={selectedMetric ? selectedLabelsByMetric[selectedMetric] ?? [] : []}
+                      labelValuesCache={labelValuesCache}
+                      labelValuesLoading={labelValuesLoading}
+                      jobDrilldownCollapsed={false}
+                      connection={connection}
+                      onToggleDrop={toggleDropMetric}
+                      onToggleLabel={toggleDropLabel}
+                      onFetchLabelValues={(metric, label) => {
+                        void fetchLabelValuesForMetric(metric, label)
+                      }}
+                      onBackToJobs={restoreJobsPane}
+                      onClearContext={clearJobContext}
+                      onClose={restoreJobsPane}
+                    />
+                  ) : (
+                    <JobsTable
+                      snapshot={snapshot}
+                      dropMetrics={dropMetrics}
+                      selectedJob={selectedJob}
+                      activePanel={activePanel}
+                      filterByJob={filterByJob}
+                      onJobClick={(job) => { void loadJobDrilldown(job) }}
+                      onGeneratePrompt={(job) => {
+                        void generateJobPromptForJob(job)
+                      }}
+                      onClearFilter={clearJobContext}
+                    />
+                  )}
+                </div>
+
+                {/* RIGHT PANE */}
+                <div className="flex flex-col gap-4">
+                  {activePanel === null ? (
+                    <RightPaneEmpty
+                      chartRows={chartRows}
+                      snapshot={snapshot}
+                      metricPreviewCache={metricPreviewCache}
+                      onMetricClick={(metric) => { void loadMetricDrilldown(metric) }}
+                      onJobClick={(job) => { void loadJobDrilldown(job) }}
+                    />
+                  ) : null}
+
+                  {activePanel === "job" ? (
+                    <JobDrilldownPanel
+                      selectedJob={selectedJob}
+                      jobDrilldown={jobDrilldown}
+                      isLoadingJob={isLoadingJob}
+                      dropMetrics={dropMetrics}
+                      selectedMetric={selectedMetric}
+                      selectedLabelsByMetric={selectedLabelsByMetric}
+                      expandedMetrics={expandedMetricPreviews}
+                      metricPreviewCache={metricPreviewCache}
+                      metricPreviewLoading={metricPreviewLoading}
+                      metricPreviewErrors={metricPreviewErrors}
+                      onMetricClick={(metric) => {
+                        void loadMetricDrilldown(metric, true)
+                      }}
+                      onTogglePreview={(metric) => {
+                        void toggleMetricPreview(metric)
+                      }}
+                      onToggleDrop={toggleDropMetric}
+                      onClose={clearJobContext}
+                    />
+                  ) : null}
+
+                  {activePanel === "metric" && !showMetricInLeftPane ? (
+                    <MetricDrilldownPanel
+                      selectedMetric={selectedMetric}
+                      metricDrilldown={metricDrilldown}
+                      isLoadingMetric={isLoadingMetric}
+                      dropMetrics={dropMetrics}
+                      selectedLabels={selectedMetric ? selectedLabelsByMetric[selectedMetric] ?? [] : []}
+                      labelValuesCache={labelValuesCache}
+                      labelValuesLoading={labelValuesLoading}
+                      jobDrilldownCollapsed={false}
+                      connection={connection}
+                      onToggleDrop={toggleDropMetric}
+                      onToggleLabel={toggleDropLabel}
+                      onFetchLabelValues={(metric, label) => {
+                        void fetchLabelValuesForMetric(metric, label)
+                      }}
+                      onClose={() => {
+                        setActivePanel(null)
+                      }}
+                    />
+                  ) : null}
+                </div>
               </div>
-
-              {/* RIGHT PANE */}
-              <div className="flex flex-col gap-4">
-                {activePanel === null ? (
-                  <RightPaneEmpty
-                    chartRows={chartRows}
-                    snapshot={snapshot}
-                    onMetricClick={(metric) => { void loadMetricDrilldown(metric) }}
-                    onJobClick={(job) => { void loadJobDrilldown(job) }}
-                  />
-                ) : null}
-
-                {activePanel === "job" ? (
-                  <JobDrilldownPanel
-                    selectedJob={selectedJob}
-                    jobDrilldown={jobDrilldown}
-                    isLoadingJob={isLoadingJob}
-                    dropMetrics={dropMetrics}
-                    selectedMetric={selectedMetric}
-                    selectedLabelsByMetric={selectedLabelsByMetric}
-                    expandedMetrics={expandedMetricPreviews}
-                    metricPreviewCache={metricPreviewCache}
-                    metricPreviewLoading={metricPreviewLoading}
-                    metricPreviewErrors={metricPreviewErrors}
-                    onMetricClick={(metric) => {
-                      void loadMetricDrilldown(metric, true)
-                    }}
-                    onTogglePreview={(metric) => {
-                      void toggleMetricPreview(metric)
-                    }}
-                    onToggleDrop={toggleDropMetric}
-                    onClose={clearJobContext}
-                  />
-                ) : null}
-
-                {activePanel === "metric" && !showMetricInLeftPane ? (
-                  <MetricDrilldownPanel
-                    selectedMetric={selectedMetric}
-                    metricDrilldown={metricDrilldown}
-                    isLoadingMetric={isLoadingMetric}
-                    dropMetrics={dropMetrics}
-                    selectedLabels={selectedMetric ? selectedLabelsByMetric[selectedMetric] ?? [] : []}
-                    labelValuesCache={labelValuesCache}
-                    labelValuesLoading={labelValuesLoading}
-                    jobDrilldownCollapsed={false}
-                    connection={connection}
-                    onToggleDrop={toggleDropMetric}
-                    onToggleLabel={toggleDropLabel}
-                    onFetchLabelValues={(metric, label) => {
-                      void fetchLabelValuesForMetric(metric, label)
-                    }}
-                    onClose={() => {
-                      setActivePanel(null)
-                    }}
-                  />
-                ) : null}
-              </div>
-            </div>
             ) : null}
           </>
         ) : null}
@@ -927,6 +1034,12 @@ export function CardinalityDashboard() {
         onClearAll={clearAllDropMetrics}
         onCopyYaml={() => copyToClipboard(generatedConfigs.prometheusYaml, "yaml")}
         onCopyHcl={() => copyToClipboard(generatedConfigs.alloyHcl, "hcl")}
+      />
+
+      <ImportRulesDialog
+        open={importRulesOpen}
+        onOpenChange={setImportRulesOpen}
+        onImport={applyImportedRules}
       />
 
       <JobPromptDialog

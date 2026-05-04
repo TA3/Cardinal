@@ -16,6 +16,7 @@ interface StatsStripProps {
   dropMetrics: string[]
   selectedLabelCount: number
   savings: Savings
+  className?: string
 }
 
 export function StatsStrip({
@@ -23,43 +24,45 @@ export function StatsStrip({
   dropMetrics,
   selectedLabelCount,
   savings,
+  className,
 }: StatsStripProps) {
   const hasRuleSelection = dropMetrics.length > 0 || selectedLabelCount > 0
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-      <Card>
+    <div className={cn("grid gap-4 sm:grid-cols-2 xl:grid-cols-4", className)}>
+      <Card className="shadow-sm">
         <CardHeader className="py-4">
           <CardDescription>Total active series</CardDescription>
-          <CardTitle className="text-2xl">
+          <CardTitle className="font-heading text-3xl">
             {formatNumber(snapshot.totalSeries)}
           </CardTitle>
         </CardHeader>
       </Card>
-      <Card>
+      <Card className="shadow-sm">
         <CardHeader className="py-4">
           <CardDescription>Unique metrics</CardDescription>
-          <CardTitle className="text-2xl">
+          <CardTitle className="font-heading text-3xl">
             {formatNumber(snapshot.metricCount)}
           </CardTitle>
         </CardHeader>
       </Card>
-      <Card>
+      <Card className="shadow-sm">
         <CardHeader className="py-4">
           <CardDescription>Unique labels</CardDescription>
-          <CardTitle className="text-2xl">
+          <CardTitle className="font-heading text-3xl">
             {formatNumber(snapshot.labelCount)}
           </CardTitle>
         </CardHeader>
       </Card>
       <Card
         className={cn(
+          "shadow-sm",
           hasRuleSelection && "border-primary/40 bg-primary/5"
         )}
       >
         <CardHeader className="py-4">
           <CardDescription>Est. savings if rules applied</CardDescription>
-          <CardTitle className="flex items-baseline gap-2 text-2xl">
+          <CardTitle className="font-heading flex items-baseline gap-2 text-3xl">
             {savings.isEstimate ? "~" : ""}
             {formatNumber(savings.savedSeries)}
             {hasRuleSelection ? (

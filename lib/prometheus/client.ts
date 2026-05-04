@@ -69,6 +69,13 @@ async function prometheusGet<T>(
       cache: "no-store",
     })
   } catch {
+    if (typeof window === "undefined") {
+      // Server-side (proxy route) — this is a network error, not a CORS issue
+      throw new Error(
+        `Network error: Could not reach ${url.origin}. ` +
+        `Verify the URL is correct and the endpoint is reachable from the Next.js server.`
+      )
+    }
     throw new Error(
       [
         "CORS_OR_PREFLIGHT: Browser blocked the request before it reached Prometheus.",
@@ -85,6 +92,11 @@ async function prometheusGet<T>(
   if (!response.ok) {
     const responseText = await response.text().catch(() => "")
     const details = responseText ? `: ${responseText.slice(0, 180)}` : ""
+    if (response.status === 401 || response.status === 403) {
+      throw new Error(
+        `Authentication failed (HTTP ${response.status}). Check your Instance ID and token.`
+      )
+    }
     throw new Error(
       `Prometheus request failed with status ${response.status} on ${path}${details}`
     )

@@ -210,13 +210,13 @@ export function DropRulesDialog({
               <div className="relative">
                 <Textarea
                   readOnly
-                  className="min-h-40 font-mono text-xs"
+                  className="min-h-40 font-mono text-[11px]"
                   value={generatedConfigs.prometheusYaml}
                 />
                 <Button
                   size="sm"
                   variant="secondary"
-                  className="absolute right-2 top-2"
+                  className="absolute right-2 shadow-sm rounded-md top-2"
                   onClick={onCopyYaml}
                 >
                   {copiedYaml ? (
@@ -232,13 +232,13 @@ export function DropRulesDialog({
               <div className="relative">
                 <Textarea
                   readOnly
-                  className="min-h-40 font-mono text-xs"
+                  className="min-h-40 font-mono text-[11px]"
                   value={generatedConfigs.alloyHcl}
                 />
                 <Button
                   size="sm"
                   variant="secondary"
-                  className="absolute right-2 top-2"
+                  className="absolute right-2 shadow-sm rounded-md top-2"
                   onClick={onCopyHcl}
                 >
                   {copiedHcl ? (

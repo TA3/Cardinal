@@ -368,10 +368,10 @@ export function CardinalityFlowView({
   )
 
   return (
-    <div className="rounded-2xl border bg-card">
+    <div className="rounded-2xl border bg-card shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
         <div>
-          <p className="text-sm font-medium">Flow view</p>
+          <p className="font-heading text-base font-medium">Flow view</p>
           <p className="text-xs text-muted-foreground">
             Jobs to top metrics per job to lazy-loaded labels
           </p>

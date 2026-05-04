@@ -23,9 +23,9 @@ import { getScaleTextStyle } from "@/lib/cardinality/color-scale"
 import {
   formatNumber,
 } from "@/lib/cardinality/dashboard-helpers"
-import { fetchLabelValues } from "@/lib/prometheus/client"
+import { cn } from "@/lib/utils"
 import type { MetricDrilldown, PrometheusConnectionInput } from "@/lib/prometheus/types"
-import { ArrowLeft, Check, Loader2, Sparkles, Trash2, X } from "lucide-react"
+import { ArrowLeft, Check, Loader2, Sparkles, Trash2, X, BarChart2 } from "lucide-react"
 import * as React from "react"
 
 interface MetricDrilldownPanelProps {
@@ -67,63 +67,18 @@ export function MetricDrilldownPanel({
     ? dropMetrics.includes(metricDrilldown.metric)
     : false
 
-  // Label-value sampling state — keyed by metric so it auto-resets on change
-  const [labelState, setLabelState] = React.useState<{
-    metric: string | null
-    values: Record<string, string[]>
-    loading: Record<string, boolean>
-  }>({ metric: null, values: {}, loading: {} })
-
-  const currentMetric = metricDrilldown?.metric ?? null
-  const labelValues =
-    labelState.metric === currentMetric ? labelState.values : {}
-  const loadingLabels =
-    labelState.metric === currentMetric ? labelState.loading : {}
-
-  async function handleFetchLabelValues(labelName: string) {
-    if (!connection) return
-    setLabelState((prev) => ({
-      metric: currentMetric,
-      values: prev.metric === currentMetric ? prev.values : {},
-      loading: {
-        ...(prev.metric === currentMetric ? prev.loading : {}),
-        [labelName]: true,
-      },
-    }))
-    try {
-      const values = await fetchLabelValues(connection, labelName)
-      setLabelState((prev) => ({
-        metric: currentMetric,
-        values: {
-          ...(prev.metric === currentMetric ? prev.values : {}),
-          [labelName]: values,
-        },
-        loading: {
-          ...(prev.metric === currentMetric ? prev.loading : {}),
-          [labelName]: false,
-        },
-      }))
-    } catch {
-      setLabelState((prev) => ({
-        metric: currentMetric,
-        values: prev.metric === currentMetric ? prev.values : {},
-        loading: {
-          ...(prev.metric === currentMetric ? prev.loading : {}),
-          [labelName]: false,
-        },
-      }))
-    }
-  }
-
   return (
-    <Card>
+    <Card className="shadow-sm">
       <CardHeader>
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <p className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">
               Metric drilldown
             </p>
-            <CardTitle className="break-all">{selectedMetric}</CardTitle>
+            <CardTitle className="font-heading font-mono break-all flex items-center gap-2">
+              <BarChart2 className="size-4 shrink-0" />
+              {selectedMetric}
+            </CardTitle>
             {metricDrilldown ? (
               <CardDescription>
                 {formatNumber(metricDrilldown.seriesCount)} active series ·{" "}
@@ -143,7 +98,8 @@ export function MetricDrilldownPanel({
             {metricDrilldown ? (
               <Button
                 size="sm"
-                variant={isDropped ? "secondary" : "outline"}
+                variant={isDropped ? "destructive" : "outline"}
+                className={cn(isDropped ? "bg-destructive text-destructive-foreground hover:bg-destructive/90" : "")}
                 onClick={() => onToggleDrop(metricDrilldown.metric)}
               >
                 {isDropped ? (
@@ -183,7 +139,7 @@ export function MetricDrilldownPanel({
             ))}
           </div>
         ) : null}
-        {metricDrilldown ? (() => {
+        {metricDrilldown && !isLoadingMetric ? (() => {
           const maxCard = metricDrilldown.labels[0]?.cardinality ?? 1
           return (
             <Table>
@@ -191,7 +147,7 @@ export function MetricDrilldownPanel({
                 <TableRow>
                   <TableHead>Label key</TableHead>
                   <TableHead className="text-right">Cardinality</TableHead>
-                  <TableHead className="w-8" />
+                  <TableHead className="w-[140px] text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -202,8 +158,10 @@ export function MetricDrilldownPanel({
                   )
                   const absPct =
                     (label.cardinality / metricDrilldown.seriesCount) * 100
-                  const examples = labelValues[label.label]
-                  const isLoadingThis = !!loadingLabels[label.label]
+                  const valuesKey = `${metricDrilldown.metric}::${label.label}`
+                  const examples = labelValuesCache[valuesKey]
+                  const isLoadingThis = !!labelValuesLoading[valuesKey]
+                  const isLabelDropped = selectedLabels.includes(label.label)
                   return (
                     <TableRow key={label.label}>
                       <TableCell>
@@ -211,6 +169,9 @@ export function MetricDrilldownPanel({
                           <span className="font-mono text-sm">{label.label}</span>
                           {index < 3 ? (
                             <Badge variant="secondary">High</Badge>
+                          ) : null}
+                          {isLabelDropped ? (
+                            <Badge variant="outline">Dropped</Badge>
                           ) : null}
                         </div>
                         {examples ? (
@@ -241,25 +202,38 @@ export function MetricDrilldownPanel({
                           className="mt-1 ml-auto h-1 max-w-[80px]"
                         />
                       </TableCell>
-                      <TableCell className="w-8">
-                        {connection ? (
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-2">
                           <Button
-                            size="icon-sm"
-                            variant="ghost"
-                            title="Fetch example values"
-                            disabled={isLoadingThis}
+                            size="sm"
+                            variant={isLabelDropped ? "destructive" : "outline"}
+                            className={cn(isLabelDropped ? "bg-destructive text-destructive-foreground hover:bg-destructive/90 text-xs py-0 h-7" : "text-xs py-0 h-7")}
                             onClick={(e) => {
                               e.stopPropagation()
-                              void handleFetchLabelValues(label.label)
+                              onToggleLabel(metricDrilldown.metric, label.label)
                             }}
                           >
-                            {isLoadingThis ? (
-                              <Loader2 className="size-3 animate-spin" />
-                            ) : (
-                              <Sparkles className="size-3" />
-                            )}
+                            {isLabelDropped ? "Added" : "Drop"}
                           </Button>
-                        ) : null}
+                          {connection ? (
+                            <Button
+                              size="icon-sm"
+                              variant="ghost"
+                              title="Fetch example values"
+                              disabled={isLoadingThis}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                onFetchLabelValues(metricDrilldown.metric, label.label)
+                              }}
+                            >
+                              {isLoadingThis ? (
+                                <Loader2 className="size-3 animate-spin" />
+                              ) : (
+                                <Sparkles className="size-3" />
+                              )}
+                            </Button>
+                          ) : null}
+                        </div>
                       </TableCell>
                     </TableRow>
                   )

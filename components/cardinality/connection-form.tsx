@@ -1,6 +1,6 @@
 "use client"
 
-import { ChevronRight, Search, Trash2 } from "lucide-react"
+import { ChevronRight, Search, Settings2Icon, Trash2 } from "lucide-react"
 import type { PrometheusConnectionInput } from "@/lib/prometheus/types"
 import { Button } from "@/components/ui/button"
 import {
@@ -19,6 +19,7 @@ import {
   FieldLabel,
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { useState } from "react"
 
 interface ConnectionFormProps {
   baseUrl: string
@@ -29,6 +30,8 @@ interface ConnectionFormProps {
   setToken: (v: string) => void
   rememberConnection: boolean
   setRememberConnection: (v: boolean) => void
+  proxyMode: boolean
+  setProxyMode: (v: boolean) => void
   topN: number
   setTopN: (v: number) => void
   isLoadingSnapshot: boolean
@@ -48,6 +51,8 @@ export function ConnectionForm({
   setToken,
   rememberConnection,
   setRememberConnection,
+  proxyMode,
+  setProxyMode,
   topN,
   setTopN,
   isLoadingSnapshot,
@@ -57,12 +62,16 @@ export function ConnectionForm({
   onCollapse,
   onDisconnect,
 }: ConnectionFormProps) {
+  const [showOptions, setShowOptions] = useState(false)
   return (
-    <Card>
+    <Card className="shadow-none rounded-lg">
       <CardHeader>
+        <p className="text-xs uppercase tracking-wider text-muted-foreground pb-2">
+          Configuration
+        </p>
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle>Connection</CardTitle>
+            <CardTitle className="font-heading">Connection</CardTitle>
             <CardDescription>
               Optional basic auth — instance ID and token only needed for
               protected endpoints.
@@ -77,7 +86,7 @@ export function ConnectionForm({
         </div>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
-        <FieldGroup>
+        <FieldGroup className="flex flex-row justify-center gap-2 items-end">
           <Field>
             <FieldLabel htmlFor="base-url">Prometheus base URL</FieldLabel>
             <FieldContent>
@@ -89,77 +98,99 @@ export function ConnectionForm({
               />
             </FieldContent>
           </Field>
-          <Field orientation="responsive">
-            <Field>
-              <FieldLabel htmlFor="instance-id">
-                Instance ID{" "}
-                <span className="text-muted-foreground">(optional)</span>
-              </FieldLabel>
-              <FieldContent>
-                <Input
-                  id="instance-id"
-                  autoComplete="off"
-                  placeholder="your-instance-id"
-                  value={instanceId}
-                  onChange={(e) => setInstanceId(e.target.value)}
-                />
-              </FieldContent>
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="token">
-                Token{" "}
-                <span className="text-muted-foreground">(optional)</span>
-              </FieldLabel>
-              <FieldContent>
-                <Input
-                  id="token"
-                  type="password"
-                  autoComplete="off"
-                  placeholder="••••••••"
-                  value={token}
-                  onChange={(e) => setToken(e.target.value)}
-                />
-              </FieldContent>
-            </Field>
-          </Field>
-          <Field orientation="horizontal">
-            <Checkbox
-              id="remember-connection"
-              checked={rememberConnection}
-              onCheckedChange={(checked) =>
-                setRememberConnection(Boolean(checked))
-              }
-            />
-            <FieldContent>
-              <FieldLabel htmlFor="remember-connection">
-                Remember connection in localStorage
-              </FieldLabel>
-              <FieldDescription>
-                Stores base URL and optional credentials in this browser.
-              </FieldDescription>
-            </FieldContent>
-          </Field>
-          <Field orientation="responsive">
-            <Field>
-              <FieldLabel htmlFor="top-n">Top N metrics</FieldLabel>
-              <FieldContent>
-                <Input
-                  id="top-n"
-                  type="number"
-                  min={1}
-                  max={100}
-                  value={topN}
-                  onChange={(e) =>
-                    setTopN(
-                      Math.max(1, Math.min(100, Number(e.target.value) || 20))
-                    )
-                  }
-                  className="w-28"
-                />
-              </FieldContent>
-            </Field>
-          </Field>
+          <Button variant="outline" size="icon-lg" onClick={() => setShowOptions(!showOptions)}>
+            <Settings2Icon />
+          </Button>
         </FieldGroup>
+        {showOptions ? (
+          <FieldGroup>
+            <Field orientation="responsive">
+              <Field>
+                <FieldLabel htmlFor="instance-id">
+                  Instance ID{" "}
+                  <span className="text-muted-foreground">(optional)</span>
+                </FieldLabel>
+                <FieldContent>
+                  <Input
+                    id="instance-id"
+                    autoComplete="off"
+                    placeholder="your-instance-id"
+                    value={instanceId}
+                    onChange={(e) => setInstanceId(e.target.value)}
+                  />
+                </FieldContent>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="token">
+                  Token{" "}
+                  <span className="text-muted-foreground">(optional)</span>
+                </FieldLabel>
+                <FieldContent>
+                  <Input
+                    id="token"
+                    type="password"
+                    autoComplete="off"
+                    placeholder="••••••••"
+                    value={token}
+                    onChange={(e) => setToken(e.target.value)}
+                  />
+                </FieldContent>
+              </Field>
+            </Field>
+            <Field orientation="horizontal">
+              <Checkbox
+                id="remember-connection"
+                checked={rememberConnection}
+                onCheckedChange={(checked) =>
+                  setRememberConnection(Boolean(checked))
+                }
+              />
+              <FieldContent>
+                <FieldLabel htmlFor="remember-connection">
+                  Remember connection in localStorage
+                </FieldLabel>
+                <FieldDescription>
+                  Stores base URL and optional credentials in this browser.
+                </FieldDescription>
+              </FieldContent>
+            </Field>
+            <Field orientation="horizontal">
+              <Checkbox
+                id="proxy-mode"
+                checked={proxyMode}
+                onCheckedChange={(checked) => setProxyMode(Boolean(checked))}
+              />
+              <FieldContent>
+                <FieldLabel htmlFor="proxy-mode">
+                  Route through server proxy
+                </FieldLabel>
+                <FieldDescription>
+                  Required for Mimir and Grafana Cloud to bypass CORS restrictions.
+                </FieldDescription>
+              </FieldContent>
+            </Field>
+            <Field orientation="responsive">
+              <Field>
+                <FieldLabel htmlFor="top-n">Top N metrics</FieldLabel>
+                <FieldContent>
+                  <Input
+                    id="top-n"
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={topN}
+                    onChange={(e) =>
+                      setTopN(
+                        Math.max(1, Math.min(100, Number(e.target.value) || 20))
+                      )
+                    }
+                    className="w-28"
+                  />
+                </FieldContent>
+              </Field>
+            </Field>
+          </FieldGroup>
+        ) : null}
 
         <div className="flex flex-wrap gap-3">
           <Button

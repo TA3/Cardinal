@@ -58,11 +58,14 @@ export function JobsTable({
   }, {})
 
   return (
-    <Card>
+    <Card className="shadow-sm">
       <CardHeader>
+        <p className="text-xs uppercase tracking-wider text-muted-foreground">
+          Jobs
+        </p>
         <div className="flex items-start justify-between gap-2">
           <div>
-            <CardTitle className="flex items-center gap-2">
+            <CardTitle className="font-heading flex items-center gap-2">
               <Database className="size-4" />
               Jobs by total contribution
             </CardTitle>
@@ -105,14 +108,14 @@ export function JobsTable({
                 <TableRow
                   key={job.job}
                   className={cn(
-                    "cursor-pointer",
+                    "cursor-pointer transition-colors text-sm",
                     selectedJob === job.job && activePanel === "job"
-                      ? "bg-muted/60"
-                      : "hover:bg-muted/40"
+                      ? "bg-primary/10 border-l-[3px] border-primary"
+                      : "hover:bg-muted/40 border-l-[3px] border-transparent"
                   )}
                   onClick={() => onJobClick(job.job)}
                 >
-                  <TableCell className="font-medium">
+                  <TableCell className="font-mono font-medium">
                     <div className="flex min-w-0 items-center gap-2">
                       <span className="truncate">{job.job}</span>
                       {savedSeries > 0 ? (

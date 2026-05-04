@@ -14,6 +14,7 @@ export interface StoredDashboardSession {
   instanceId: string
   token: string
   rememberConnection: boolean
+  proxyMode: boolean
   topN: number
   connectionExpanded: boolean
   snapshot: SnapshotResponse | null
@@ -56,6 +57,7 @@ export function getStoredDashboardSession(): StoredDashboardSession | null {
       instanceId: parsed.instanceId ?? "",
       token: parsed.token ?? "",
       rememberConnection: parsed.rememberConnection ?? false,
+      proxyMode: parsed.proxyMode ?? false,
       topN: parsed.topN ?? 20,
       connectionExpanded: parsed.connectionExpanded ?? true,
       snapshot: parsed.snapshot ?? null,

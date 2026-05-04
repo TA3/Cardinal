@@ -9,6 +9,7 @@ export interface StoredConnection {
   instanceId?: string
   token?: string
   remember: boolean
+  proxyMode?: boolean
 }
 
 export function getStoredConnection(): StoredConnection | null {
@@ -30,6 +31,7 @@ export function getStoredConnection(): StoredConnection | null {
       ...parsed,
       instanceId: parsed.instanceId ?? "",
       token: parsed.token ?? "",
+      proxyMode: parsed.proxyMode ?? false,
     }
   } catch {
     return null
