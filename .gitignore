@@ -35,3 +35,8 @@ pnpm-debug.log*
 *.tsbuildinfo
 next-env.d.ts
 node_modules
+
+# vite / wrangler
+/dist
+.wrangler
+.dev.vars*

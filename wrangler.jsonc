@@ -1,0 +1,39 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cardinal",
+  "main": "./worker/index.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/mcp", "/mcp/*"]
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "SESSION", "class_name": "CardinalSession" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["CardinalSession"] }],
+  "ratelimits": [
+    // Per client IP: proxied backend calls and proxy-token requests.
+    {
+      "name": "PROXY_LIMITER",
+      "namespace_id": "1001",
+      "simple": { "limit": 600, "period": 60 }
+    },
+    // Per client IP: agent session creation (POST /api/sessions).
+    {
+      "name": "SESSION_LIMITER",
+      "namespace_id": "1002",
+      "simple": { "limit": 10, "period": 60 }
+    }
+  ],
+  "routes": [{ "pattern": "cardinal.ta3.dev", "custom_domain": true }],
+  "vars": {
+    // Comma-separated custom domains serving /mcp (workers.dev and localhost are allowed by default).
+    "PUBLIC_HOSTNAMES": "cardinal.ta3.dev"
+  },
+  // Secrets (not in vars): PROXY_SECRET signs the short-lived proxy tokens.
+  // Set it with `wrangler secret put PROXY_SECRET` in production and as
+  // PROXY_SECRET=<random string> in .dev.vars locally. Without it each isolate
+  // uses a random key, so tokens break across isolates and clients re-fetch.
+  "observability": { "enabled": true }
+}

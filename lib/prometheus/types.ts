@@ -46,6 +46,8 @@ export interface MetricSummary {
   seriesCount: number
   percentageOfTotal: number
   topJob?: string
+  /** Every job emitting the metric, largest first. */
+  jobs?: string[]
 }
 
 export interface JobSummary {
@@ -76,12 +78,14 @@ export interface MetricDrilldown {
 export interface SnapshotResponse {
   totalSeries: number
   metricCount: number
-  labelCount: number
+  labelCount: number | null
+  seriesByMetricJob?: Record<string, Record<string, number>>
   topN: number
   topMetrics: MetricSummary[]
   jobs: JobSummary[]
   metrics: MetricSummary[]
   failedMetrics: string[]
+  capturedAt?: string
 }
 
 export interface SnapshotRequest {

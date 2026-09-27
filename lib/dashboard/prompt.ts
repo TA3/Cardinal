@@ -1,5 +1,27 @@
-import type { ParsedMetric, ParsedMetricsResult } from "@/lib/dashboard/parser"
 import type { JobDrilldownResponse, MetricDrilldown } from "@/lib/prometheus/types"
+
+interface ParsedMetricSample {
+  name: string
+  labels: Record<string, string>
+  value: number | string
+  timestamp: number | null
+}
+
+interface ParsedMetric {
+  name: string
+  type: string | null
+  help: string | null
+  sampleCount: number
+  labelKeys: string[]
+  exampleSeries: ParsedMetricSample[]
+  relatedMetrics: string[]
+}
+
+interface ParsedMetricsResult {
+  totalMetrics: number
+  totalSamples: number
+  metrics: ParsedMetric[]
+}
 
 interface GenerateAIPromptOptions {
   job?: string
@@ -143,7 +165,7 @@ modify dashboards via the API or Grafana Assistant tools.
   "datasource": { "type": "prometheus", "uid": "\${datasource}" },
   "targets": [
     {
-      "expr": "sum(rate(http_requests_total{job=\"$job\"}[5m])) by (status_code)",
+      "expr": "sum(rate(http_requests_total{job=\\"$job\\"}[5m])) by (status_code)",
       "legendFormat": "{{status_code}}",
       "refId": "A"
     }
@@ -257,7 +279,7 @@ rate(http_requests_total{job=~"$job"}[5m])
 \`\`\`json
 {
   "name": "pod",
-  "query": "label_values(kube_pod_info{namespace=\"$namespace\"}, pod)"
+  "query": "label_values(kube_pod_info{namespace=\\"$namespace\\"}, pod)"
 }
 \`\`\`
 
@@ -356,7 +378,7 @@ Show events overlaid on time series panels (deployments, incidents, etc.).
 \`\`\`json
 {
   "datasource": { "type": "loki", "uid": "loki" },
-  "expr": "{job=\"deployments\"} |= \"deployed\"",
+  "expr": "{job=\\"deployments\\"} |= \\"deployed\\"",
   "name": "Deployments",
   "iconColor": "blue",
   "titleFormat": "{{service}} deployed",
@@ -369,7 +391,7 @@ Show events overlaid on time series panels (deployments, incidents, etc.).
 \`\`\`json
 {
   "datasource": { "type": "prometheus", "uid": "prometheus" },
-  "expr": "changes(kube_deployment_status_observed_generation{namespace=\"production\"}[5m]) > 0",
+  "expr": "changes(kube_deployment_status_observed_generation{namespace=\\"production\\"}[5m]) > 0",
   "step": "60s",
   "name": "Deployments",
   "iconColor": "blue",

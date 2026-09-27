@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.worker.tsbuildinfo",
+    "lib": ["ES2023"],
+    "types": ["./worker/worker-configuration.d.ts", "node", "vitest/importMeta"]
+  },
+  "include": ["worker", "lib/core", "lib/agent/tools.ts", "lib/agent/protocol.ts", "lib/sources/proxy-constants.ts", "lib/prometheus/types.ts", "app/paths.ts", "vite.config.ts", "vitest.config.ts", "**/*.test.ts"]
+}
