@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cardinal · Prometheus and Loki cardinality explorer</title>
+    <meta
+      name="description"
+      content="Find what drives your Prometheus series and Loki log streams, then cut it. Cardinal shows cardinality by job, metric and label, and exports relabel, Alloy and Grafana Adaptive Telemetry rules."
+    />
+    <link rel="canonical" href="https://cardinal.ta3.dev/" />
+    <meta name="theme-color" content="#E6522C" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Cardinal" />
+    <meta property="og:url" content="https://cardinal.ta3.dev/" />
+    <meta property="og:title" content="Cardinal · Prometheus and Loki cardinality explorer" />
+    <meta
+      property="og:description"
+      content="See which jobs, metrics and labels drive your series and log streams, then export relabel, Alloy or Adaptive Telemetry rules."
+    />
+    <meta property="og:image" content="https://cardinal.ta3.dev/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Cardinal · Prometheus and Loki cardinality explorer" />
+    <meta
+      name="twitter:description"
+      content="See which jobs, metrics and labels drive your series and log streams, then export relabel, Alloy or Adaptive Telemetry rules."
+    />
+    <meta name="twitter:image" content="https://cardinal.ta3.dev/og.png" />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "Cardinal",
+        "url": "https://cardinal.ta3.dev/",
+        "description": "Find what drives your Prometheus series and Loki log streams, then export relabel, Alloy and Grafana Adaptive Telemetry rules to cut it.",
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "Web",
+        "author": { "@type": "Person", "name": "Taha", "url": "https://ta3.dev" },
+        "codeRepository": "https://github.com/TA3/cardinal"
+      }
+    </script>
+  </head>
+  <body class="antialiased font-sans">
+    <div id="root"></div>
+    <noscript>
+      <main style="max-width: 40rem; margin: 4rem auto; padding: 0 1rem; font-family: system-ui, sans-serif; line-height: 1.5">
+        <h1>Cardinal: Prometheus and Loki cardinality explorer</h1>
+        <p>
+          Cardinal shows which jobs, metrics and labels make up your active Prometheus series, and which services and
+          labels create your Loki log streams and volume. Pick what to drop, check where it is used, and export the result.
+        </p>
+        <ul>
+          <li>Series by job, metric and label, with churn and histogram bucket analysis</li>
+          <li>Log streams, labels, volume and repeated line patterns</li>
+          <li>Rules for Prometheus relabel configs, Grafana Alloy, Promtail and Grafana Adaptive Metrics and Logs</li>
+          <li>An MCP endpoint so an AI agent can analyse your data and propose rules</li>
+        </ul>
+        <p>Cardinal runs in your browser and needs JavaScript. The source is on <a href="https://github.com/TA3/cardinal">GitHub</a>.</p>
+      </main>
+    </noscript>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

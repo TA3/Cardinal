@@ -1,0 +1,11 @@
+# Cardinal
+
+> Cardinal finds what drives Prometheus series and Loki log streams, and turns it into rules that cut them.
+
+- Metrics: active series by job, metric and label; churn; histogram bucket analysis; usage in alerts and dashboards.
+- Logs: streams, labels, ingest volume and repeated line patterns from Loki.
+- Rules: exports Prometheus relabel configs, Grafana Alloy, Promtail and Loki limits, and applies Grafana Cloud Adaptive Metrics and Adaptive Logs.
+- Agents: an MCP endpoint lets an AI agent analyse the connected data and propose rules for review.
+- Everything runs in the browser; queries go straight to your backend or through a stateless proxy.
+
+Source: https://github.com/TA3/cardinal
