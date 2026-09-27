@@ -97,6 +97,5 @@ worker/       worker entry, proxy, sessions, MCP server
 ---
 
 <p align="center">
-  Made by <a href="https://ta3.dev">Taha</a>. Also check out <a href="https://use.observer">Observer</a>, status pages
-  from the same metrics.
+  Also check out <a href="https://use.observer">Observer</a>, status pages from the same metrics.
 </p>
