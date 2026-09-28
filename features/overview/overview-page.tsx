@@ -5,7 +5,6 @@ import {
   ChartLineIcon,
   CubeIcon,
   FunnelIcon,
-  LockKeyIcon,
   MagnifyingGlassIcon,
   RobotIcon,
   ShieldCheckIcon,
@@ -28,14 +27,16 @@ import { Kbd } from "@/components/ui/kbd"
 import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
+import { RuleDestinationStep } from "@/features/rules/destination"
 import { ChurnCard } from "@/features/churn/churn-card"
 import { SinceLastFrame } from "@/features/overview/since-last-frame"
+import { TopSavings } from "@/features/overview/top-savings"
 import { takeNextPath } from "@/app/continue-after-connect"
 import { ConnectGrafanaCard } from "@/features/grafana/connect-card"
 import { ConnectionForm } from "@/features/settings/connection-form"
 import {
   isAuthError,
-  useIsGrafanaCloud,
+  useMetricsTarget,
   useRefreshSnapshot,
   useRuleCounts,
   useSavings,
@@ -79,15 +80,15 @@ function Welcome() {
     if (next) navigate(next)
   }
   const steps = [
-    { icon: MagnifyingGlassIcon, title: "Find", text: "One snapshot shows which jobs, metrics and labels make up your active series." },
-    { icon: FunnelIcon, title: "Cut", text: "Pick what to drop with exact savings, then export relabel or Adaptive Metrics rules." },
-    { icon: RobotIcon, title: "Delegate", text: "Connect an AI agent over MCP to investigate and propose rules for you." },
+    { icon: MagnifyingGlassIcon, title: "Find", text: "See which jobs, metrics and labels drive your series." },
+    { icon: FunnelIcon, title: "Cut", text: "Pick drops with exact savings, then export config." },
+    { icon: RobotIcon, title: "Delegate", text: "Let an AI agent over MCP propose rules." },
   ]
   return (
     <Page>
       <PageHeader
         title="Connect a data source"
-        description="Cardinal reads active series from any Prometheus-compatible API. Queries run from this tab. In proxy mode they pass through Cardinal's Worker; nothing is stored."
+        description="Any Prometheus-compatible API. Queries run from this tab; nothing is stored."
       />
       <Stagger className="grid gap-4 lg:grid-cols-[1fr_20rem]">
         <Reveal>
@@ -211,11 +212,11 @@ function RulesFrame({ totalSeries }: { totalSeries: number }) {
     active.filter((rule) => rule.kind === kind).reduce((sum, rule) => sum + (rule.impact ? rule.impact.seriesBefore - rule.impact.seriesAfter : 0), 0)
   const metricDrops = active.filter((rule) => rule.kind === "drop_metric")
   const labelDrops = active.filter((rule) => rule.kind === "drop_labels")
-  const aggregation = active.filter((rule) => rule.impact?.mergesSeries).length
+  const undecided = active.filter((rule) => rule.kind === "drop_labels" && rule.impact?.mergesSeries && !rule.onMerge).length
 
   return (
     <Frame className="h-full">
-      <FrameHeader icon={ShieldCheckIcon} title="Rules" action={<FrameLink to={paths.rules} />} />
+      <FrameHeader icon={ShieldCheckIcon} title="Your plan" action={<FrameLink to={paths.rules}>Open</FrameLink>} />
       <FrameWell className="flex flex-col gap-3">
         <div className="flex items-baseline justify-between gap-3">
           <span className="text-2xl font-medium tracking-tight tabular-nums">
@@ -256,13 +257,11 @@ function RulesFrame({ totalSeries }: { totalSeries: number }) {
             <span className="tabular-nums">{counts.proposed}</span>
           </div>
         </div>
-        <p className="text-xs text-muted-foreground">
-          {aggregation
-            ? `${aggregation} label drop${aggregation === 1 ? "" : "s"} merge series and ship as Adaptive Metrics aggregations only.`
-            : active.length
-              ? "All rules can ship as relabel config."
-              : "Drop metrics or labels while exploring, or let an agent propose rules."}
-        </p>
+        {undecided ? (
+          <Link to={paths.rules} className="self-start text-xs text-brand-ink hover:underline">
+            {undecided} label drop{undecided === 1 ? " merges" : "s merge"} series: choose how
+          </Link>
+        ) : null}
       </FrameWell>
     </Frame>
   )
@@ -299,15 +298,15 @@ function LabelsFrame() {
 }
 
 const AGENT_FACTS = [
-  { icon: LockKeyIcon, text: "Queries run in this tab; your token never leaves it." },
-  { icon: ShieldCheckIcon, text: "It only proposes rules. Nothing changes until you accept." },
-  { icon: SparkleIcon, text: "Ask “what's driving my series count?” to start." },
+  { text: "Queries run in this tab; your token never leaves it." },
+  { text: "It only proposes rules. Nothing changes until you accept." },
+  { text: "Ask “what's driving my series count?” to start." },
 ]
 
 function AgentFrame() {
   const status = useAppStore((state) => state.agentStatus)
   const activity = useAppStore((state) => state.agentActivity)
-  const cloud = useIsGrafanaCloud()
+  const { adaptive: cloud } = useMetricsTarget()
   const live = status === "connected"
   return (
     <Frame className="h-full">
@@ -339,15 +338,16 @@ function AgentFrame() {
           </div>
         ) : (
           <div className="flex h-full flex-col gap-3 py-1 text-sm">
-            <p className="text-muted-foreground">Start an MCP session and let Claude find what to cut. It proposes; you decide.</p>
-            <ul className="flex flex-col gap-2 xl:flex-row xl:gap-8">
-              {AGENT_FACTS.map((fact) => (
-                <li key={fact.text} className="flex items-start gap-2.5">
-                  <fact.icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                  <span>{fact.text}</span>
-                </li>
-              ))}
-            </ul>
+            <p className="flex items-center gap-1 text-muted-foreground">
+              Let Claude find what to cut over MCP. It proposes; you decide.
+              <InfoTip label="How the agent works">
+                <ul className="flex flex-col gap-1">
+                  {AGENT_FACTS.map((fact) => (
+                    <li key={fact.text}>{fact.text}</li>
+                  ))}
+                </ul>
+              </InfoTip>
+            </p>
             <div className="mt-auto flex flex-wrap items-center gap-x-4 gap-y-2 pt-1">
               <Button asChild variant="outline" size="sm">
                 <Link to={paths.agent}>
@@ -439,7 +439,16 @@ function Dashboard({ snapshot }: { snapshot: Snapshot }) {
         }
       />
 
+      <RuleDestinationStep />
       <Stagger className="flex flex-col gap-4">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+          <Reveal className="min-w-0">
+            <TopSavings snapshot={snapshot} />
+          </Reveal>
+          <Reveal>
+            <RulesFrame totalSeries={snapshot.totalSeries} />
+          </Reveal>
+        </div>
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
           <Reveal>
             <StatFrame label="Active series" value={<AnimatedNumber value={snapshot.totalSeries} />} hint={<CostText series={snapshot.totalSeries} />} />
@@ -506,9 +515,6 @@ function Dashboard({ snapshot }: { snapshot: Snapshot }) {
               </FrameWell>
             </Frame>
           </Reveal>
-          <Reveal className="md:col-span-2 xl:col-span-1">
-            <RulesFrame totalSeries={snapshot.totalSeries} />
-          </Reveal>
           <Reveal>
             <LabelsFrame />
           </Reveal>
@@ -518,7 +524,7 @@ function Dashboard({ snapshot }: { snapshot: Snapshot }) {
           <Reveal>
             <ChurnCard />
           </Reveal>
-          <Reveal className="xl:col-span-3">
+          <Reveal>
             <AgentFrame />
           </Reveal>
         </div>

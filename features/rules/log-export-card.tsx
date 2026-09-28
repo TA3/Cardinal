@@ -6,19 +6,22 @@ import {
   CloudArrowUpIcon,
   CodeIcon,
   DownloadSimpleIcon,
+  CaretDownIcon,
+  CopyIcon,
   GitPullRequestIcon,
-  InfoIcon,
   ShieldCheckIcon,
+  SignpostIcon,
   WarningIcon,
 } from "@phosphor-icons/react"
+import { Link, useNavigate } from "react-router"
 import { toast } from "sonner"
 
+import { paths } from "@/app/paths"
 import { CodeBlock } from "@/components/code-block"
 import { formatCost, useBytesCost } from "@/components/cost-text"
 import { EmptyState } from "@/components/empty-state"
 import { Frame, FrameHeader, FrameWell } from "@/components/frame"
-import { SegmentedControl } from "@/components/segmented-control"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { InfoTip } from "@/components/info-tip"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,6 +35,13 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
 import { useLogUsageSummaries } from "@/features/rules/log-usage"
@@ -46,8 +56,9 @@ import {
   useStorageVersion,
 } from "@/features/rules/storage"
 import { Term } from "@/features/rules/term"
-import { connectionKey, useConnection } from "@/hooks/use-cardinality"
+import { connectionKey, useConnection, useLogsTarget } from "@/hooks/use-cardinality"
 import { copyText } from "@/lib/clipboard"
+import { LOGS_DESTINATIONS, type LogsExportFormat } from "@/lib/core/backend-profile"
 import {
   logApplyDiffs,
   planLogApply,
@@ -81,7 +92,7 @@ import {
 } from "@/lib/sources/adaptive-logs"
 import { useAppStore } from "@/lib/store/app-store"
 
-type Format = "alloy" | "promtail" | "limits" | "adaptive"
+type Format = LogsExportFormat
 
 const FORMAT_OPTIONS = [
   { value: "alloy", label: "Alloy" },
@@ -148,7 +159,18 @@ loki.write "default" {
   endpoint { url = "https://…/loki/api/v1/push" }
 }`
 
-function PasteInstructions({ format }: { format: Format }) {
+/** One line on where the config goes; the full steps sit behind "How to apply". */
+function ApplyGuide({ format, cloud }: { format: Format; cloud: boolean }) {
+  const line =
+    format === "adaptive"
+      ? cloud
+        ? "Apply above; what changes is kept for revert."
+        : "POST each entry to the Adaptive Logs drop-rules API."
+      : format === "limits"
+        ? "Merge into limits_config retention_stream (compactor retention on)."
+        : format === "alloy"
+          ? "Add the block to your Alloy config, before loki.write."
+          : "Append to pipeline_stages of each scrape config."
   const steps: React.ReactNode[] =
     format === "adaptive"
       ? [
@@ -186,12 +208,15 @@ function PasteInstructions({ format }: { format: Format }) {
               "Restart Promtail. (Promtail is in maintenance; Alloy takes the same stages as loki.process.)",
             ]
   return (
-    <Collapsible className="rounded-xl border border-well-border bg-background/40 text-xs">
-      <CollapsibleTrigger className="flex w-full items-center gap-1.5 rounded-xl px-3 py-2 text-left font-medium outline-none hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring/50">
-        <InfoIcon className="size-3.5 text-muted-foreground" aria-hidden />
-        Where to paste it
-      </CollapsibleTrigger>
-      <CollapsibleContent className="flex flex-col gap-2 px-3 pb-3">
+    <Collapsible className="text-xs">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+        <span className="text-muted-foreground">{line}</span>
+        <CollapsibleTrigger className="group/how inline-flex items-center gap-1 rounded-full font-medium outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring/50">
+          How to apply
+          <CaretDownIcon className="size-3 transition-transform group-data-[state=open]/how:rotate-180" aria-hidden />
+        </CollapsibleTrigger>
+      </div>
+      <CollapsibleContent className="mt-2 flex flex-col gap-2 rounded-xl border border-well-border bg-background/40 p-3">
         <ol className="flex list-decimal flex-col gap-1 pl-4 text-muted-foreground">
           {steps.map((step, index) => (
             <li key={index}>{step}</li>
@@ -203,20 +228,22 @@ function PasteInstructions({ format }: { format: Format }) {
   )
 }
 
+/** Rules this format can't carry, as one line with the reasons behind a "Why?". */
 function Notes({ warnings }: { warnings: string[] }) {
   if (!warnings.length) return null
+  const skipped = warnings.filter((warning) => warning.startsWith("Skipped")).length
   return (
-    <Alert>
-      <WarningIcon />
-      <AlertTitle>{warnings.length === 1 ? "1 note" : `${warnings.length} notes`}</AlertTitle>
-      <AlertDescription>
-        <ul className="flex list-disc flex-col gap-1 pl-4 text-xs">
+    <p className="flex items-center gap-1 text-xs text-brand-ink">
+      <WarningIcon className="size-3.5 shrink-0" aria-hidden />
+      {skipped ? `${skipped} rule${skipped === 1 ? "" : "s"} left out` : warnings.length === 1 ? "1 note" : `${warnings.length} notes`}
+      <InfoTip label={skipped ? "Why were rules left out?" : "Notes"}>
+        <ul className="flex list-disc flex-col gap-1 pl-4">
           {warnings.map((warning) => (
             <li key={warning}>{warning}</li>
           ))}
         </ul>
-      </AlertDescription>
-    </Alert>
+      </InfoTip>
+    </p>
   )
 }
 
@@ -422,35 +449,17 @@ function ApplyToAdaptiveLogs({ rules }: { rules: LogRule[] }) {
   const backupSize = backup ? backup.created.length + backup.updated.length + (backup.exemptions?.length ?? 0) : 0
 
   return (
-    <div className="flex flex-col gap-2">
-      {exemptions.length ? (
-        <div className="flex flex-col gap-1 rounded-xl border border-well-border bg-background/40 px-3 py-2 text-xs">
-          <span className="flex items-center gap-1.5 font-medium">
-            <ShieldCheckIcon className="size-3.5 text-muted-foreground" aria-hidden />
-            {exemptions.length} keep rule{exemptions.length === 1 ? "" : "s"} become exemptions on apply
-          </span>
-          <ul className="flex flex-col gap-0.5">
-            {exemptions.map((item) => (
-              <li key={item.stream_selector} className="min-w-0 truncate font-mono" title={item.reason}>
-                {item.stream_selector}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-      <div className="flex flex-wrap gap-2">
-        <Button disabled={pending || (rules.length === 0 && exemptions.length === 0)} onClick={() => void startReview()}>
-          {pending && !review && !revertOpen ? <Spinner data-icon="inline-start" /> : <CloudArrowUpIcon data-icon="inline-start" />}
-          Apply to Adaptive Logs
+    <>
+      <Button disabled={pending || (rules.length === 0 && exemptions.length === 0)} onClick={() => void startReview()}>
+        {pending && !review && !revertOpen ? <Spinner data-icon="inline-start" /> : <CloudArrowUpIcon data-icon="inline-start" />}
+        Apply to Grafana Cloud
+      </Button>
+      {backup ? (
+        <Button variant="ghost" disabled={pending} onClick={() => setRevertOpen(true)}>
+          <ArrowCounterClockwiseIcon data-icon="inline-start" />
+          Revert last apply
         </Button>
-        {backup ? (
-          <Button variant="outline" disabled={pending} onClick={() => setRevertOpen(true)}>
-            <ArrowCounterClockwiseIcon data-icon="inline-start" />
-            Revert last apply
-          </Button>
-        ) : null}
-      </div>
-      <AdaptiveLogsUiLink />
+      ) : null}
       <AlertDialog open={Boolean(review)} onOpenChange={(open) => !open && setReview(null)}>
         <AlertDialogContent className="sm:max-w-xl">
           <AlertDialogHeader>
@@ -532,7 +541,31 @@ function ApplyToAdaptiveLogs({ rules }: { rules: LogRule[] }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </>
+  )
+}
+
+/** Keep rules that become Adaptive Logs exemptions on the next apply. */
+function ExemptionsNote({ rules }: { rules: LogRule[] }) {
+  const exemptions = React.useMemo(() => compileAdaptiveLogs(rules).exemptions, [rules])
+  return (
+    <>
+      {exemptions.length ? (
+        <div className="flex flex-col gap-1 rounded-xl border border-well-border bg-background/40 px-3 py-2 text-xs">
+          <span className="flex items-center gap-1.5 font-medium">
+            <ShieldCheckIcon className="size-3.5 text-muted-foreground" aria-hidden />
+            {exemptions.length} keep rule{exemptions.length === 1 ? "" : "s"} become exemptions on apply
+          </span>
+          <ul className="flex flex-col gap-0.5">
+            {exemptions.map((item) => (
+              <li key={item.stream_selector} className="min-w-0 truncate font-mono" title={item.reason}>
+                {item.stream_selector}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </>
   )
 }
 
@@ -544,13 +577,36 @@ function compile(format: Format, rules: LogRule[], range: string | undefined, no
   return compileAdaptiveLogs(rules, options)
 }
 
-/** Rules → Export under Logs: collector stages, Loki limits or Adaptive Logs drop rules, plus apply on Grafana Cloud. */
-export function LogExportCard({ rules }: { rules: LogRule[] }) {
+export interface LogsExport {
+  format: Format
+  /** The destination's main format. */
+  primary: Format
+  /** Every format worth offering here. */
+  options: Format[]
+  destinationLabel: string
+  text: string
+  fileName: string
+  empty: boolean
+  warnings: string[]
+  emitted: LogRule[]
+  rules: LogRule[]
+  /** Adaptive Logs only: what it can't carry (label moves and drops) as Alloy stages. */
+  relabel: { text: string; count: number } | null
+  /** Apply is possible (a Grafana Cloud Loki connection). */
+  cloud: boolean
+  copyPr: () => Promise<void>
+}
+
+/** The logs plan's export for the destination's main format, or another one picked under "Other formats". */
+export function useLogsExport(rules: LogRule[], override: Format | null): LogsExport {
   const snapshot = useAppStore((state) => state.logsSnapshot)
   const connection = useConnection("logs")
   const cloud = connection ? hasAdaptiveLogs(connection) : false
+  const { formats, destination, available } = useLogsTarget()
   const { cost } = useBytesCost()
-  const [format, setFormat] = React.useState<Format>(cloud ? "adaptive" : "alloy")
+  const options: Format[] = available ? ["adaptive", "alloy", "promtail", "limits"] : ["alloy", "promtail", "limits"]
+  const primary = formats[0]
+  const format: Format = override && options.includes(override) ? override : primary
   const generatedAt = React.useMemo(() => new Date(), [rules, format]) // eslint-disable-line react-hooks/exhaustive-deps
   const range = snapshot?.range
 
@@ -559,11 +615,16 @@ export function LogExportCard({ rules }: { rules: LogRule[] }) {
     const { rules: selected, keeps } = compilableRules(rules, SUPPORTED[format], TARGET_NAMES[format])
     return { emitted: format === "adaptive" ? selected.filter((rule) => rule.selector.matchers.length > 0) : selected, keeps }
   }, [rules, format])
+  const relabel = React.useMemo(() => {
+    if (format !== "adaptive") return null
+    const carried = new Set(emitted.map((rule) => rule.id))
+    const rest = rules.filter((rule) => rule.kind !== "keep" && !carried.has(rule.id) && SUPPORTED.alloy.includes(rule.kind))
+    if (!rest.length) return null
+    return { text: compile("alloy", [...rest, ...rules.filter((rule) => rule.kind === "keep")], range, generatedAt).text, count: rest.length }
+  }, [format, emitted, rules, range, generatedAt])
   const { summaries } = useLogUsageSummaries(emitted, emitted.length > 0)
   const empty =
-    format === "adaptive"
-      ? result.text.trim() === "[]"
-      : /^(\/\/ No log rules|# No retention rules|pipeline_stages: \[\])/.test(result.text)
+    format === "adaptive" ? result.text.trim() === "[]" : /^(\/\/ No log rules|# No retention rules|pipeline_stages: \[\])/.test(result.text)
   const rangeDays = snapshot ? LOGS_RANGE_SECONDS[snapshot.range] / 86400 : 1
 
   const copyPr = async () => {
@@ -588,58 +649,166 @@ export function LogExportCard({ rules }: { rules: LogRule[] }) {
     }
   }
 
+  return {
+    format,
+    primary,
+    options,
+    destinationLabel: LOGS_DESTINATIONS[destination].label,
+    text: result.text,
+    fileName: FILE_NAMES[format],
+    empty,
+    warnings: result.warnings,
+    emitted,
+    rules,
+    relabel,
+    cloud: format === "adaptive" && cloud,
+    copyPr,
+  }
+}
+
+async function copyConfig(text: string, what: string) {
+  try {
+    await copyText(text)
+    toast.success(`${what} copied`)
+  } catch {
+    toast.error(`Could not copy the ${what.toLowerCase()}`)
+  }
+}
+
+const FORMAT_LABEL: Record<Format, string> = Object.fromEntries(FORMAT_OPTIONS.map((option) => [option.value, option.label])) as Record<Format, string>
+
+/** The logs plan's one primary action (Copy config, or Apply to Grafana Cloud), a secondary one, and other formats in a menu. */
+export function LogPlanActions({ exp, onFormat }: { exp: LogsExport; onFormat: (format: Format | null) => void }) {
+  const navigate = useNavigate()
+  const mime = exp.format === "adaptive" ? "application/json" : "text/plain"
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {exp.cloud ? (
+        <>
+          <ApplyToAdaptiveLogs rules={exp.rules} />
+          {exp.relabel ? (
+            <Button variant="outline" onClick={() => void copyConfig(exp.relabel!.text, "Alloy config")}>
+              <CopyIcon data-icon="inline-start" />
+              Copy Alloy part
+            </Button>
+          ) : null}
+        </>
+      ) : (
+        <>
+          <Button disabled={exp.empty} onClick={() => void copyConfig(exp.text, "Config")}>
+            <CopyIcon data-icon="inline-start" />
+            Copy config
+          </Button>
+          <Button variant="outline" disabled={exp.empty} onClick={() => downloadFile(exp.fileName, exp.text, mime)}>
+            <DownloadSimpleIcon data-icon="inline-start" />
+            Download
+          </Button>
+        </>
+      )}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost">
+            Other formats
+            <CaretDownIcon data-icon="inline-end" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-60">
+          {exp.options
+            .filter((format) => format !== exp.format)
+            .map((format) => (
+              <DropdownMenuItem key={format} onSelect={() => onFormat(format === exp.primary ? null : format)}>
+                <CodeIcon />
+                {format === exp.primary ? `Back to ${FORMAT_LABEL[format]}` : `Show as ${FORMAT_LABEL[format]}`}
+              </DropdownMenuItem>
+            ))}
+          <DropdownMenuSeparator />
+          {exp.cloud ? (
+            <DropdownMenuItem disabled={exp.empty} onSelect={() => downloadFile(exp.fileName, exp.text, mime)}>
+              <DownloadSimpleIcon />
+              Download {exp.fileName.slice(exp.fileName.lastIndexOf("."))}
+            </DropdownMenuItem>
+          ) : null}
+          <DropdownMenuItem disabled={exp.emitted.length === 0} onSelect={() => void exp.copyPr()}>
+            <GitPullRequestIcon />
+            Copy PR description
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => navigate(`${paths.settings}#rule-destination`)}>
+            <SignpostIcon />
+            Change where rules go…
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  )
+}
+
+/** The logs plan's config: what the format carries, left-out notes, and how to apply it. */
+export function LogExportCard({ exp, onFormat }: { exp: LogsExport; onFormat: (format: Format | null) => void }) {
+  const connection = useConnection("logs")
+  const { format, rules } = exp
   return (
     <Frame>
-      <FrameHeader icon={CodeIcon} title="Export" meta={format === "adaptive" ? "drop rules" : format === "limits" ? "retention" : "pipeline stages"} />
+      <FrameHeader
+        icon={CodeIcon}
+        title="Config"
+        meta={format === "adaptive" ? "drop rules" : format === "limits" ? "retention" : "pipeline stages"}
+        action={
+          <InfoTip label="Where it runs" className="-my-1">
+            <WhereItRuns format={format} />
+          </InfoTip>
+        }
+      />
       <FrameWell className="flex flex-col gap-3 py-4">
-        <SegmentedControl stretch aria-label="Export format" value={format} onValueChange={setFormat} options={FORMAT_OPTIONS} />
-        <p className="text-xs text-pretty text-muted-foreground">
-          <WhereItRuns format={format} />
-        </p>
-        <Notes warnings={result.warnings} />
-        {empty ? (
+        {format !== exp.primary ? (
+          <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+            Showing {FORMAT_LABEL[format]}
+            <button type="button" className="text-foreground underline-offset-2 hover:underline" onClick={() => onFormat(null)}>
+              Back to {FORMAT_LABEL[exp.primary]}
+            </button>
+          </p>
+        ) : null}
+        <Notes warnings={exp.warnings} />
+        {format === "adaptive" ? <ExemptionsNote rules={rules} /> : null}
+        {exp.empty ? (
           <EmptyState
             compact
             icon={CodeIcon}
             title={rules.length ? "Nothing to export in this format" : "Nothing to export yet"}
-            description={
-              rules.length
-                ? format === "limits"
-                  ? "Only retention rules become Loki limits."
-                  : "None of the active rules can ship this way; see the notes above."
-                : "Active log rules turn into Alloy or Promtail stages, Loki retention or Adaptive Logs drop rules here."
-            }
+            description={rules.length && format === "limits" ? "Only retention rules become Loki limits." : undefined}
             className="rounded-2xl border border-dashed border-well-border bg-background/40"
           />
         ) : (
           <>
-            <CodeBlock code={result.text} className="[&_pre]:break-normal [&_pre]:whitespace-pre" />
-            <div className="flex flex-wrap gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => downloadFile(FILE_NAMES[format], result.text, format === "adaptive" ? "application/json" : "text/plain")}
-              >
-                <DownloadSimpleIcon data-icon="inline-start" />
-                Download {FILE_NAMES[format].slice(FILE_NAMES[format].lastIndexOf("."))}
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => void copyPr()}>
-                <GitPullRequestIcon data-icon="inline-start" />
-                Copy PR description
-              </Button>
-            </div>
-            <PasteInstructions format={format} />
+            <CodeBlock code={exp.text} className="[&_pre]:break-normal [&_pre]:whitespace-pre" />
+            <ApplyGuide format={format} cloud={exp.cloud} />
           </>
         )}
+        {exp.relabel ? (
+          <Collapsible className="text-xs">
+            <CollapsibleTrigger className="group/rl inline-flex items-center gap-1 font-medium outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring/50">
+              Alloy part · {exp.relabel.count} rule{exp.relabel.count === 1 ? "" : "s"}
+              <CaretDownIcon className="size-3 transition-transform group-data-[state=open]/rl:rotate-180" aria-hidden />
+            </CollapsibleTrigger>
+            <CollapsibleContent className="mt-2">
+              <CodeBlock code={exp.relabel.text} className="[&_pre]:break-normal [&_pre]:whitespace-pre" />
+            </CollapsibleContent>
+          </Collapsible>
+        ) : null}
         {format === "adaptive" ? (
-          cloud ? (
-            <ApplyToAdaptiveLogs rules={rules} />
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              Apply needs a Grafana Cloud Loki connection (https://logs-prod-….grafana.net) with an adaptive-logs:admin token; a Grafana data
-              source proxy can't reach the Adaptive Logs API.
+          exp.cloud ? (
+            <AdaptiveLogsUiLink />
+          ) : connection ? (
+            <p className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+              <Link to={`${paths.settings}#logs-connection`} className="text-foreground underline-offset-2 hover:underline">
+                Connect Grafana Cloud Loki directly
+              </Link>
+              to apply
+              <InfoTip label="Why?">
+                Apply needs a Grafana Cloud Loki connection (https://logs-prod-….grafana.net) with an adaptive-logs:admin token; a Grafana data
+                source proxy can't reach the Adaptive Logs API.
+              </InfoTip>
             </p>
-          )
+          ) : null
         ) : null}
       </FrameWell>
     </Frame>

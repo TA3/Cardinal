@@ -12,6 +12,7 @@ import { toast } from "sonner"
 import { rulesPath } from "@/app/paths"
 import { useCopy } from "@/components/code-block"
 import { CostText } from "@/components/cost-text"
+import { InfoTip } from "@/components/info-tip"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -194,7 +195,7 @@ function Estimate({
   label: React.ReactNode
   saved: number
   before: number
-  hint: React.ReactNode
+  hint?: React.ReactNode
 }) {
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-0.5 rounded-2xl border border-well-border bg-background/50 px-3 py-2 [corner-shape:squircle]">
@@ -210,9 +211,32 @@ function Estimate({
         </span>
       </span>
       <CostText series={saved} suffix="saved" />
-      <span className="text-xs text-pretty text-muted-foreground">{hint}</span>
+      {hint ? (
+        <span className="text-xs text-pretty text-muted-foreground">
+          {hint}
+        </span>
+      ) : null}
     </div>
   )
+}
+
+/** How the buckets were picked: a line of text, or a "Why?" in compact mode. */
+function SuggestionNote({
+  compact,
+  children,
+}: {
+  compact: boolean
+  children: React.ReactNode
+}) {
+  if (compact) {
+    return (
+      <span className="flex items-center gap-1 text-xs text-muted-foreground">
+        Why these buckets?
+        <InfoTip label="Why these buckets?">{children}</InfoTip>
+      </span>
+    )
+  }
+  return <p className="text-xs text-pretty text-muted-foreground">{children}</p>
 }
 
 /**
@@ -382,7 +406,7 @@ export function HistogramDetail({
           unit={unit}
           onToggle={toggle}
         />
-        <p className="text-xs text-pretty text-muted-foreground">
+        <SuggestionNote compact={compact}>
           {loading
             ? "Loading the bucket distribution…"
             : suggestion.fromDistribution
@@ -394,14 +418,24 @@ export function HistogramDetail({
           {usage.les.length
             ? ` Rules read le=${usage.les.map((le) => `"${le}"`).join(", ")} directly; those stay.`
             : ""}
-        </p>
+        </SuggestionNote>
       </div>
 
       {precision ? (
         <div className="flex flex-col gap-2">
-          <span className="text-sm font-medium">Precision impact</span>
+          <span className="flex items-center gap-1 text-sm font-medium">
+            Precision impact
+            {compact && band ? (
+              <InfoTip label="Why does precision change?">
+                Widest remaining band with observations:{" "}
+                {bandText(band.lower, band.upper, unit)}. histogram_quantile
+                interpolates linearly inside a bucket, so a quantile there can
+                land anywhere in it.
+              </InfoTip>
+            ) : null}
+          </span>
           <PrecisionTable rows={precision} unit={unit} />
-          {band ? (
+          {band && !compact ? (
             <p className="text-xs text-muted-foreground">
               Widest remaining band with observations:{" "}
               {bandText(band.lower, band.upper, unit)} (
@@ -429,7 +463,11 @@ export function HistogramDetail({
           label="Bucket reduction (estimate)"
           saved={reduction.saved}
           before={family.bucketSeries}
-          hint={`Drops ${dropped} bucket series per label set. A relabel rule, so no client change.`}
+          hint={
+            compact
+              ? undefined
+              : `Drops ${dropped} bucket series per label set. A relabel rule, so no client change.`
+          }
         />
         <Estimate
           label={
@@ -455,9 +493,11 @@ export function HistogramDetail({
           saved={native.saved}
           before={family.familySeries}
           hint={
-            family.alsoNative
-              ? "Already scraped as native too: turning off classic scraping realises this."
-              : `${formatNumber(family.labelSets)} label sets × (${family.les.length} + 2) → ~${formatNumber(native.seriesAfter)}. Needs client and query changes.`
+            compact
+              ? undefined
+              : family.alsoNative
+                ? "Already scraped as native too: turning off classic scraping realises this."
+                : `${formatNumber(family.labelSets)} label sets × (${family.les.length} + 2) → ~${formatNumber(native.seriesAfter)}. Needs client and query changes.`
           }
         />
       </div>

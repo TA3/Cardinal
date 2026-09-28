@@ -3,7 +3,10 @@ import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/
 import { toast } from "sonner"
 
 import { computeExpectedSavings } from "@/lib/cardinality/dashboard-helpers"
+import { effectiveLogsDestination, effectiveMetricsDestination, hasAdaptive, logsFormatsFor, profileFor } from "@/lib/core/backend-profile"
 import { fetchRecommendations, isGrafanaCloud } from "@/lib/sources/adaptive-metrics"
+import { hasAdaptiveLogs } from "@/lib/sources/adaptive-logs"
+import { detectBackend } from "@/lib/sources/backend"
 import {
   fetchJobDrilldown,
   fetchMetricDrilldown,
@@ -64,6 +67,74 @@ export function useNeedsToken() {
 export function useIsGrafanaCloud() {
   const connection = useConnection()
   return connection ? isGrafanaCloud(connection) : false
+}
+
+/** The detected backend of the metrics connection; null until detected (or when disconnected). */
+export function useBackendProfile() {
+  const profile = useAppStore((state) => state.backendProfile)
+  const baseUrl = useAppStore((state) => state.settings.baseUrl)
+  return React.useMemo(() => profileFor(profile, baseUrl), [profile, baseUrl])
+}
+
+/**
+ * Detects the backend once per metrics connection and stores it. Mounted once
+ * in the shell; the result lives in the store (backendProfile).
+ */
+export function useBackendDetection() {
+  const connection = useConnection()
+  const profile = useBackendProfile()
+  const { data } = useQuery({
+    queryKey: ["backend-profile", connectionKey(connection)],
+    enabled: Boolean(connection) && !profile,
+    queryFn: ({ signal }) => detectBackend(connection!, signal),
+    retry: false,
+    staleTime: Infinity,
+  })
+  React.useEffect(() => {
+    if (!data || profile) return
+    const { settings, setBackendProfile, log } = useAppStore.getState()
+    if (!profileFor(data, settings.baseUrl)) return
+    setBackendProfile(data)
+    log(`Detected ${data.kind}${data.version ? ` ${data.version}` : ""} at ${data.baseUrl}`)
+  }, [data, profile])
+}
+
+/**
+ * Where metric rules go and whether Adaptive Metrics applies. Adaptive shows
+ * only on Grafana Cloud (by profile, or by a hosted URL before detection ends).
+ */
+export function useMetricsTarget() {
+  const profile = useBackendProfile()
+  const chosen = useAppStore((state) => state.ruleDestinations.metrics)
+  const cloudUrl = useIsGrafanaCloud()
+  const effective = profile ?? (cloudUrl ? { kind: "grafana-cloud" as const } : null)
+  return {
+    profile,
+    destination: effectiveMetricsDestination(chosen, effective),
+    /** True once the user picked a destination (else the backend's default applies). */
+    chosen: chosen !== undefined,
+    adaptive: hasAdaptive(effective),
+  }
+}
+
+/** Adaptive Logs is available: a hosted Grafana Cloud Loki URL, or a Grafana Cloud metrics backend (the same stack). */
+export function useLogsAdaptiveAvailable() {
+  const logs = useConnection("logs")
+  const { adaptive } = useMetricsTarget()
+  return (logs ? hasAdaptiveLogs(logs) : false) || adaptive
+}
+
+/** Where log rules go; Grafana Cloud (Adaptive Logs) is only offered when available. */
+export function useLogsTarget() {
+  const available = useLogsAdaptiveAvailable()
+  const chosen = useAppStore((state) => state.ruleDestinations.logs)
+  const destination = effectiveLogsDestination(chosen, available)
+  return { destination, chosen: chosen !== undefined, available, formats: logsFormatsFor(destination) }
+}
+
+/** Adaptive Logs applies: rules go to Grafana Cloud. Everything Adaptive Logs in the UI follows this. */
+export function useLogsAdaptive() {
+  return useLogsTarget().destination === "grafana-cloud"
 }
 
 const REFRESH_KEY = ["refresh-snapshot"]

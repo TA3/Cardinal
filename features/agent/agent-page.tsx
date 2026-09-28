@@ -77,7 +77,7 @@ function StartCard() {
         framed
         icon={RobotIcon}
         title="Let an agent find what to cut"
-        description="Start a session to get a private MCP endpoint. Add it to Claude Code, Claude Desktop or any MCP client and ask it to review your cardinality."
+        description="Start a session for a private MCP endpoint, then add it to Claude Code or any MCP client."
       >
         {connection ? (
           <Button onClick={() => void start()} disabled={pending}>

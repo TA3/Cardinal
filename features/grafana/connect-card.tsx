@@ -11,7 +11,7 @@ export function ConnectGrafanaCard() {
     <Frame>
       <FrameHeader icon={SquaresFourIcon} title="Grafana" meta="One step" />
       <FrameWell className="flex flex-col gap-3 text-sm text-muted-foreground">
-        <p>Connect metrics and logs from its data sources, and optionally scan its dashboards. Or use the form: each signal can have its own backend.</p>
+        <p>Metrics and logs from one Grafana&apos;s data sources.</p>
         <Button type="button" variant="outline" className="self-start" onClick={openGrafanaConnect}>
           <PlugsConnectedIcon data-icon="inline-start" />
           Connect Grafana

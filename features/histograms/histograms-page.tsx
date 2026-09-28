@@ -12,6 +12,7 @@ import { metricPath } from "@/app/paths"
 import { CostText } from "@/components/cost-text"
 import { EmptyState } from "@/components/empty-state"
 import { Frame, FrameHeader, FrameWell, StatFrame } from "@/components/frame"
+import { InfoTip } from "@/components/info-tip"
 import { AnimatedNumber } from "@/components/motion"
 import { Page, PageHeader } from "@/components/page"
 import { RequireSnapshot } from "@/components/require-snapshot"
@@ -209,9 +210,11 @@ function NativeCard({
             limit).
           </p>
         ) : native.length === 0 ? (
-          <p className="text-xs text-pretty text-muted-foreground">
-            No native histograms found. Every histogram here is classic: one
-            series per bucket, plus _sum and _count.
+          <p className="flex items-center gap-1 text-xs text-muted-foreground">
+            None: every histogram here is classic
+            <InfoTip label="What is a classic histogram?">
+              One series per bucket, plus _sum and _count.
+            </InfoTip>
           </p>
         ) : (
           <ul className="flex flex-col gap-1">
@@ -477,20 +480,25 @@ function HistogramsView({ snapshot }: { snapshot: Snapshot }) {
         <Frame>
           <FrameHeader icon={InfoIcon} title="Which one?" />
           <FrameWell className="flex flex-col gap-2 text-xs text-pretty text-muted-foreground">
-            <p>
+            <p className="flex items-center gap-1">
               <span className="font-medium text-foreground">
-                Keep fewer buckets
+                Keep fewer buckets:
               </span>{" "}
-              is a relabel rule: no code change, and quantiles near the kept
-              buckets stay accurate. Buckets your rules query are kept.
+              no code change
+              <InfoTip label="About keeping fewer buckets">
+                A relabel rule: quantiles near the kept buckets stay accurate.
+                Buckets your rules query are kept.
+              </InfoTip>
             </p>
-            <p>
+            <p className="flex items-center gap-1">
               <span className="font-medium text-foreground">
-                Native histograms
+                Native histograms:
               </span>{" "}
-              cut far more and have finer resolution, but need client library
-              support, protobuf scraping (Prometheus 2.40+) and query changes.
-              Grafana Cloud may bill them differently.
+              cut more, need code changes
+              <InfoTip label="About native histograms">
+                Finer resolution, but they need client library support,
+                protobuf scraping (Prometheus 2.40+) and query changes.
+              </InfoTip>
             </p>
             {data?.partial ? (
               <p>

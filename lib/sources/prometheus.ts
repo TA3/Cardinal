@@ -1,7 +1,8 @@
 import { runWithConcurrency } from "@/lib/core/concurrency"
 import { jobLabel } from "@/lib/core/jobs"
 import { queries, quoteLabelValue, selector, type SeriesSelector } from "@/lib/core/promql"
-import type { Rule, RuleImpact } from "@/lib/core/rules"
+import { histogramFamily } from "@/lib/core/families"
+import type { DropLabelsRule, Rule, RuleImpact } from "@/lib/core/rules"
 import { buildJobDrilldownFromRows, buildSnapshotFromRows, type Snapshot } from "@/lib/core/snapshot"
 import { HttpError, sendJson, type Connection } from "@/lib/sources/transport"
 import type {
@@ -326,25 +327,61 @@ export async function fetchSeriesByJob(connection: Connection, metric: string, s
     .sort((a, b) => b.seriesCount - a.seriesCount)
 }
 
-/** Exact impact: counts series before and after the rule with PromQL. */
+/**
+ * Exact impact: counts series before and after the rule with PromQL. A label
+ * drop keeping one value per label counts the series it keeps; `mergesSeries`
+ * always says whether dropping the labels outright would merge series.
+ */
 export async function measureImpact(
   connection: Connection,
-  rule: Pick<Rule, "kind" | "selector"> & { labels?: string[] },
+  rule: Pick<Rule, "kind" | "selector"> & Partial<Pick<DropLabelsRule, "labels" | "onMerge" | "keepValues">>,
   signal?: AbortSignal
 ): Promise<RuleImpact> {
   const sel: SeriesSelector = { metric: rule.selector.metric, matchers: jobMatchers(rule.selector.job) }
-  const seriesBefore = await scalarCount(connection, queries.seriesCount(sel), signal)
-  let seriesAfter = 0
-  if (rule.kind === "drop_labels" && rule.labels?.length) {
-    seriesAfter = await scalarCount(connection, queries.seriesWithoutLabels(sel, rule.labels), signal)
-  }
+  const labelDrop = rule.kind === "drop_labels" && Boolean(rule.labels?.length)
+  const keep = rule.onMerge === "keep_value" && rule.keepValues && Object.keys(rule.keepValues).length ? rule.keepValues : null
+  const [seriesBefore, merged, kept] = await Promise.all([
+    scalarCount(connection, queries.seriesCount(sel), signal),
+    labelDrop ? scalarCount(connection, queries.seriesWithoutLabels(sel, rule.labels!), signal) : Promise.resolve(0),
+    labelDrop && keep ? scalarCount(connection, queries.seriesKeeping(sel, keep), signal) : Promise.resolve(null),
+  ])
   return {
     seriesBefore,
-    seriesAfter,
+    seriesAfter: kept ?? merged,
     exact: true,
-    mergesSeries: rule.kind === "drop_labels" && seriesAfter < seriesBefore,
+    mergesSeries: labelDrop && merged < seriesBefore,
     measuredAt: new Date().toISOString(),
   }
+}
+
+/** A group of series that would become one: the labels they share, and how many there are. */
+export interface MergeGroup {
+  labels: Record<string, string>
+  series: number
+}
+
+/** A few concrete groups that dropping `labels` would merge, largest first (one bounded topk query). */
+export async function fetchMergeGroups(
+  connection: Connection,
+  target: { metric: string; job?: string; labels: string[] },
+  options: { limit?: number; signal?: AbortSignal } = {}
+): Promise<MergeGroup[]> {
+  const sel: SeriesSelector = { metric: target.metric, matchers: jobMatchers(target.job) }
+  const rows = await instant(connection, queries.mergeGroups(sel, target.labels, options.limit ?? 3), options.signal)
+  return rows.map((row) => ({ labels: row.metric, series: Number(row.value[1]) || 0 })).sort((a, b) => b.series - a.series)
+}
+
+export type MetricType = "counter" | "gauge" | "histogram" | "gaugehistogram" | "summary" | "info" | "stateset" | "unknown"
+
+/** The metric's type from /api/v1/metadata (histogram and summary parts use their family's name); "unknown" when not reported. */
+export async function fetchMetricType(connection: Connection, metric: string, signal?: AbortSignal): Promise<MetricType> {
+  const names = Array.from(new Set([metric, histogramFamily(metric).base]))
+  for (const name of names) {
+    const data = await api<Record<string, Array<{ type?: string }>>>(connection, "/metadata", { metric: name, limit: "1" }, signal)
+    const type = data[name]?.[0]?.type
+    if (type) return type as MetricType
+  }
+  return "unknown"
 }
 
 interface RulesResponse {

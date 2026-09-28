@@ -3,6 +3,14 @@ import { create } from "zustand"
 import { createJSONStorage, persist, type StateStorage } from "zustand/middleware"
 
 import type { CreatedSession } from "@/lib/agent/protocol"
+import {
+  isLogsDestination,
+  isMetricsDestination,
+  type BackendProfile,
+  type LogsDestination,
+  type MetricsDestination,
+  type RuleDestinations,
+} from "@/lib/core/backend-profile"
 import type { RelabelMode } from "@/lib/core/compile/plan"
 import {
   activateOrCreate,
@@ -10,6 +18,7 @@ import {
   mergeRules,
   ruleKey,
   sortUnique,
+  type MergeChoice,
   type Rule,
   type RuleImpact,
   type RuleSelector,
@@ -41,6 +50,8 @@ export interface ConnectionSettings {
   /** Mimir tenant (X-Scope-OrgID); used by the "mimir" auth mode. */
   tenant: string
   mode: TransportMode
+  /** The user picked `mode` under Advanced; otherwise it is chosen automatically on connect (direct, then proxy). */
+  modeManual?: boolean
   /** When false the token is kept in memory only. */
   rememberToken: boolean
   topN: number
@@ -67,6 +78,8 @@ export interface GrafanaSettings {
   /** Service account token (Viewer is enough to read); empty for anonymous access. Kept in memory unless rememberToken. */
   token: string
   mode: TransportMode
+  /** The user picked `mode`; otherwise Connect Grafana chooses it (direct, then proxy). */
+  modeManual?: boolean
   rememberToken: boolean
   /** Data source picked per signal on the last Connect Grafana run (null = don't use Grafana for it). Reset when the URL changes. */
   choices: RememberedChoices
@@ -186,6 +199,16 @@ interface AppState {
   setRuleImpact: (id: string, impact: RuleImpact | undefined) => void
   invalidateImpacts: () => void
   setRelabelMode: (mode: RelabelMode) => void
+  /** Sets how a label drop that merges series is handled ("keep_value" with the value kept per label). */
+  setRuleMerge: (id: string, onMerge: MergeChoice | undefined, keepValues?: Record<string, string>) => void
+
+  /** What the metrics connection is (Prometheus, Mimir, Grafana Cloud…), detected on connect. Stale once `baseUrl` differs. */
+  backendProfile: BackendProfile | null
+  setBackendProfile: (profile: BackendProfile | null) => void
+  /** Where rules go, per signal; unset until the user picks (the backend's default applies meanwhile). */
+  ruleDestinations: RuleDestinations
+  setMetricsDestination: (destination: MetricsDestination) => void
+  setLogsDestination: (destination: LogsDestination) => void
 
   setAgentSession: (session: CreatedSession | null) => void
   setAgentStatus: (status: AgentLinkStatus) => void
@@ -386,6 +409,10 @@ function withoutLogImpacts(rules: LogRule[]) {
   return rules.some((rule) => rule.impact) ? rules.map((rule) => (rule.impact ? { ...rule, impact: undefined } : rule)) : rules
 }
 
+function pick(values: Record<string, string> | undefined, keys: string[]) {
+  return values ? Object.fromEntries(Object.entries(values).filter(([key]) => keys.includes(key))) : undefined
+}
+
 function labelsOf(rule: Rule | undefined) {
   return rule?.kind === "drop_labels" ? rule.labels : []
 }
@@ -430,7 +457,7 @@ function toggleLabel(rules: Rule[], metric: string, label: string, job: string |
     const labels = active.labels.filter((item) => item !== label)
     return labels.length === 0
       ? rules.filter((rule) => rule !== active)
-      : rules.map((rule) => (rule === active ? { ...active, labels, impact: undefined } : rule))
+      : rules.map((rule) => (rule === active ? { ...active, labels, impact: undefined, keepValues: pick(active.keepValues, labels) } : rule))
   }
   // Turning on: the label moves out of any pending or rejected rule into the active one.
   const pending = same.find((rule) => rule.status !== "active" && labelsOf(rule).includes(label))
@@ -439,7 +466,8 @@ function toggleLabel(rules: Rule[], metric: string, label: string, job: string |
   }
   const next = rules.flatMap((rule): Rule[] => {
     if (rule.kind !== "drop_labels" || !same.includes(rule)) return [rule]
-    if (rule === active) return [{ ...rule, labels: sortUnique([...rule.labels, label]), impact: undefined }]
+    // A new label changes what merges: the merge choice is asked (or defaulted) again.
+    if (rule === active) return [{ ...rule, labels: sortUnique([...rule.labels, label]), impact: undefined, onMerge: undefined, keepValues: undefined }]
     if (!rule.labels.includes(label)) return [rule]
     const labels = rule.labels.filter((item) => item !== label)
     return labels.length ? [{ ...rule, labels, impact: undefined }] : []
@@ -478,10 +506,13 @@ function migrateSnapshot(snapshot: Snapshot | null | undefined) {
   }
 }
 
-function migrateRules(rules: Rule[] | undefined) {
-  return (rules ?? []).map((rule) =>
-    rule.selector.job === LEGACY_NO_JOB ? { ...rule, selector: { ...rule.selector, job: "" } } : rule
-  )
+function migrateRules(rules: Rule[] | undefined, version: number) {
+  return (rules ?? []).map((rule): Rule => {
+    const fixed = rule.selector.job === LEGACY_NO_JOB ? { ...rule, selector: { ...rule.selector, job: "" } } : rule
+    const adaptive = fixed.origin === "import" && fixed.rationale?.startsWith("Adaptive Metrics recommendation")
+    if (version < 9 && fixed.kind === "drop_labels" && !fixed.onMerge && adaptive) return { ...fixed, onMerge: "aggregate" }
+    return fixed
+  })
 }
 
 type PersistedState = Partial<
@@ -505,6 +536,8 @@ type PersistedState = Partial<
     | "logRules"
     | "grafanaSettings"
     | "grafanaLinks"
+    | "backendProfile"
+    | "ruleDestinations"
   >
 > & {
   snapshotOmitted?: boolean
@@ -600,6 +633,8 @@ export const useAppStore = create<AppState>()(
           logRules: [],
           grafanaSettings: DEFAULT_GRAFANA_SETTINGS,
           grafanaLinks: {},
+          backendProfile: null,
+          ruleDestinations: {},
         }),
 
       toggleDropMetric: (metric, job) => set((state) => ({ rules: toggleMetric(state.rules, metric, job) })),
@@ -640,6 +675,22 @@ export const useAppStore = create<AppState>()(
         set((state) => ({ rules: state.rules.map((rule) => (rule.id === id ? { ...rule, impact } : rule)) })),
       invalidateImpacts: () => set((state) => ({ rules: withoutImpacts(state.rules) })),
       setRelabelMode: (relabelMode) => set({ relabelMode }),
+      setRuleMerge: (id, onMerge, keepValues) =>
+        set((state) => ({
+          rules: state.rules.map((rule) => {
+            if (rule.id !== id || rule.kind !== "drop_labels") return rule
+            const keep = onMerge === "keep_value" ? keepValues : undefined
+            // What a keep-value rule keeps changes its series count: measure again.
+            const remeasure = rule.onMerge === "keep_value" || onMerge === "keep_value"
+            return { ...rule, onMerge, keepValues: keep, ...(remeasure ? { impact: undefined } : {}) }
+          }),
+        })),
+
+      backendProfile: null,
+      setBackendProfile: (backendProfile) => set({ backendProfile }),
+      ruleDestinations: {},
+      setMetricsDestination: (metrics) => set((state) => ({ ruleDestinations: { ...state.ruleDestinations, metrics } })),
+      setLogsDestination: (logs) => set((state) => ({ ruleDestinations: { ...state.ruleDestinations, logs } })),
 
       setAgentSession: (agentSession) =>
         set({ agentSession, agentStatus: agentSession ? "connecting" : "idle", agentActivity: [], agentPaused: false }),
@@ -798,13 +849,14 @@ export const useAppStore = create<AppState>()(
             drilldowns: {},
             rules: withoutImpacts(state.rules),
             grafanaLinks,
+            backendProfile: null,
           }))
         }
       },
     }),
     {
       name: PERSIST_KEY,
-      version: 8,
+      version: 9,
       storage: createJSONStorage(() => safeLocalStorage),
       partialize: (state): PersistedState => ({
         settings: state.settings.rememberToken ? state.settings : { ...state.settings, token: "" },
@@ -825,6 +877,8 @@ export const useAppStore = create<AppState>()(
         logRules: state.logRules,
         grafanaSettings: state.grafanaSettings.rememberToken ? state.grafanaSettings : { ...state.grafanaSettings, token: "" },
         grafanaLinks: state.grafanaLinks,
+        backendProfile: state.backendProfile,
+        ruleDestinations: state.ruleDestinations,
       }),
       // Also used when another tab writes: keep this tab's in-memory token and,
       // when storage was full, its snapshot.
@@ -858,6 +912,11 @@ export const useAppStore = create<AppState>()(
           logsSnapshot: snapshotOmitted ? current.logsSnapshot : (persisted.logsSnapshot ?? null),
           grafanaSettings,
           grafanaLinks: persisted.grafanaLinks && typeof persisted.grafanaLinks === "object" ? persisted.grafanaLinks : current.grafanaLinks,
+          backendProfile: persisted.backendProfile && typeof persisted.backendProfile === "object" ? persisted.backendProfile : current.backendProfile,
+          ruleDestinations: {
+            ...(isMetricsDestination(persisted.ruleDestinations?.metrics) ? { metrics: persisted.ruleDestinations.metrics } : {}),
+            ...(isLogsDestination(persisted.ruleDestinations?.logs) ? { logs: persisted.ruleDestinations.logs } : {}),
+          },
         }
       },
       migrate: (persistedState, version) => {
@@ -887,11 +946,12 @@ export const useAppStore = create<AppState>()(
         // v8 moved the usage scan's Grafana connection (its own store) here.
         const grafanaSettings = version < 8 ? (rest.grafanaSettings ?? loadLegacyGrafana() ?? undefined) : rest.grafanaSettings
         if (version < 8) safeLocalStorage.removeItem(LEGACY_GRAFANA_KEY)
+        // v9 made merging label drops a choice (onMerge): Adaptive Metrics proposals were always aggregations.
         return {
           ...rest,
           settings,
           snapshot: migrateSnapshot(persisted.snapshot),
-          rules: migrateRules(persisted.rules),
+          rules: migrateRules(persisted.rules, version),
           ...(logRules ? { logRules } : {}),
           ...(attribution ? { attribution } : {}),
           ...(grafanaSettings ? { grafanaSettings } : {}),

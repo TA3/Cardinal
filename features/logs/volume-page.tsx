@@ -348,9 +348,12 @@ function GrowersFrame({ rows, by, range, hasPrevious }: { rows: VolumeRow[]; by:
                 )
               })}
             </ul>
-            <p className="text-xs text-muted-foreground">
-              Index estimates; “measured” re-checks each with bytes_over_time over the {hourNote}.
-              {verify.error ? ` The check failed: ${verify.error.message}` : ""}
+            <p className="flex items-center gap-1 text-xs text-muted-foreground">
+              ~ from the index
+              <InfoTip label="How growth is measured">
+                Index estimates; “measured” re-checks each with bytes_over_time over the {hourNote}.
+              </InfoTip>
+              {verify.error ? <span className="text-destructive">Check failed: {verify.error.message}</span> : null}
             </p>
           </>
         )}

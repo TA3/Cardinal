@@ -23,7 +23,7 @@ export const GLOSSARY = {
   relabelVsAggregation: {
     term: "Relabel vs aggregation",
     short: "Relabelling edits or drops each series on its own; aggregation combines several series into one.",
-    long: "Relabel rules (Prometheus metric_relabel_configs, Alloy prometheus.relabel) look at one series at a time: they can drop it or rewrite its labels, but they can't combine series. Aggregation (Grafana Cloud Adaptive Metrics) sums or counts series that end up with the same labels, so it can safely remove a label that tells series apart.",
+    long: "Relabel rules (Prometheus metric_relabel_configs, Alloy prometheus.relabel) look at one series at a time: they can drop it or rewrite its labels, but they can't combine series. Aggregation (a recording rule, or Adaptive Metrics on Grafana Cloud) sums or counts series that end up with the same labels, so it can safely remove a label that tells series apart.",
   },
   metricVsWriteRelabel: {
     term: "metric_relabel_configs vs write_relabel_configs",
@@ -37,8 +37,8 @@ export const GLOSSARY = {
   },
   mergesSeries: {
     term: "Merges series",
-    short: "Removing the label makes distinct series identical. Relabelling can't combine them, so it needs aggregation.",
-    long: "If two series differ only by the label you remove, they end up with the same labels. A relabel rule would then send two different samples for one series at the same time, which Prometheus rejects as duplicates (out-of-order or duplicate sample errors) and which loses data. Such drops must be done as an aggregation (Adaptive Metrics), or replaced by dropping the series you don't need.",
+    short: "Removing the label makes distinct series identical, so several series become one.",
+    long: "If two series differ only by the label you remove, they end up with the same labels. A relabel drop then keeps one of their samples each scrape and rejects the others as duplicates, so their values are lost. You can instead keep only one value of the label (the other series are dropped whole), or aggregate: sum the merged series with a recording rule on remote write, or with Adaptive Metrics on Grafana Cloud.",
   },
   adaptiveMetrics: {
     term: "Adaptive Metrics",

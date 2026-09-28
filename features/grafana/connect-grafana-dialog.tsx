@@ -1,6 +1,6 @@
 import * as React from "react"
 import {
-  ArrowSquareOutIcon,
+  CaretRightIcon,
   CheckCircleIcon,
   CloudIcon,
   DatabaseIcon,
@@ -15,18 +15,22 @@ import { toast } from "sonner"
 
 import { takeNextPath } from "@/app/continue-after-connect"
 import { EmptyState } from "@/components/empty-state"
+import { InfoTip } from "@/components/info-tip"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel, FieldSeparator } from "@/components/ui/field"
+import { Field, FieldContent, FieldGroup, FieldLabel, FieldSeparator } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 import { hostOf } from "@/features/grafana/via-grafana"
-import { privateHostHint, TransportModeField } from "@/features/relay/transport-mode-field"
+import { privateHostHint, RouteField } from "@/features/relay/transport-mode-field"
+import { routeLabel, withAutoMode } from "@/features/settings/auto-mode"
+import { ProblemLine } from "@/features/settings/problem-line"
 import { diagnose, TEST_TIMEOUT_MS } from "@/features/settings/connection-check"
 import { SnapshotProgressLine } from "@/features/settings/connection-form"
 import { startGrafanaScan } from "@/features/usage/grafana-store"
@@ -42,6 +46,7 @@ import {
 } from "@/lib/core/grafana-connect"
 import type { Signal } from "@/lib/core/signals"
 import { listDatasources } from "@/lib/sources/grafana"
+import type { TransportMode } from "@/lib/sources/transport"
 import { fetchLogsSnapshot, testLokiConnection } from "@/lib/sources/loki"
 import { fetchSnapshot, testConnection } from "@/lib/sources/prometheus"
 import { currentConnection, useAppStore, type ConnectionSettings } from "@/lib/store/app-store"
@@ -85,7 +90,7 @@ interface ChoiceDraft {
 type ApplyStatus =
   | { state: "testing" | "snapshot"; name: string }
   | { state: "done"; name: string; detail: string }
-  | { state: "error"; name: string; title: string; detail: string }
+  | { state: "error"; name: string; title: string; detail: string; help?: "relay" }
 
 function draftFor(signal: Signal, detection: GrafanaDetection, current: ConnectionSettings, link: ReturnType<typeof activeLink>): ChoiceDraft {
   const cloud = link?.via === "cloud"
@@ -162,9 +167,7 @@ function SignalPicker({
           {copy.title} <span className="font-normal text-muted-foreground">({copy.type})</span>
         </span>
         {detected.choiceNeeded ? (
-          <span className="text-xs text-muted-foreground">
-            {detected.candidates.length} {copy.type} data sources: pick one. Cardinal remembers it.
-          </span>
+          <span className="text-xs text-muted-foreground">{detected.candidates.length} found: pick one</span>
         ) : null}
       </legend>
       {detected.candidates.length === 0 ? (
@@ -205,15 +208,15 @@ function SignalPicker({
         <div className="flex flex-col gap-3 rounded-2xl border border-well-border bg-well px-3.5 py-3 [corner-shape:squircle]">
           <Field orientation="horizontal">
             <FieldContent>
-              <FieldLabel htmlFor={`grafana-${signal}-direct`}>
+              <FieldLabel htmlFor={`grafana-${signal}-direct`} className="gap-1">
                 <CloudIcon className="size-4 text-brand-ink" />
                 Use {copy.adaptive}: connect directly
+                <InfoTip label={`Why connect directly for ${copy.adaptive}?`}>
+                  {copy.adaptive} lives on {hostOf(selected.adaptiveBaseUrl)}, which Grafana's data source proxy can't reach. Connect {noun}
+                  straight to it with the stack's {copy.idNoun} and an access policy token ({copy.scopes}). Leave this off to read {noun} through
+                  Grafana. Both are on grafana.com: your stack → {copy.type} → Details.
+                </InfoTip>
               </FieldLabel>
-              <FieldDescription>
-                This is Grafana Cloud. {copy.adaptive} lives on {hostOf(selected.adaptiveBaseUrl)}, which Grafana's data source proxy can't
-                reach. Connect {noun} straight to it with the stack's {copy.idNoun} and an access policy token ({copy.scopes})
-                instead of the Grafana token.
-              </FieldDescription>
             </FieldContent>
             <Switch id={`grafana-${signal}-direct`} checked={draft.direct} onCheckedChange={(direct) => onChange({ direct })} />
           </Field>
@@ -240,18 +243,17 @@ function SignalPicker({
                   onChange={(event) => onChange({ token: event.target.value })}
                 />
               </Field>
-              <FieldDescription className="sm:col-span-2">
-                Both are on grafana.com: your stack → {copy.type} → Details. Leave this off to read {noun} through Grafana with the Grafana token.
-              </FieldDescription>
             </div>
           ) : null}
         </div>
       ) : draft.uid && adaptive.kind === "hidden" ? (
-        <p className="flex gap-1.5 text-xs text-muted-foreground">
-          <InfoIcon className="mt-0.5 size-3.5 shrink-0" />
-          This is a Grafana Cloud stack, but this token can't see the data source's backend URL. For {copy.adaptive}, connect {noun} by hand
-          with the stack's {copy.type} URL ({signal === "logs" ? "https://logs-prod-….grafana.net" : "https://prometheus-….grafana.net/api/prom"}, from
-          grafana.com → your stack → {copy.type} → Details) and an access policy token.
+        <p className="flex items-center gap-1 text-xs text-muted-foreground">
+          For {copy.adaptive}, connect {noun} by hand
+          <InfoTip label={`Why isn't ${copy.adaptive} offered?`}>
+            This token can't see the data source's backend URL. Connect {noun} in Settings with the stack's {copy.type} URL (
+            {signal === "logs" ? "https://logs-prod-….grafana.net" : "https://prometheus-….grafana.net/api/prom"}, from grafana.com → your stack →{" "}
+            {copy.type} → Details) and an access policy token.
+          </InfoTip>
         </p>
       ) : null}
     </fieldset>
@@ -261,15 +263,7 @@ function SignalPicker({
 function ApplyLine({ signal, status }: { signal: Signal; status: ApplyStatus }) {
   const title = COPY[signal].title
   if (status.state === "error") {
-    return (
-      <Alert variant="destructive" role="alert">
-        <WarningCircleIcon />
-        <AlertTitle>
-          {title} ({status.name}): {status.title}
-        </AlertTitle>
-        <AlertDescription>{status.detail}</AlertDescription>
-      </Alert>
-    )
+    return <ProblemLine problem={{ kind: "other", title: `${title} (${status.name}): ${status.title}`, detail: status.detail, help: status.help }} />
   }
   if (status.state === "done") {
     return (
@@ -290,6 +284,13 @@ function ApplyLine({ signal, status }: { signal: Signal; status: ApplyStatus }) 
   )
 }
 
+function listError(error: unknown, mode: TransportMode, token: string) {
+  const text = explainGrafanaError(error, mode)
+  return /HTTP 403/.test(text) && token.trim()
+    ? `${text} Listing data sources needs the datasources:read permission; if the Viewer role lacks it on your Grafana, grant the Data sources Reader role or use an Editor token.`
+    : text
+}
+
 function ConnectFlow({ onDone }: { onDone: () => void }) {
   const saved = useAppStore((state) => state.grafanaSettings)
   const updateGrafanaSettings = useAppStore((state) => state.updateGrafanaSettings)
@@ -299,6 +300,7 @@ function ConnectFlow({ onDone }: { onDone: () => void }) {
   const [url, setUrl] = React.useState(saved.baseUrl)
   const [token, setToken] = React.useState(saved.token)
   const [mode, setMode] = React.useState(saved.mode)
+  const [manual, setManual] = React.useState(Boolean(saved.modeManual))
   const selfHosted = useSelfHosted()
   const [remember, setRemember] = React.useState(saved.rememberToken)
   const [listing, setListing] = React.useState<{ status: "idle" | "loading" | "done"; latencyMs?: number; error?: string }>({ status: "idle" })
@@ -324,7 +326,15 @@ function ConnectFlow({ onDone }: { onDone: () => void }) {
     setStatuses({})
     const started = performance.now()
     try {
-      const datasources = await listDatasources({ baseUrl: url.trim(), token, mode }, AbortSignal.timeout(GRAFANA_TIMEOUT_MS))
+      const result = await withAutoMode(url, manual ? mode : null, (next) =>
+        listDatasources({ baseUrl: url.trim(), token, mode: next }, AbortSignal.timeout(GRAFANA_TIMEOUT_MS))
+      )
+      if (!result.ok) {
+        setListing({ status: "idle", error: listError(result.error, result.mode, token) })
+        return
+      }
+      const datasources = result.value
+      setMode(result.mode)
       const state = useAppStore.getState()
       const sameGrafana = url.trim().replace(/\/+$/, "") === state.grafanaSettings.baseUrl.trim().replace(/\/+$/, "")
       const next = detectGrafanaDatasources({ grafanaUrl: url, token, datasources, remembered: sameGrafana ? state.grafanaSettings.choices : {} })
@@ -335,11 +345,7 @@ function ConnectFlow({ onDone }: { onDone: () => void }) {
       })
       setListing({ status: "done", latencyMs: Math.round(performance.now() - started) })
     } catch (error) {
-      let text = explainGrafanaError(error, mode)
-      if (/HTTP 403/.test(text) && token.trim()) {
-        text += " Listing data sources needs the datasources:read permission; if the Viewer role lacks it on your Grafana, grant the Data sources Reader role or use an Editor token."
-      }
-      setListing({ status: "idle", error: text })
+      setListing({ status: "idle", error: listError(error, mode, token) })
     }
   }
 
@@ -387,7 +393,7 @@ function ConnectFlow({ onDone }: { onDone: () => void }) {
       return true
     } catch (error) {
       const problem = await diagnose(error, settings, signal === "logs" ? "loki" : "prometheus")
-      status({ state: "error", name, title: problem.title, detail: problem.detail })
+      status({ state: "error", name, title: problem.title, detail: problem.detail, help: problem.help })
       return false
     } finally {
       setProgress(null)
@@ -411,6 +417,7 @@ function ConnectFlow({ onDone }: { onDone: () => void }) {
       baseUrl: detection.grafanaUrl,
       token: token.trim(),
       mode,
+      modeManual: manual,
       rememberToken: remember,
       choices: { ...(url.trim() === saved.baseUrl.trim() ? saved.choices : {}), ...plan.remember },
     })
@@ -461,22 +468,25 @@ function ConnectFlow({ onDone }: { onDone: () => void }) {
     mode,
     selfHosted
   )
+  const shownHint = manual ? privateHint : null
 
   return (
     <>
       <DialogHeader className="px-4 pt-4">
         <DialogTitle>Connect Grafana</DialogTitle>
-        <DialogDescription>
-          Pick a Prometheus and a Loki data source from one Grafana, in one step. Each signal can also keep its own connection: nothing here is
-          required.
-        </DialogDescription>
+        <DialogDescription>Pick a Prometheus and a Loki data source from one Grafana. Optional.</DialogDescription>
       </DialogHeader>
       <div className="flex min-h-0 flex-col gap-5 overflow-y-auto px-4 pb-4">
         <form onSubmit={(event) => void list(event)}>
           <FieldGroup className="gap-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <Field>
-                <FieldLabel htmlFor="connect-grafana-url">Grafana URL</FieldLabel>
+                <div className="flex items-center justify-between gap-2">
+                  <FieldLabel htmlFor="connect-grafana-url">Grafana URL</FieldLabel>
+                  <button type="button" className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline" onClick={() => edit(setUrl)("https://play.grafana.org")}>
+                    Try play.grafana.org
+                  </button>
+                </div>
                 <Input
                   id="connect-grafana-url"
                   placeholder="https://grafana.example.com"
@@ -486,7 +496,16 @@ function ConnectFlow({ onDone }: { onDone: () => void }) {
                 />
               </Field>
               <Field>
-                <FieldLabel htmlFor="connect-grafana-token">Service account token</FieldLabel>
+                <FieldLabel htmlFor="connect-grafana-token" className="gap-1">
+                  Service account token
+                  <InfoTip label="Which role?">
+                    Empty for a Grafana with anonymous access. Viewer lists data sources, queries them and scans dashboards; creating the Cardinal
+                    dashboard needs Editor.{" "}
+                    <a href={SERVICE_ACCOUNT_DOCS} target="_blank" rel="noreferrer" className="underline underline-offset-2">
+                      Service accounts
+                    </a>
+                  </InfoTip>
+                </FieldLabel>
                 <Input
                   id="connect-grafana-token"
                   type="password"
@@ -497,33 +516,36 @@ function ConnectFlow({ onDone }: { onDone: () => void }) {
                 />
               </Field>
             </div>
-            <FieldDescription>
-              Leave the token empty for a Grafana with anonymous access, like{" "}
-              <button type="button" className="underline underline-offset-2" onClick={() => edit(setUrl)("https://play.grafana.org")}>
-                play.grafana.org
-              </button>
-              . Otherwise a service account with the <strong className="font-medium text-foreground">Viewer</strong> role is enough to list
-              data sources, query them and scan dashboards; creating the Cardinal dashboard in Grafana needs Editor.{" "}
-              <a href={SERVICE_ACCOUNT_DOCS} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 underline underline-offset-2">
-                Service accounts
-                <ArrowSquareOutIcon className="size-3" />
-              </a>
-            </FieldDescription>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <TransportModeField id="connect-grafana-mode" value={mode} onChange={edit(setMode)} compact />
-              <Field orientation="horizontal">
-                <FieldContent>
-                  <FieldLabel htmlFor="connect-grafana-remember">Remember token</FieldLabel>
-                  <FieldDescription>Off keeps it in memory until the tab closes, like the other connections.</FieldDescription>
-                </FieldContent>
-                <Switch id="connect-grafana-remember" checked={remember} onCheckedChange={setRemember} />
-              </Field>
-            </div>
-            {privateHint ? (
-              <Alert>
-                <InfoIcon />
-                <AlertDescription>{privateHint}</AlertDescription>
-              </Alert>
+            <Field orientation="horizontal">
+              <FieldLabel htmlFor="connect-grafana-remember" className="font-normal" title="Off keeps it in memory until the tab closes.">
+                Remember token
+              </FieldLabel>
+              <Switch id="connect-grafana-remember" checked={remember} onCheckedChange={setRemember} />
+            </Field>
+            <Collapsible defaultOpen={manual}>
+              <CollapsibleTrigger className="group/adv inline-flex items-center gap-1 rounded-md text-xs font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50">
+                <CaretRightIcon className="size-3 transition-transform group-data-[state=open]/adv:rotate-90 motion-reduce:transition-none" />
+                Advanced
+                {manual ? <span className="font-normal">· {mode}</span> : null}
+              </CollapsibleTrigger>
+              <CollapsibleContent className="pt-3">
+                <RouteField
+                  id="connect-grafana-mode"
+                  value={manual ? mode : "auto"}
+                  picked={!manual && listing.status === "done" ? mode : undefined}
+                  onChange={(next) => {
+                    setManual(next !== "auto")
+                    if (next !== "auto") edit(setMode)(next)
+                    else edit(setMode)(mode)
+                  }}
+                />
+              </CollapsibleContent>
+            </Collapsible>
+            {shownHint ? (
+              <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <InfoIcon className="size-3.5 shrink-0" />
+                {shownHint}
+              </p>
             ) : null}
             <div className="flex flex-wrap items-center gap-3">
               <Button type="submit" variant={detected ? "outline" : "default"} disabled={!url.trim() || listing.status === "loading"}>
@@ -533,18 +555,13 @@ function ConnectFlow({ onDone }: { onDone: () => void }) {
               {listing.status === "done" && detection ? (
                 <span className="flex items-center gap-1.5 text-sm text-brand-ink" role="status">
                   <CheckCircleIcon className="size-4 shrink-0" weight="fill" />
-                  Grafana answered in {listing.latencyMs} ms{detection.anonymous ? " (anonymous)" : ""}
+                  Grafana answered{routeLabel(mode, selfHosted) ? ` ${routeLabel(mode, selfHosted)}` : ""} in {listing.latencyMs} ms
+                  {detection.anonymous ? " (anonymous)" : ""}
                   {detection.stack ? `, Grafana Cloud stack ${detection.stack.slug}` : ""}.
                 </span>
               ) : null}
             </div>
-            {listing.error ? (
-              <Alert variant="destructive" role="alert">
-                <WarningCircleIcon />
-                <AlertTitle>Couldn't list data sources</AlertTitle>
-                <AlertDescription>{listing.error}</AlertDescription>
-              </Alert>
-            ) : null}
+            {listing.error ? <ProblemLine problem={{ kind: "other", title: "Couldn't list data sources", detail: listing.error }} /> : null}
           </FieldGroup>
         </form>
 
@@ -566,11 +583,13 @@ function ConnectFlow({ onDone }: { onDone: () => void }) {
             <Field orientation="horizontal">
               <Checkbox id="connect-grafana-scan" checked={scan} onCheckedChange={(checked) => setScan(checked === true)} />
               <FieldContent>
-                <FieldLabel htmlFor="connect-grafana-scan">Scan dashboards and alert rules now</FieldLabel>
-                <FieldDescription>
-                  Read-only. Shows which panels use a metric or log stream before you drop it. Runs in the background; progress is in Settings →
-                  Grafana.
-                </FieldDescription>
+                <FieldLabel htmlFor="connect-grafana-scan" className="gap-1">
+                  Scan dashboards and alert rules now
+                  <InfoTip label="What does the scan do?">
+                    Read-only. Shows which panels use a metric or log stream before you drop it. Runs in the background; progress is in Settings →
+                    Grafana.
+                  </InfoTip>
+                </FieldLabel>
               </FieldContent>
             </Field>
           </>

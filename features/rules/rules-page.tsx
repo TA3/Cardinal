@@ -1,14 +1,13 @@
 import * as React from "react"
-import { ChartLineDownIcon, ShieldCheckIcon, TrashIcon, XIcon } from "@phosphor-icons/react"
+import { ArrowClockwiseIcon, ShieldCheckIcon, TrashIcon, XIcon } from "@phosphor-icons/react"
 import { Link, useLocation, useSearchParams } from "react-router"
 
 import { metricPath, paths } from "@/app/paths"
-import { CostText } from "@/components/cost-text"
+import { useCost } from "@/components/cost-text"
 import { EmptyState } from "@/components/empty-state"
-import { Frame, FrameHeader, FrameWell } from "@/components/frame"
 import { AnimatedNumber } from "@/components/motion"
 import { Page, PageHeader } from "@/components/page"
-import { MergeNote, RuleActions, RuleDescription, RuleImpact, RuleOriginBadge } from "@/components/rule-parts"
+import { RuleActions, RuleDescription, RuleImpact, RuleOriginBadge } from "@/components/rule-parts"
 import { SegmentedControl } from "@/components/segmented-control"
 import { SignalBadge } from "@/components/signal-badge"
 import { UsedBadge } from "@/components/used-badge"
@@ -24,20 +23,23 @@ import {
   AlertDialogTrigger } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
-import { Progress } from "@/components/ui/progress"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { AdaptiveMetrics } from "@/features/adaptive/adaptive-metrics"
 import { AcceptAllButton } from "@/features/rules/accept-all"
-import { ExportCard } from "@/features/rules/export-card"
+import { RuleDestinationStep } from "@/features/rules/destination"
+import { ExportCard, MetricPlanActions, useMetricsExport, type ExportOutput } from "@/features/rules/export-card"
 import { ImportDialog } from "@/features/rules/import-dialog"
 import { LogRulesPage } from "@/features/rules/log-rules-page"
+import { PlanHeader } from "@/features/rules/plan-header"
+import { RuleMergeControl, useUnusedMerges } from "@/features/rules/merge-choice"
 import { hasLogShareHash } from "@/features/rules/log-share"
 import { SharedRulesBanner, ShareMenu } from "@/features/rules/share"
 import { Term } from "@/features/rules/term"
 import { useUsageSummaries } from "@/features/rules/usage"
-import { useSavings, useSnapshotAge } from "@/hooks/use-cardinality"
+import { useMetricsTarget, useRefreshSnapshot, useSavings, useSnapshotAge } from "@/hooks/use-cardinality"
 import { useSignal } from "@/hooks/use-signal"
 import { formatDelta, formatNumber } from "@/lib/cardinality/dashboard-helpers"
+import { METRICS_DESTINATIONS } from "@/lib/core/backend-profile"
 import { shadowedBy, type Rule, type RuleStatus } from "@/lib/core/rules"
 import { SHARE_HASH_KEY } from "@/lib/core/share"
 import { useAppStore } from "@/lib/store/app-store"
@@ -52,16 +54,19 @@ function isRuleStatus(value: string | null): value is RuleStatus {
 }
 
 const EMPTY_COPY: Record<RuleStatus, { title: string; text: string }> = {
-  active: { title: "No rules yet", text: "Drop metrics or labels while exploring, import your current rules, or let an agent propose some." },
-  proposed: { title: "Nothing to review", text: "Rules suggested by an agent or Adaptive Metrics land here for your approval." },
-  rejected: { title: "Nothing rejected", text: "Rejected proposals are kept here in case you change your mind." } }
+  active: { title: "No rules yet", text: "Drop metrics or labels while exploring, or import your current rules." },
+  proposed: { title: "Nothing to review", text: "Agent suggestions land here." },
+  rejected: { title: "Nothing rejected", text: "Rejected proposals stay here." } }
 
 function RulesTable({ rules, allRules, status, totalSeries }: { rules: Rule[]; allRules: Rule[]; status: RuleStatus; totalSeries: number }) {
   const metrics = React.useMemo(() => rules.map((rule) => rule.selector.metric), [rules])
   const { summaries, isPending } = useUsageSummaries(metrics, status !== "rejected" && rules.length > 0)
+  const { unused } = useUnusedMerges(rules)
+  const { adaptive } = useMetricsTarget()
   if (rules.length === 0) {
+    const text = status === "proposed" && adaptive ? "Agent and Adaptive Metrics suggestions land here." : EMPTY_COPY[status].text
     return (
-      <EmptyState icon={ShieldCheckIcon} title={EMPTY_COPY[status].title} description={EMPTY_COPY[status].text}>
+      <EmptyState icon={ShieldCheckIcon} title={EMPTY_COPY[status].title} description={text}>
         {status === "active" ? (
           <div className="flex flex-wrap justify-center gap-2">
             <Button asChild variant="outline">
@@ -82,14 +87,14 @@ function RulesTable({ rules, allRules, status, totalSeries }: { rules: Rule[]; a
           <TableHead>Rule</TableHead>
           <TableHead className="hidden md:table-cell">Source</TableHead>
           {status !== "rejected" ? <TableHead className="hidden sm:table-cell">Used</TableHead> : null}
-          <TableHead className="text-right">Saves</TableHead>
-          <TableHead className="w-24" />
+          <TableHead className="hidden text-right sm:table-cell">Saves</TableHead>
+          <TableHead className="w-20 sm:w-24" />
         </TableRow>
       </TableHeader>
       <TableBody>
         {rules.map((rule) => (
           <TableRow key={rule.id}>
-            <TableCell className="max-w-0 min-w-56 whitespace-normal">
+            <TableCell className="max-w-0 whitespace-normal sm:min-w-56">
               <Link
                 to={metricPath(rule.selector.metric)}
                 title={rule.selector.metric}
@@ -97,8 +102,13 @@ function RulesTable({ rules, allRules, status, totalSeries }: { rules: Rule[]; a
               >
                 <RuleDescription rule={rule} supersededBy={rule.status === "active" ? shadowedBy(rule, allRules) : undefined} />
               </Link>
-              {rule.rationale ? <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{rule.rationale}</p> : null}
-              <MergeNote rule={rule} className="mt-1.5" />
+              {rule.rationale ? <p className="mt-1 hidden text-xs text-muted-foreground sm:line-clamp-2">{rule.rationale}</p> : null}
+              {rule.impact ? (
+                <span className="mt-0.5 block text-xs text-muted-foreground tabular-nums sm:hidden">
+                  {formatDelta(rule.impact.seriesAfter - rule.impact.seriesBefore)} series
+                </span>
+              ) : null}
+              {status === "rejected" ? null : <RuleMergeControl rule={rule} unused={unused.has(rule.id)} className="mt-1.5" />}
             </TableCell>
             <TableCell className="hidden md:table-cell">
               <RuleOriginBadge rule={rule} />
@@ -108,7 +118,7 @@ function RulesTable({ rules, allRules, status, totalSeries }: { rules: Rule[]; a
                 <UsedBadge subject="this metric" summary={summaries[rule.selector.metric]} pending={isPending} />
               </TableCell>
             ) : null}
-            <TableCell className="text-right">
+            <TableCell className="hidden text-right sm:table-cell">
               <RuleImpact rule={rule} totalSeries={totalSeries} />
             </TableCell>
             <TableCell>
@@ -137,8 +147,13 @@ function MetricRulesPage() {
   const clearRules = useAppStore((state) => state.clearRules)
   const savings = useSavings()
   const age = useSnapshotAge()
+  const { format: formatCost } = useCost()
+  const { refresh, isPending: refreshing } = useRefreshSnapshot()
+  const { adaptive } = useMetricsTarget()
   const [params, setParams] = useSearchParams()
-  const view: View = params.get("view") === "recommendations" ? "recommendations" : "rules"
+  const [output, setOutput] = React.useState<ExportOutput | null>(null)
+  // Recommendations come from Adaptive Metrics: Grafana Cloud only.
+  const view: View = adaptive && params.get("view") === "recommendations" ? "recommendations" : "rules"
   const setParam = (key: string, value: string | null) =>
     setParams(
       (prev) => {
@@ -155,21 +170,18 @@ function MetricRulesPage() {
     for (const rule of rules) groups[rule.status].push(rule)
     return groups
   }, [rules])
+  const exp = useMetricsExport(byStatus.active, output)
 
   const requested = params.get("tab")
   const tab: RuleStatus = isRuleStatus(requested) ? requested : byStatus.proposed.length ? "proposed" : "active"
   const proposedIds = byStatus.proposed.map((rule) => rule.id)
+  const cost = formatCost(savings.savedSeries)
 
   return (
     <Page>
       <PageHeader
-        title="Rules"
+        title="Your plan"
         eyebrow={<SignalBadge signal="metrics" />}
-        description={
-          view === "rules"
-            ? "Everything you plan to cut. Review proposals, check the impact, then export or apply."
-            : "Suggestions from your backend's adaptive telemetry. Propose them into Rules to review."
-        }
         actions={
           view === "rules" ? (
             <>
@@ -201,99 +213,92 @@ function MetricRulesPage() {
           ) : null
         }
       />
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <SegmentedControl
-          aria-label="Rules view"
-          value={view}
-          onValueChange={(value) => setParam("view", value === "rules" ? null : value)}
-          options={[
-            { value: "rules", label: "Rules", count: rules.length || undefined },
-            { value: "recommendations", label: "Recommendations" },
-          ]}
-        />
-        {view === "recommendations" ? (
-          <SignalBadge signal="metrics" className="h-6 px-2.5 text-xs">
-            Adaptive Metrics
-          </SignalBadge>
-        ) : null}
-      </div>
+      {adaptive ? (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <SegmentedControl
+            aria-label="Rules view"
+            value={view}
+            onValueChange={(value) => setParam("view", value === "rules" ? null : value)}
+            options={[
+              { value: "rules", label: "Plan", count: rules.length || undefined },
+              { value: "recommendations", label: "Recommendations" },
+            ]}
+          />
+          {view === "recommendations" ? (
+            <SignalBadge signal="metrics" className="h-6 px-2.5 text-xs">
+              Adaptive Metrics
+            </SignalBadge>
+          ) : null}
+        </div>
+      ) : null}
       {view === "recommendations" ? (
         <AdaptiveMetrics />
       ) : (
         <>
           <SharedRulesBanner />
+          <RuleDestinationStep />
+          <PlanHeader
+            saving={<AnimatedNumber value={savings.savedSeries} format={(value) => formatDelta(-value)} />}
+            unit="series"
+            estimate={savings.isEstimate}
+            cost={cost}
+            percent={savings.percent}
+            meta={
+              <span title={age?.capturedAt.toLocaleString()} className={age?.stale ? "text-brand-ink" : undefined}>
+                for {METRICS_DESTINATIONS[exp.destination].label} · {exp.meta}
+              </span>
+            }
+            detail={
+              <>
+                {byStatus.active.length} active rule{byStatus.active.length === 1 ? "" : "s"} ·{" "}
+                <AnimatedNumber value={savings.percent} format={(value) => `${value.toFixed(1)}%`} /> of {formatNumber(totalSeries)}{" "}
+                <Term id="activeSeries">series</Term>
+              </>
+            }
+            actions={<MetricPlanActions exp={exp} onOutput={setOutput} />}
+          >
+            {exp.blocked.length ? (
+              <p className="text-xs text-brand-ink">
+                {exp.blocked.length === 1 ? "1 label drop needs a choice" : `${exp.blocked.length} label drops need a choice`}: pick below.
+              </p>
+            ) : null}
+            {age?.stale ? (
+              <Button size="xs" variant="outline" className="self-start" disabled={refreshing} onClick={refresh}>
+                <ArrowClockwiseIcon data-icon="inline-start" />
+                Refresh the {age.label.replace(" ago", "")}-old snapshot
+              </Button>
+            ) : null}
+          </PlanHeader>
           <div className="grid gap-4 xl:grid-cols-[3fr_2fr]">
-            <div className="flex min-w-0 flex-col gap-4">
-              <Frame>
-                <FrameHeader
-                  icon={ChartLineDownIcon}
-                  title="Projected reduction"
-                  meta={
-                    age ? (
-                      <span title={age.capturedAt.toLocaleString()} className={age.stale ? "text-brand-ink" : undefined}>
-                        from active rules · snapshot {age.label}
-                      </span>
-                    ) : (
-                      "from active rules"
-                    )
-                  }
+            <div className="flex min-w-0 flex-col gap-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <SegmentedControl
+                  aria-label="Rule status"
+                  value={tab}
+                  onValueChange={(value) => setParam("tab", value)}
+                  options={TABS.map((status) => ({
+                    value: status,
+                    label: TAB_LABEL[status],
+                    count: byStatus[status].length }))}
                 />
-                <FrameWell className="flex flex-col gap-3 py-4">
-                  <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                    <span className="text-2xl font-medium tracking-tight tabular-nums">
-                      {savings.isEstimate ? "~" : ""}
-                      <AnimatedNumber value={savings.savedSeries} format={(value) => formatDelta(-value)} />
-                      <span className="ml-1.5 text-sm font-normal text-muted-foreground">series</span>
-                    </span>
-                    <span className="flex items-baseline gap-2 text-sm text-muted-foreground tabular-nums">
-                      <CostText series={savings.savedSeries} className="text-sm" />
-                      <span>
-                        <AnimatedNumber value={savings.percent} format={(value) => `${value.toFixed(1)}%`} /> of {formatNumber(totalSeries)}{" "}
-                        <Term id="activeSeries">active series</Term>
-                      </span>
-                    </span>
+                {tab === "proposed" && proposedIds.length > 1 ? (
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="ghost" onClick={() => setRuleStatus(proposedIds, "rejected")}>
+                      <XIcon data-icon="inline-start" />
+                      Reject all
+                    </Button>
+                    <AcceptAllButton rules={byStatus.proposed} onAccept={(ids) => setRuleStatus(ids, "active")} />
                   </div>
-                  <Progress value={savings.percent} className="h-1.5" />
-                  {savings.isEstimate ? (
-                    <p className="text-xs text-muted-foreground">Some rules haven't been measured yet; ~ marks an estimate.</p>
-                  ) : null}
-                  {age?.stale ? (
-                    <p className="text-xs text-brand-ink">
-                      The snapshot is {age.label.replace(" ago", "")} old; refresh it before trusting these numbers.
-                    </p>
-                  ) : null}
-                </FrameWell>
-              </Frame>
-              <div className="flex flex-col gap-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <SegmentedControl
-                    aria-label="Rule status"
-                    value={tab}
-                    onValueChange={(value) => setParam("tab", value)}
-                    options={TABS.map((status) => ({
-                      value: status,
-                      label: TAB_LABEL[status],
-                      count: byStatus[status].length }))}
-                  />
-                  {tab === "proposed" && proposedIds.length > 1 ? (
-                    <div className="flex gap-2">
-                      <Button size="sm" variant="ghost" onClick={() => setRuleStatus(proposedIds, "rejected")}>
-                        <XIcon data-icon="inline-start" />
-                        Reject all
-                      </Button>
-                      <AcceptAllButton rules={byStatus.proposed} onAccept={(ids) => setRuleStatus(ids, "active")} />
-                    </div>
-                  ) : null}
-                </div>
-                <Card>
-                  <CardContent>
-                    <RulesTable rules={byStatus[tab]} allRules={rules} status={tab} totalSeries={totalSeries} />
-                  </CardContent>
-                </Card>
+                ) : null}
               </div>
+              <Card>
+                <CardContent>
+                  <RulesTable rules={byStatus[tab]} allRules={rules} status={tab} totalSeries={totalSeries} />
+                </CardContent>
+              </Card>
             </div>
             <div className="min-w-0">
-              <ExportCard rules={byStatus.active} />
+              <ExportCard exp={exp} onOutput={setOutput} />
             </div>
           </div>
         </>

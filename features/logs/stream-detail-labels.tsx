@@ -5,12 +5,12 @@ import { LogRuleToggle } from "@/components/log-rule-toggle"
 import { ShareBar } from "@/components/share-bar"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { InfoTip } from "@/components/info-tip"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { Term } from "@/features/rules/term"
 import { perDay, useGroupStreams, useLabelVolume } from "@/features/logs/streams-queries"
 import { useLogqlUsage } from "@/features/usage/logql-scan"
 import { authErrorText } from "@/hooks/use-cardinality"
@@ -270,11 +270,13 @@ export function GroupLabelsCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Labels</CardTitle>
-        <CardDescription>
-          Each distinct label set is a <Term id="logStream">stream</Term>. Labels with a value per stream multiply them: move those to{" "}
-          <Term id="structuredMetadata">structured metadata</Term>, or drop labels nothing queries. Expand a label for its top values and volume.
-        </CardDescription>
+        <CardTitle className="flex items-center gap-1">
+          Labels
+          <InfoTip label="About this card">
+            Each distinct label set is a stream. Labels with a value per stream multiply them: move those to structured metadata, or drop labels
+            nothing queries. Expand a label for its top values and volume.
+          </InfoTip>
+        </CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-2">
         {data?.lastHourOnly ? (

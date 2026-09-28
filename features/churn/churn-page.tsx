@@ -159,7 +159,7 @@ function DriversPanel({ row, window }: { row: ChurnRow; window: ChurnWindow }) {
                     row,
                     driver.label,
                     `Churn: ${driver.label} took ${driver.seen} distinct values over the last ${window} but has ${driver.now} now, ` +
-                      `so ${row.churned} series of this metric came and went. Dropping it merges those series; it likely ships as an Adaptive Metrics aggregation.`
+                      `so ${row.churned} series of this metric came and went. Dropping it merges those series.`
                   )
                 }
               >

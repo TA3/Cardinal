@@ -187,7 +187,7 @@ export function summarizeEvidence(evidence: UsageEvidence, label?: string, now =
     found.push(
       label
         ? `${parts.join(" and ")} use this metric (${names}${unique.length > 3 ? ", …" : ""}); check whether they group or filter by ${label}.`
-        : `${parts.join(" and ")} reference this metric: ${names}${unique.length > 3 ? ", …" : ""}.`
+        : `${parts.join(" and ")} ${evidence.rules.length === 1 ? "references" : "reference"} this metric: ${names}${unique.length > 3 ? ", …" : ""}.`
     )
     if (alerts) badge.push(plural(alerts, "alert"))
     if (recordings) badge.push(plural(recordings, "recording"))

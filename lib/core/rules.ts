@@ -16,9 +16,8 @@ export interface RuleImpact {
   /** True when measured with an exact query rather than a heuristic. */
   exact: boolean
   /**
-   * True when removing the labels merges distinct series. Such a rule cannot be
-   * applied as a relabel (it would produce duplicate samples) and must be an
-   * aggregation (e.g. Grafana Adaptive Metrics) instead.
+   * True when removing the labels merges distinct series. What happens then is
+   * the rule's `onMerge` choice (see DropLabelsRule).
    */
   mergesSeries: boolean
   measuredAt: string
@@ -38,9 +37,22 @@ export interface DropMetricRule extends RuleBase {
   kind: "drop_metric"
 }
 
+/**
+ * What a label drop that merges series does. "drop": relabel the labels away
+ * anyway (the backend keeps one sample per merged group each scrape).
+ * "keep_value": keep only the series with one chosen value per label, then
+ * drop the label, so nothing merges. "aggregate": sum the merged series
+ * (Adaptive Metrics on Grafana Cloud, a recording rule on remote write).
+ */
+export type MergeChoice = "drop" | "keep_value" | "aggregate"
+
 export interface DropLabelsRule extends RuleBase {
   kind: "drop_labels"
   labels: string[]
+  /** Unset until the user decides (only matters when the drop merges series). */
+  onMerge?: MergeChoice
+  /** For "keep_value": the value kept per label. */
+  keepValues?: Record<string, string>
 }
 
 /** A value condition on one label: series whose `label` matches `regex` (RE2, fully anchored). */
@@ -160,12 +172,20 @@ function covers(rule: Rule, other: Rule) {
  */
 function fold(current: Rule, rule: Rule): Rule | null {
   if (current.kind === "drop_labels" && rule.kind === "drop_labels") {
-    return { ...current, labels: sortUnique([...current.labels, ...rule.labels]), impact: undefined }
+    return { ...current, ...foldMerge(current, rule), labels: sortUnique([...current.labels, ...rule.labels]), impact: undefined }
   }
   if (current.kind === "keep_buckets" && rule.kind === "keep_buckets") {
     return { ...current, buckets: normalizeBuckets(current.buckets.filter((bucket) => rule.buckets.includes(bucket))), impact: undefined }
   }
   return null
+}
+
+/** The merge handling after folding `rule` into `current`: the current choice wins, kept values combine. */
+function foldMerge(current: DropLabelsRule, rule: Pick<DropLabelsRule, "onMerge" | "keepValues">) {
+  const onMerge = current.onMerge ?? rule.onMerge
+  if (!onMerge) return {}
+  const keepValues = onMerge === "keep_value" ? { ...rule.keepValues, ...current.keepValues } : undefined
+  return { onMerge, ...(keepValues ? { keepValues } : {}) }
 }
 
 /**
@@ -228,6 +248,9 @@ export function activateOrCreate(rules: Rule[], candidate: RuleInput): Rule[] {
   if (next.kind === "drop_labels") {
     const merged = sortUnique([...next.labels, ...labels])
     if (merged.length !== next.labels.length) next = { ...next, labels: merged, impact: undefined }
+    if (candidate.kind === "drop_labels" && candidate.onMerge && candidate.onMerge !== next.onMerge) {
+      next = { ...next, onMerge: candidate.onMerge, keepValues: candidate.onMerge === "keep_value" ? candidate.keepValues : undefined }
+    }
   }
   if (next.kind === "keep_buckets" && candidate.kind === "keep_buckets") {
     const buckets = normalizeBuckets(candidate.buckets)
@@ -255,10 +278,30 @@ export function shadowedBy(rule: Rule, rules: Rule[]): Rule | undefined {
       return rule.kind === "drop_metric" ? broader : broader || other.selector.job === job
     }
     if (other.kind === "drop_labels" && rule.kind === "drop_labels") {
-      return broader && rule.labels.every((label) => other.labels.includes(label))
+      return broader && sameMergeHandling(rule, other) && rule.labels.every((label) => other.labels.includes(label))
     }
     return false
   })
+}
+
+/** True when two label drops treat merged series the same way (choice and kept values). */
+export function sameMergeHandling(a: DropLabelsRule, b: DropLabelsRule) {
+  const keep = (rule: DropLabelsRule) =>
+    rule.onMerge === "keep_value" ? JSON.stringify(Object.entries(rule.keepValues ?? {}).sort(([x], [y]) => x.localeCompare(y))) : ""
+  return (a.onMerge ?? null) === (b.onMerge ?? null) && keep(a) === keep(b)
+}
+
+/** True when the rule is a label drop measured to merge series. */
+export function mergesSeries(rule: Rule): rule is DropLabelsRule {
+  return rule.kind === "drop_labels" && Boolean(rule.impact?.mergesSeries)
+}
+
+/**
+ * How a merging label drop is handled: the stored choice, else "drop" when
+ * nothing is known to use the labels (`unused`), else null (the user decides).
+ */
+export function mergeChoiceOf(rule: DropLabelsRule, unused?: boolean): MergeChoice | null {
+  return rule.onMerge ?? (unused ? "drop" : null)
 }
 
 /** True when another active rule already does everything this one does. */

@@ -1,6 +1,8 @@
 import { parse } from "yaml"
 
 import { rulesFromRelabel, type ImportResult, type RawRelabelRule } from "@/lib/core/parse/relabel"
+import { isLabelName, isMetricName } from "@/lib/core/promql"
+import { createRule, mergeRules, ruleKey, type Rule } from "@/lib/core/rules"
 
 type YamlRecord = Record<string, unknown>
 
@@ -54,7 +56,41 @@ function toRaw({ item, scrapeJob }: Found): RawRelabelRule {
   }
 }
 
+const AGGREGATION_EXPR = /^sum without \(([^)]*)\) \(\{__name__=("(?:[^"\\]|\\.)*")(?:,job=("(?:[^"\\]|\\.)*"))?\}\)$/
+
+/** Cardinal's remote-write aggregations (`sum without (…)` recording rules), as aggregate label drops. */
+function aggregationRules(doc: unknown): Rule[] {
+  if (!isRecord(doc) || !Array.isArray(doc.groups)) return []
+  const rules: Rule[] = []
+  for (const group of doc.groups) {
+    if (!isRecord(group) || !Array.isArray(group.rules)) continue
+    for (const item of group.rules) {
+      if (!isRecord(item) || typeof item.record !== "string" || typeof item.expr !== "string") continue
+      const match = item.expr.trim().match(AGGREGATION_EXPR)
+      if (!match) continue
+      try {
+        const labels = match[1].split(",").map((label) => label.trim())
+        const metric = JSON.parse(match[2]) as string
+        const job = match[3] === undefined ? undefined : (JSON.parse(match[3]) as string)
+        if (!isMetricName(metric) || !labels.length || !labels.every(isLabelName)) continue
+        rules.push(
+          createRule({ kind: "drop_labels", selector: job === undefined ? { metric } : { metric, job }, labels, onMerge: "aggregate", origin: "import" })
+        )
+      } catch {
+        // Not one of Cardinal's recording rules.
+      }
+    }
+  }
+  return rules
+}
+
 export function parsePrometheusRelabel(text: string): ImportResult {
   const doc: unknown = parse(text)
-  return rulesFromRelabel(collectRelabelConfigs(doc).map(toRaw))
+  const result = rulesFromRelabel(collectRelabelConfigs(doc).map(toRaw))
+  const aggregated = aggregationRules(doc)
+  if (!aggregated.length) return result
+  // The raw metric's write_relabel drop is part of the aggregation, not a drop of its own.
+  const keys = new Set(aggregated.map((rule) => ruleKey({ kind: "drop_metric", selector: rule.selector })))
+  const rules = result.rules.filter((rule) => !(rule.kind === "drop_metric" && keys.has(ruleKey(rule))))
+  return { ...result, rules: mergeRules(rules, aggregated).rules }
 }

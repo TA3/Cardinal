@@ -1,5 +1,4 @@
 import {
-  ArrowRightIcon,
   CheckIcon,
   RobotIcon,
   SparkleIcon,
@@ -8,9 +7,7 @@ import {
   UserIcon,
   XIcon,
 } from "@phosphor-icons/react"
-import { Link } from "react-router"
 
-import { metricPath } from "@/app/paths"
 import { CostText } from "@/components/cost-text"
 import { SegmentedControl } from "@/components/segmented-control"
 import { Badge } from "@/components/ui/badge"
@@ -18,11 +15,10 @@ import { Tip } from "@/components/tip"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { AcceptAllButton } from "@/features/rules/accept-all"
-import { Term } from "@/features/rules/term"
 import { jobLabel } from "@/lib/core/jobs"
 import { formatAgo } from "@/lib/core/report"
 import type { Rule } from "@/lib/core/rules"
-import { formatDelta, formatNumber } from "@/lib/cardinality/dashboard-helpers"
+import { formatDelta } from "@/lib/cardinality/dashboard-helpers"
 import { useAppStore } from "@/lib/store/app-store"
 
 export function isAdaptiveRecommendation(rule: Rule) {
@@ -174,43 +170,6 @@ export function RuleDescription({
   )
 }
 
-/**
- * Plain-words explanation for a label drop that merges series, with the
- * relabel-safe alternatives: drop the series matching a value pattern, or
- * (for `le`) keep only some buckets. Nothing for other rules.
- */
-export function MergeNote({ rule, className }: { rule: Rule; className?: string }) {
-  if (rule.kind !== "drop_labels" || !rule.impact?.mergesSeries) return null
-  const { seriesBefore, seriesAfter } = rule.impact
-  // A value pattern only makes sense on a label other than le.
-  const patternLabel = rule.labels.find((label) => label !== "le")
-  const link = (label: string) => `${metricPath(rule.selector.metric)}?label=${encodeURIComponent(label)}`
-  return (
-    <div className={className}>
-      <p className="text-xs text-pretty">
-        Collapses {formatNumber(seriesBefore)} series into {formatNumber(seriesAfter)}. That needs{" "}
-        <Term id="relabelVsAggregation">aggregation</Term> (<Term id="adaptiveMetrics">Adaptive Metrics</Term>); relabelling would
-        create duplicate samples.
-      </p>
-      <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-        <span className="text-muted-foreground">Or, relabel-safe:</span>
-        {patternLabel ? (
-          <Link to={link(patternLabel)} className="inline-flex items-center gap-0.5 text-brand-ink hover:underline">
-            Drop series matching a value pattern
-            <ArrowRightIcon className="size-3" />
-          </Link>
-        ) : null}
-        {rule.labels.includes("le") ? (
-          <Link to={link("le")} className="inline-flex items-center gap-0.5 text-brand-ink hover:underline">
-            Keep only selected le buckets
-            <ArrowRightIcon className="size-3" />
-          </Link>
-        ) : null}
-      </p>
-    </div>
-  )
-}
-
 export function RuleImpact({ rule, totalSeries, showCost = true }: { rule: Rule; totalSeries: number; showCost?: boolean }) {
   if (!rule.impact) return <span className="text-xs text-muted-foreground">Not measured</span>
   const saved = rule.impact.seriesBefore - rule.impact.seriesAfter
@@ -222,7 +181,6 @@ export function RuleImpact({ rule, totalSeries, showCost = true }: { rule: Rule;
         <span className="text-xs text-muted-foreground tabular-nums">{((saved / totalSeries) * 100).toFixed(2)}%</span>
       ) : null}
       {showCost ? <CostText series={saved} /> : null}
-      {rule.impact.mergesSeries ? <span className="text-xs text-destructive">merges series</span> : null}
       {ago ? (
         <span className="text-[11px] text-muted-foreground/80" title={new Date(rule.impact.measuredAt).toLocaleString()}>
           {rule.kind === "drop_metric" ? "snapshot" : "measured"} {ago}

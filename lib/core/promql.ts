@@ -123,6 +123,18 @@ export const queries = {
         { label: "le", op: "!~", value: literalAlternation(kept) },
       ],
     })})`,
+  /** Series left when only `keep`'s value of each label stays (series without the label stay too). */
+  seriesKeeping: (sel: SeriesSelector, keep: Record<string, string>) =>
+    `count(${selector({
+      ...sel,
+      regexMatchers: [
+        ...(sel.regexMatchers ?? []),
+        ...Object.entries(keep).map(([label, value]) => ({ label, op: "=~" as const, value: literalAlternation(["", value]) })),
+      ],
+    })})`,
+  /** Up to `limit` groups of series that would merge if `labels` were dropped, largest first. */
+  mergeGroups: (sel: SeriesSelector, labels: string[], limit: number) =>
+    `topk(${topLimit(limit)}, count without (${labelList(labels)}) (${selector(sel)}) > 1)`,
   topLabelValues: (sel: SeriesSelector, label: string, limit: number) =>
     `topk(${topLimit(limit)}, count by (${labelList([label])}) (${selector(sel)}))`,
 }

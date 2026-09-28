@@ -1,6 +1,7 @@
 import * as React from "react"
 import { ShieldCheckIcon, ShieldWarningIcon } from "@phosphor-icons/react"
 
+import { InfoTip } from "@/components/info-tip"
 import { SegmentedControl } from "@/components/segmented-control"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -9,6 +10,7 @@ import { Label } from "@/components/ui/label"
 import { EvidenceList } from "@/features/rules/drop-gate"
 import { useLogUsageSummary } from "@/features/rules/log-usage"
 import { Term } from "@/features/rules/term"
+import { useLogsAdaptive } from "@/hooks/use-cardinality"
 import { guardedLogLabel } from "@/lib/core/logs/label-advice"
 import { logRuleTarget } from "@/lib/core/logs/logql-usage"
 import { describeLogRule, keepCoversAll, LINE_REMOVING_KINDS, MAX_RATIONALE } from "@/lib/core/logs/rules"
@@ -112,6 +114,7 @@ export function LogRuleGate({
   const [regex, setRegex] = React.useState("")
   const overrideId = React.useId()
   const regexId = React.useId()
+  const adaptiveLogs = useLogsAdaptive()
 
   const askLine = kind === "drop_lines" && !candidate.line
   const line: LineFilter | undefined = candidate.line ?? (askLine ? (lineMode === "regex" ? { regex } : { levels: lineMode.split(",") }) : undefined)
@@ -152,8 +155,13 @@ export function LogRuleGate({
       "The collector keeps a random share of matching lines and drops the rest."
     ) : kind === "keep" ? (
       <>
-        A <Term id="keepRule">keep rule</Term>: your drop and sample rules leave these lines alone (exports narrow them), and{" "}
-        <Term id="adaptiveLogs">Adaptive Logs</Term> gets an exemption for these streams on the next apply.
+        A <Term id="keepRule">keep rule</Term>: your drop and sample rules leave these lines alone (exports narrow them)
+        {adaptiveLogs ? (
+          <>
+            , and <Term id="adaptiveLogs">Adaptive Logs</Term> gets an exemption for these streams on the next apply
+          </>
+        ) : null}
+        .
       </>
     ) : (
       "The collector drops matching lines; the rest of each stream stays."
@@ -165,8 +173,12 @@ export function LogRuleGate({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-col gap-1">
-        <p className="font-medium">{title}</p>
-        <p className="text-xs text-muted-foreground">{explain}</p>
+        <p className="font-medium">
+          {title}
+          <InfoTip label="What happens?" className="ml-0.5">
+            {explain}
+          </InfoTip>
+        </p>
         {hint ? <p className="text-xs font-medium text-brand-ink tabular-nums">{hint}</p> : null}
       </div>
 
@@ -256,7 +268,7 @@ export function LogRuleGate({
 
       {target ? (
         <div className="-mx-1 flex max-h-[max(10rem,calc(var(--radix-popover-content-available-height,100vh)-12rem))] min-h-0 flex-col gap-3 overflow-y-auto px-1">
-          <EvidenceList summary={summary} pending={isPending} />
+          <EvidenceList summary={summary} pending={isPending} compact />
         </div>
       ) : null}
 

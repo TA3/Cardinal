@@ -11,6 +11,7 @@ import {
 import { toast } from "sonner"
 
 import { StatFrame } from "@/components/frame"
+import { InfoTip } from "@/components/info-tip"
 import { LiveDot } from "@/components/motion"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -28,11 +29,11 @@ export const GRAFANA_TIMEOUT_MS = 15_000
 /** What went wrong with a Grafana request, in terms of what to change. */
 export function explainGrafanaError(error: unknown, mode: TransportMode) {
   if (error instanceof CorsError) {
-    return "The browser couldn't read Grafana directly: Grafana doesn't send CORS headers by default. Choose Proxy for a public Grafana or Relay for one on your network, or allow this origin in a reverse proxy in front of Grafana."
+    return "Grafana blocks browser requests (no CORS headers by default): use Auto or Proxy for a public Grafana, Relay for one on your network."
   }
   if (error instanceof RelayError) return error.message
   if (error instanceof HttpError && error.proxyFailure === "private") {
-    return "The hosted proxy can't reach private or local hosts. Choose Relay to go through a Cardinal server on your network, or Direct if Grafana allows this origin (CORS)."
+    return "The hosted proxy can't reach private hosts: use Relay, or Direct if Grafana allows this origin (CORS)."
   }
   if (error instanceof HttpError && error.proxyFailure && error.proxyFailure !== "token") return error.message
   if (error instanceof HttpError && (error.status === 401 || error.status === 403)) {
@@ -156,15 +157,16 @@ export function GrafanaUsagePanel() {
           <p className="flex items-center gap-2 text-sm font-medium">
             <SquaresFourIcon className="size-4 text-muted-foreground" />
             Dashboard and alert usage
+            <InfoTip label="What does the scan do?">
+              Reads every dashboard and Grafana-managed alert rule, read-only, to show which panels use a metric and which labels they filter or
+              group by. Kept in this browser until you re-scan.
+            </InfoTip>
             {index ? (
               <Badge variant="outline" className="border-brand/30 text-brand-ink">
                 <LiveDot className="size-1.5" pulse={false} />
                 Scanned {scannedAgo}
               </Badge>
             ) : null}
-          </p>
-          <p className="text-sm text-muted-foreground">
-            Reads every dashboard and Grafana-managed alert rule, read-only, to show which panels use a metric and which labels they filter or group by.
           </p>
         </div>
         {scanning ? (
@@ -189,8 +191,8 @@ export function GrafanaUsagePanel() {
       <ScanProgressLine />
       {index ? (
         <>
-          <p className="text-xs text-muted-foreground">
-            Last scan: {hostOf(index.baseUrl)}, {new Date(index.scannedAt).toLocaleString()} ({scannedAgo}). Kept in this browser until you re-scan.
+          <p className="text-xs text-muted-foreground" title={new Date(index.scannedAt).toLocaleString()}>
+            {hostOf(index.baseUrl)}, {scannedAgo}
           </p>
           <ScanStats index={index} />
         </>

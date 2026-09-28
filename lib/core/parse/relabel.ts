@@ -1,4 +1,4 @@
-import { KEEP_BUCKET_MARK } from "@/lib/core/compile/plan"
+import { KEEP_BUCKET_MARK, KEEP_VALUE_MARK } from "@/lib/core/compile/plan"
 import { isLabelName } from "@/lib/core/promql"
 import { parseLiteralAlternation, regexProblem, splitJoinedRegex } from "@/lib/core/regex"
 import { createRule, mergeRules, type Rule } from "@/lib/core/rules"
@@ -36,9 +36,10 @@ function jobLiteral(regex: string) {
 // anything narrower (e.g. `v1|v2`) is a different rule.
 const ANY_VALUE = new Set([".+", ".*", "(.*)", "(.+)"])
 
-/** Kept buckets seen in a mark step, waiting for the drop step that uses them. */
+/** Kept buckets (or a kept label value) seen in a mark step, waiting for the drop step that uses them. */
 type PendingKeeps = Map<string, string[]>
 const keepKey = (job: string | undefined, metric: string) => JSON.stringify([job ?? null, metric])
+const valueKey = (job: string | undefined, metric: string, label: string) => JSON.stringify([job ?? null, metric, label])
 
 /** Removes one wrapping group from the last part of a joined regex: `(re)` → `re`. */
 function unwrapGroup(part: string) {
@@ -74,6 +75,32 @@ function convert(raw: RawRelabelRule, pending: PendingKeeps): Rule[] | string {
   const scope = (job: string | undefined | null) => {
     const resolved = job ?? raw.scrapeJob
     return resolved === undefined ? {} : { job: resolved }
+  }
+
+  // Keep one value of a label: mark it, drop the unmarked values, remove the mark.
+  if (action === "labeldrop" && regex.trim() === KEEP_VALUE_MARK) return []
+  if (action === "replace" && raw.targetLabel === KEEP_VALUE_MARK) {
+    const head = joinedHead(raw, 1)
+    const values = head ? parseLiteralAlternation(head.rest[0]) : null
+    if (!head || values?.length !== 1) return "value mark is not one literal value"
+    pending.set(valueKey(head.job, head.metric, head.restLabels[0]), values)
+    return []
+  }
+  if (action === "drop" && labels[labels.length - 1] === KEEP_VALUE_MARK) {
+    const head = joinedHead(raw, 2)
+    const label = head?.restLabels[0]
+    const value = head && label ? pending.get(valueKey(head.job, head.metric, label))?.[0] : undefined
+    if (!head || !label || value === undefined) return "value drop without a matching value mark"
+    return [
+      createRule({
+        kind: "drop_labels",
+        selector: { metric: head.metric, ...scope(head.job) },
+        labels: [label],
+        onMerge: "keep_value",
+        keepValues: { [label]: value },
+        origin: "import",
+      }),
+    ]
   }
 
   // Keep-buckets: mark kept buckets, drop unmarked ones, remove the mark.

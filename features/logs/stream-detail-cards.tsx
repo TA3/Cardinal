@@ -10,7 +10,8 @@ import { ShareBar } from "@/components/share-bar"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { InfoTip } from "@/components/info-tip"
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Item, ItemContent, ItemDescription, ItemGroup, ItemTitle } from "@/components/ui/item"
 import { Progress } from "@/components/ui/progress"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -54,10 +55,10 @@ export function VolumeByValueCard({ snapshot, selector, labels }: { snapshot: Lo
   return (
     <Card size="sm">
       <CardHeader>
-        <CardTitle>
+        <CardTitle className="flex items-center gap-1">
           <Term id="logVolume">Volume</Term> by value
+          <InfoTip label="About this card">Bytes per day for each value of one label in this group.</InfoTip>
         </CardTitle>
-        <CardDescription>Bytes per day for each value of one label in this group.</CardDescription>
         {options.length ? (
           <CardAction>
             <Select value={label ?? undefined} onValueChange={setPicked}>
@@ -115,8 +116,8 @@ export function SampleLinesCard({ selector }: { selector: StreamSelector }) {
         <CardTitle className="flex items-center gap-2">
           <TerminalIcon className="size-4 text-muted-foreground" />
           Sample lines
+          <InfoTip label="About this card">The newest 20 lines from the last hour, read only when you open this.</InfoTip>
         </CardTitle>
-        <CardDescription>The newest 20 lines from the last hour, read only when you open this.</CardDescription>
         <CardAction>
           <Button size="sm" variant="outline" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
             {open && isFetching ? <Spinner data-icon="inline-start" /> : <CaretDownIcon data-icon="inline-start" className={cn("transition-transform", open && "rotate-180")} />}
@@ -163,10 +164,10 @@ export function PatternsCard({ snapshot, by, group }: { snapshot: LogsSnapshot; 
         <CardTitle className="flex items-center gap-2">
           <FingerprintIcon className="size-4 text-muted-foreground" />
           Top <Term id="logPattern">patterns</Term>
+          <InfoTip label="About this card">
+            Line shapes Loki detected over the last {range}, most frequent first. Drop, sample or protect a pattern with a line regex built from it.
+          </InfoTip>
         </CardTitle>
-        <CardDescription>
-          Line shapes Loki detected over the last {range}, most frequent first. Drop, sample or protect a pattern with a line regex built from it.
-        </CardDescription>
         <CardAction>
           <Button asChild size="xs" variant="ghost">
             <Link to={`${paths.logPatterns}?service=${encodeURIComponent(group)}`}>All patterns</Link>
@@ -213,8 +214,10 @@ export function GroupRulesCard({ snapshot, selector }: { snapshot: LogsSnapshot;
   return (
     <Card size="sm">
       <CardHeader>
-        <CardTitle>Rules</CardTitle>
-        <CardDescription>Log rules that apply to these streams, including broader ones.</CardDescription>
+        <CardTitle className="flex items-center gap-1">
+          Rules
+          <InfoTip label="About this card">Log rules that apply to these streams, including broader ones.</InfoTip>
+        </CardTitle>
         <CardAction>
           <Button asChild size="xs" variant="ghost">
             <Link to={paths.rules}>All rules</Link>
@@ -223,7 +226,7 @@ export function GroupRulesCard({ snapshot, selector }: { snapshot: LogsSnapshot;
       </CardHeader>
       <CardContent>
         {rules.length === 0 ? (
-          <EmptyState compact icon={ShieldCheckIcon} title="No rules yet" description="Drop, sample or protect lines, or move a label to structured metadata." />
+          <EmptyState compact icon={ShieldCheckIcon} title="No rules yet" />
         ) : (
           <ItemGroup className="gap-2">
             {rules.map((rule) => (
@@ -290,6 +293,7 @@ export function LogqlScanControl({ className }: { className?: string }) {
       <Button
         size="xs"
         variant="outline"
+        title={usage.grafanaHost ? `Reads every dashboard on ${usage.grafanaHost}, four at a time` : undefined}
         onClick={() =>
           void startLogqlScan().then(
             (index) => toast.success(`Scanned ${index.dashboardsScanned} dashboards`, { description: `${formatNumber(index.queries.length)} LogQL queries found.` }),
@@ -301,7 +305,7 @@ export function LogqlScanControl({ className }: { className?: string }) {
       >
         {usage.index ? "Rescan dashboards" : "Scan dashboards for LogQL"}
       </Button>
-      {usage.error ? <span className="text-destructive">{usage.error}</span> : !usage.index ? <span>Reads every dashboard on {usage.grafanaHost}, four at a time.</span> : null}
+      {usage.error ? <span className="text-destructive">{usage.error}</span> : null}
     </div>
   )
 }
@@ -315,8 +319,10 @@ export function UsedByCard({ selector }: { selector: StreamSelector }) {
   return (
     <Card size="sm">
       <CardHeader>
-        <CardTitle>Used by</CardTitle>
-        <CardDescription>Loki alerting and recording rules and Grafana dashboard panels whose LogQL reads {selectorText(selector)}.</CardDescription>
+        <CardTitle className="flex items-center gap-1">
+          Used by
+          <InfoTip label="About this card">Loki alerting and recording rules and Grafana dashboard panels whose LogQL reads {selectorText(selector)}.</InfoTip>
+        </CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         {ruleReads.length || panelReads.length ? (
@@ -348,7 +354,7 @@ export function UsedByCard({ selector }: { selector: StreamSelector }) {
             ))}
           </ItemGroup>
         ) : null}
-        <EvidenceList summary={summary} pending={isPending} />
+        <EvidenceList summary={summary} pending={isPending} compact />
         <LogqlScanControl />
       </CardContent>
     </Card>

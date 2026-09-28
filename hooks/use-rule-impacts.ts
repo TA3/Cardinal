@@ -23,7 +23,13 @@ function sameImpact(a: RuleImpact | null | undefined, b: RuleImpact | undefined)
 /** What a measurement depends on: the rule's target, labels, pattern or buckets, and the backend. */
 function workKey(rule: Rule, connKey: string) {
   const detail =
-    rule.kind === "drop_labels" ? rule.labels : rule.kind === "keep_buckets" ? rule.buckets : rule.kind === "drop_series" ? [rule.match.label, rule.match.regex] : []
+    rule.kind === "drop_labels"
+      ? [rule.labels, rule.onMerge === "keep_value" ? (rule.keepValues ?? {}) : null]
+      : rule.kind === "keep_buckets"
+        ? rule.buckets
+        : rule.kind === "drop_series"
+          ? [rule.match.label, rule.match.regex]
+          : []
   return JSON.stringify([rule.id, rule.selector.job ?? null, rule.selector.metric, rule.kind, detail, connKey])
 }
 

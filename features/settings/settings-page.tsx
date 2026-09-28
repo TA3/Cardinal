@@ -1,24 +1,26 @@
 import * as React from "react"
 import {
   BrowserIcon,
+  CaretDownIcon,
+  CaretRightIcon,
   CloudIcon,
   CurrencyDollarIcon,
+  GearSixIcon,
   HardDrivesIcon,
   LockKeyIcon,
   NetworkIcon,
   PaletteIcon,
-  PlugsIcon,
   RobotIcon,
   ShieldCheckIcon,
   TrashIcon,
 } from "@phosphor-icons/react"
 import { useTheme } from "next-themes"
-import { useNavigate } from "react-router"
+import { useLocation, useNavigate } from "react-router"
 import { toast } from "sonner"
 
 import { paths } from "@/app/paths"
 import { formatCost } from "@/components/cost-text"
-import { LiveDot } from "@/components/motion"
+import { InfoTip } from "@/components/info-tip"
 import { Page, PageHeader } from "@/components/page"
 import { SegmentedControl } from "@/components/segmented-control"
 import {
@@ -32,17 +34,18 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Field, FieldContent, FieldDescription, FieldLabel } from "@/components/ui/field"
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from "@/components/ui/input-group"
 import { Switch } from "@/components/ui/switch"
-import { ConnectionForm } from "@/features/settings/connection-form"
-import { LogsConnectionSection, LogsPriceField } from "@/features/settings/logs-connection-section"
+import { DataSourceCard } from "@/features/settings/data-source-card"
+import { LogsPriceField } from "@/features/settings/logs-connection-section"
 import { AttributionSection } from "@/features/attribution/attribution-settings"
 import { GrafanaSection } from "@/features/grafana/grafana-section"
 import { RelaySection } from "@/features/relay/relay-section"
+import { RuleDestinationSection } from "@/features/rules/destination"
 import { endAgentSession } from "@/hooks/use-agent-bridge"
 import { useAppStore } from "@/lib/store/app-store"
 
@@ -55,30 +58,6 @@ function SectionTitle({ icon: Icon, children }: { icon: React.ComponentType<{ cl
       <Icon className="size-4 text-muted-foreground" />
       {children}
     </CardTitle>
-  )
-}
-
-function ConnectionSection() {
-  const navigate = useNavigate()
-  const hasSource = useAppStore((state) => Boolean(state.settings.baseUrl))
-  return (
-    <Card id="connection">
-      <CardHeader>
-        <SectionTitle icon={PlugsIcon}>Connection</SectionTitle>
-        <CardDescription>Metrics source for snapshots, drilldowns and the agent. Test it, then save to take a snapshot.</CardDescription>
-        {hasSource ? (
-          <CardAction>
-            <Badge variant="outline" className="border-brand/30 text-brand-ink">
-              <LiveDot className="size-1.5" />
-              Connected
-            </Badge>
-          </CardAction>
-        ) : null}
-      </CardHeader>
-      <CardContent>
-        <ConnectionForm onConnected={() => navigate(paths.overview)} />
-      </CardContent>
-    </Card>
   )
 }
 
@@ -119,32 +98,39 @@ function PrivacySection() {
   const share = useAppStore((state) => state.agentShareLabelValues)
   const setShare = useAppStore((state) => state.setAgentShareLabelValues)
   return (
-    <Card id="privacy">
+    <Card id="privacy" className="scroll-mt-32">
       <CardHeader>
         <SectionTitle icon={ShieldCheckIcon}>Privacy</SectionTitle>
-        <CardDescription>What is stored where, and what leaves this browser.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <ul className="grid gap-3 sm:grid-cols-2">
-          {PRIVACY_FACTS.map((fact) => (
-            <li key={fact.title} className="flex items-start gap-3 text-sm">
-              <fact.icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-              <div className="flex min-w-0 flex-col gap-0.5">
-                <span className="font-medium">{fact.title}</span>
-                <span className="text-muted-foreground">{fact.text}</span>
-              </div>
-            </li>
-          ))}
-        </ul>
         <Field orientation="horizontal">
-          <FieldContent>
-            <FieldLabel htmlFor="share-label-values">Share label values with agents</FieldLabel>
-            <FieldDescription>
+          <FieldLabel htmlFor="share-label-values" className="gap-1">
+            Share label values with agents
+            <InfoTip label="What does this change?">
               Off: the agent's get_label_values tool is refused. It still sees label names and how many values each has.
-            </FieldDescription>
-          </FieldContent>
+            </InfoTip>
+          </FieldLabel>
           <Switch id="share-label-values" checked={share} onCheckedChange={setShare} />
         </Field>
+        <Collapsible>
+          <CollapsibleTrigger className="group/facts inline-flex items-center gap-1 rounded-md text-xs font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50">
+            <CaretRightIcon className="size-3 transition-transform group-data-[state=open]/facts:rotate-90 motion-reduce:transition-none" />
+            What is stored where
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <ul className="grid gap-3 pt-3 sm:grid-cols-2">
+              {PRIVACY_FACTS.map((fact) => (
+                <li key={fact.title} className="flex items-start gap-3 text-sm">
+                  <fact.icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                  <div className="flex min-w-0 flex-col gap-0.5">
+                    <span className="font-medium">{fact.title}</span>
+                    <span className="text-muted-foreground">{fact.text}</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </CollapsibleContent>
+        </Collapsible>
       </CardContent>
     </Card>
   )
@@ -178,14 +164,19 @@ function PricingSection() {
   const invalid = text.trim() !== "" && !(Number(text) >= 0)
 
   return (
-    <Card id="pricing">
+    <Card id="pricing" className="scroll-mt-32">
       <CardHeader>
         <SectionTitle icon={CurrencyDollarIcon}>Pricing</SectionTitle>
-        <CardDescription>Turns series counts and logs bytes into cost on the overview, explore and rules pages. Leave empty to hide costs.</CardDescription>
+        <CardAction>
+          <InfoTip label="What is pricing for?">Turns series counts and logs bytes into cost across Cardinal. Leave empty to hide costs.</InfoTip>
+        </CardAction>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         <Field data-invalid={invalid || undefined}>
-          <FieldLabel htmlFor="price">Price per 1,000 active series per month</FieldLabel>
+          <FieldLabel htmlFor="price" className="gap-1">
+            Price per 1,000 active series per month
+            <InfoTip label="About the preset">The preset is Grafana Cloud's Pro list price; volume tiers and contracts are cheaper, so use your own rate if you know it.</InfoTip>
+          </FieldLabel>
           <div className="flex flex-wrap items-center gap-2">
             <InputGroup className="w-44">
               <InputGroupAddon>
@@ -209,11 +200,11 @@ function PricingSection() {
               </Button>
             ) : null}
           </div>
-          <FieldDescription>
-            {price !== undefined && totalSeries
-              ? `Your current ${totalSeries.toLocaleString()} series come to about ${formatCost((totalSeries / 1000) * price)} a month.`
-              : "The Grafana Cloud preset is the Pro list price; volume tiers and contracts are cheaper, so use your own rate if you know it."}
-          </FieldDescription>
+          {price !== undefined && totalSeries ? (
+            <FieldDescription>
+              ~{formatCost((totalSeries / 1000) * price)}/mo for your {totalSeries.toLocaleString()} series
+            </FieldDescription>
+          ) : null}
         </Field>
         <LogsPriceField />
       </CardContent>
@@ -224,16 +215,13 @@ function PricingSection() {
 function AppearanceSection() {
   const { theme, setTheme } = useTheme()
   return (
-    <Card id="appearance">
+    <Card id="appearance" className="scroll-mt-32">
       <CardHeader>
         <SectionTitle icon={PaletteIcon}>Appearance</SectionTitle>
       </CardHeader>
       <CardContent>
         <Field orientation="horizontal">
-          <FieldContent>
-            <FieldLabel>Theme</FieldLabel>
-            <FieldDescription>Also toggled with the D key.</FieldDescription>
-          </FieldContent>
+          <FieldLabel title="Also toggled with the D key">Theme</FieldLabel>
           <SegmentedControl
             aria-label="Theme"
             value={theme ?? "system"}
@@ -262,14 +250,12 @@ function ResetSection() {
   }
 
   return (
-    <Card id="reset">
+    <Card id="reset" className="scroll-mt-32">
       <CardHeader>
         <SectionTitle icon={TrashIcon}>Reset</SectionTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-sm text-muted-foreground">
-          Remove the connection, token, snapshot, rules and pricing stored in this browser, and end any agent session.
-        </p>
+        <p className="text-sm text-muted-foreground">Clears connections, tokens, snapshots, rules and pricing here, and ends any agent session.</p>
         <AlertDialog>
           <AlertDialogTrigger asChild>
             <Button variant="destructive" className="self-start sm:self-auto">
@@ -295,19 +281,59 @@ function ResetSection() {
   )
 }
 
+/** Sections under Advanced; a link to one of them opens it. */
+const ADVANCED_IDS = ["relay", "attribution", "privacy", "appearance", "reset"]
+
+function AdvancedSection({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  return (
+    <Collapsible open={open} onOpenChange={onOpenChange} className="flex flex-col gap-4">
+      <CollapsibleTrigger className="group/advanced flex w-full items-center gap-2 rounded-2xl border border-well-border bg-well px-4 py-3 text-left outline-none transition-colors [corner-shape:squircle] hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50">
+        <GearSixIcon className="size-4 text-muted-foreground" />
+        <span className="text-sm font-medium">Advanced</span>
+        <span className="min-w-0 truncate text-xs text-muted-foreground">Relay · Attribution · Privacy · Appearance · Reset</span>
+        <CaretDownIcon className="ml-auto size-4 shrink-0 text-muted-foreground transition-transform group-data-[state=closed]/advanced:-rotate-90 motion-reduce:transition-none" />
+      </CollapsibleTrigger>
+      <CollapsibleContent className="flex flex-col gap-4">
+        <RelaySection />
+        <AttributionSection />
+        <PrivacySection />
+        <AppearanceSection />
+        <ResetSection />
+      </CollapsibleContent>
+    </Collapsible>
+  )
+}
+
+function SectionHeading({ children }: { children: React.ReactNode }) {
+  return <h2 className="px-1 pt-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">{children}</h2>
+}
+
 export function SettingsPage() {
+  const { hash, key } = useLocation()
+  const target = hash.slice(1)
+  const [advanced, setAdvanced] = React.useState(ADVANCED_IDS.includes(target))
+  const [lastKey, setLastKey] = React.useState(key)
+  if (key !== lastKey) {
+    setLastKey(key)
+    if (ADVANCED_IDS.includes(target)) setAdvanced(true)
+  }
+  // Deep links (#relay, #pricing, …): scroll once the section is rendered.
+  React.useEffect(() => {
+    if (!target) return
+    const frame = requestAnimationFrame(() => document.getElementById(target)?.scrollIntoView({ block: "start" }))
+    return () => cancelAnimationFrame(frame)
+  }, [target, key, advanced])
+
   return (
     <Page className="max-w-4xl">
-      <PageHeader title="Settings" description="Data sources and preferences. Everything here is stored in this browser only." />
+      <PageHeader title="Settings" description="Stored in this browser only." />
+      <SectionHeading>Data sources</SectionHeading>
+      <DataSourceCard signal="metrics" />
+      <DataSourceCard signal="logs" />
+      <RuleDestinationSection />
       <GrafanaSection />
-      <ConnectionSection />
-      <LogsConnectionSection />
-      <RelaySection />
-      <PrivacySection />
       <PricingSection />
-      <AttributionSection />
-      <AppearanceSection />
-      <ResetSection />
+      <AdvancedSection open={advanced} onOpenChange={setAdvanced} />
     </Page>
   )
 }

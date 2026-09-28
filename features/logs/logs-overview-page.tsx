@@ -4,11 +4,9 @@ import {
   ChartLineIcon,
   ClockCounterClockwiseIcon,
   FunnelIcon,
-  LockKeyIcon,
   MagnifyingGlassIcon,
   RobotIcon,
   ShieldCheckIcon,
-  SparkleIcon,
   StackIcon,
   TagIcon,
   TrendUpIcon,
@@ -29,6 +27,7 @@ import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
 import { Progress } from "@/components/ui/progress"
 import { Spinner } from "@/components/ui/spinner"
+import { LogsTopSavings } from "@/features/logs/top-savings"
 import { stepLabel } from "@/features/logs/volume-parts"
 import { takeNextPath } from "@/app/continue-after-connect"
 import { ConnectGrafanaCard } from "@/features/grafana/connect-card"
@@ -81,15 +80,15 @@ function Welcome() {
   }
   const hasSource = useAppStore((state) => Boolean(state.logsSettings.baseUrl.trim()))
   const steps = [
-    { icon: MagnifyingGlassIcon, title: "Find", text: "One snapshot shows which services send the most bytes, and which labels multiply your streams." },
-    { icon: FunnelIcon, title: "Cut", text: "Drop or sample noisy lines, move high-cardinality labels to structured metadata, and export Alloy or Promtail stages." },
-    { icon: RobotIcon, title: "Delegate", text: "Connect an AI agent over MCP to investigate your logs volume and propose rules." },
+    { icon: MagnifyingGlassIcon, title: "Find", text: "See which services send the most bytes and which labels multiply streams." },
+    { icon: FunnelIcon, title: "Cut", text: "Drop noisy lines or move ID-like labels, then export collector config." },
+    { icon: RobotIcon, title: "Delegate", text: "Let an AI agent over MCP propose rules." },
   ]
   return (
     <Page>
       <PageHeader
         title={hasSource ? "Take a logs snapshot" : "Connect a logs source"}
-        description="Cardinal reads stream and volume stats from Loki's index, never your log lines. Queries run from this tab; in proxy mode they pass through Cardinal's Worker and nothing is stored."
+        description="Stream and volume stats from Loki's index, never your log lines. Nothing is stored."
       />
       <Stagger className="grid gap-4 lg:grid-cols-[1fr_20rem]">
         <Reveal>
@@ -216,7 +215,7 @@ function RulesFrame({ snapshot }: { snapshot: LogsSnapshot }) {
   const savedPerDay = total > 0 ? (savings.savedBytes / total) * bytesPerDay(snapshot) : 0
   return (
     <Frame className="h-full">
-      <FrameHeader icon={ShieldCheckIcon} title="Rules" action={<FrameLink to={paths.rules} />} />
+      <FrameHeader icon={ShieldCheckIcon} title="Your plan" action={<FrameLink to={paths.rules}>Open</FrameLink>} />
       <FrameWell className="flex flex-col gap-3">
         <div className="flex items-baseline justify-between gap-3">
           <span className="text-2xl font-medium tracking-tight tabular-nums" title={BYTES_NOTE}>
@@ -252,11 +251,6 @@ function RulesFrame({ snapshot }: { snapshot: LogsSnapshot }) {
             <span className="tabular-nums">{savings.proposed}</span>
           </div>
         </div>
-        <p className="text-xs text-muted-foreground">
-          {savings.active
-            ? "Rules ship as Alloy or Promtail stages, and Loki retention limits."
-            : "Drop or sample noisy lines, or move ID-like labels to structured metadata. An agent can propose rules too."}
-        </p>
       </FrameWell>
     </Frame>
   )
@@ -378,9 +372,9 @@ function SinceLastFrame({ snapshot }: { snapshot: LogsSnapshot }) {
 }
 
 const AGENT_FACTS = [
-  { icon: LockKeyIcon, text: "Queries run in this tab; your token never leaves it." },
-  { icon: ShieldCheckIcon, text: "It only proposes rules. Nothing changes until you accept." },
-  { icon: SparkleIcon, text: "Ask “which services log the most, and what can I drop?” to start." },
+  { text: "Queries run in this tab; your token never leaves it." },
+  { text: "It only proposes rules. Nothing changes until you accept." },
+  { text: "Ask “which services log the most, and what can I drop?” to start." },
 ]
 
 function AgentFrame() {
@@ -417,15 +411,16 @@ function AgentFrame() {
           </div>
         ) : (
           <div className="flex h-full flex-col gap-3 py-1 text-sm">
-            <p className="text-muted-foreground">Start an MCP session and let Claude find the noisiest logs. It proposes; you decide.</p>
-            <ul className="flex flex-col gap-2">
-              {AGENT_FACTS.map((fact) => (
-                <li key={fact.text} className="flex items-start gap-2.5">
-                  <fact.icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                  <span>{fact.text}</span>
-                </li>
-              ))}
-            </ul>
+            <p className="flex items-center gap-1 text-muted-foreground">
+              Let Claude find the noisiest logs over MCP. It proposes; you decide.
+              <InfoTip label="How the agent works">
+                <ul className="flex flex-col gap-1">
+                  {AGENT_FACTS.map((fact) => (
+                    <li key={fact.text}>{fact.text}</li>
+                  ))}
+                </ul>
+              </InfoTip>
+            </p>
             <div className="mt-auto pt-1">
               <Button asChild variant="outline" size="sm">
                 <Link to={paths.agent}>
@@ -519,6 +514,14 @@ function Dashboard({ snapshot }: { snapshot: LogsSnapshot }) {
       />
 
       <Stagger className="flex flex-col gap-4">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+          <Reveal className="min-w-0">
+            <LogsTopSavings snapshot={snapshot} />
+          </Reveal>
+          <Reveal>
+            <RulesFrame snapshot={snapshot} />
+          </Reveal>
+        </div>
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
           <Reveal>
             <StatFrame
@@ -615,13 +618,10 @@ function Dashboard({ snapshot }: { snapshot: LogsSnapshot }) {
           <Reveal>
             <LabelsFrame snapshot={snapshot} />
           </Reveal>
-          <Reveal className="md:col-span-2 xl:col-span-1">
-            <RulesFrame snapshot={snapshot} />
-          </Reveal>
           <Reveal>
             <SinceLastFrame snapshot={snapshot} />
           </Reveal>
-          <Reveal className="xl:col-span-2">
+          <Reveal className="xl:col-span-3">
             <AgentFrame />
           </Reveal>
         </div>

@@ -14,6 +14,7 @@ import {
   type DropScope,
 } from "@/features/explore/drop-scope"
 import { DropGate } from "@/features/rules/drop-gate"
+import type { MergeDecision } from "@/features/rules/merge-choice"
 import { confirmationKey, guardedLabel } from "@/lib/core/usage-gate"
 import { labelDropRule, metricDropRule, useAppStore } from "@/lib/store/app-store"
 import { cn } from "@/lib/utils"
@@ -42,6 +43,7 @@ export function DropToggle({
   size = "default",
   reveal = false,
   disabled = false,
+  idleText = "Drop",
   className,
 }: {
   metric: string
@@ -54,6 +56,8 @@ export function DropToggle({
   /** In table rows: hidden until the row is hovered or focused (pointer devices only). */
   reveal?: boolean
   disabled?: boolean
+  /** The idle pill's text, e.g. "Drop metric". */
+  idleText?: string
   className?: string
 }) {
   const rules = useAppStore((state) => state.rules)
@@ -69,10 +73,14 @@ export function DropToggle({
   const gateKey = confirmationKey(metric, newJob, label)
 
   const toggle = () => (label === undefined ? toggleMetricDrop(metric, job, scope) : toggleLabelDrop(metric, label, job, scope))
-  const confirm = () => {
+  const confirm = (merge?: MergeDecision) => {
     rememberDropConfirmed(gateKey)
     setGateOpen(false)
     toggle()
+    if (label === undefined || !merge?.choice) return
+    const { rules, setRuleMerge } = useAppStore.getState()
+    const created = labelDropRule(rules, metric, label, job)
+    if (created) setRuleMerge(created.id, merge.choice, merge.keepValues)
   }
   const dropFamily = (members: string[]) => {
     const { rules } = useAppStore.getState()
@@ -138,7 +146,7 @@ export function DropToggle({
                     transition={{ duration: 0.2, ease: "easeOut" }}
                     className={cn("flex items-center gap-1", size === "responsive" && "hidden sm:flex")}
                   >
-                    {dropped ? "Dropped" : "Drop"}
+                    {dropped ? "Dropped" : idleText}
                     {global ? <span className="opacity-70">· all</span> : null}
                     {dropped ? (
                       <ArrowCounterClockwiseIcon
@@ -157,6 +165,7 @@ export function DropToggle({
       <PopoverContent
         align="end"
         collisionPadding={16}
+        sticky="always"
         className="w-[min(20rem,calc(100vw-2rem))]"
         onClick={(event) => event.stopPropagation()}
         aria-label={`Confirm dropping ${name}`}

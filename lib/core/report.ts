@@ -11,8 +11,16 @@ export function describeRule(rule: Rule, code: (text: string) => string = (text)
   switch (rule.kind) {
     case "drop_metric":
       return `Drop metric ${metric}`
-    case "drop_labels":
-      return `Drop label${rule.labels.length === 1 ? "" : "s"} ${rule.labels.map(code).join(", ")} from ${metric}`
+    case "drop_labels": {
+      const labels = rule.labels.map(code).join(", ")
+      if (rule.onMerge === "aggregate") return `Aggregate ${metric} without ${labels} (sum)`
+      if (rule.onMerge === "keep_value") {
+        const kept = Object.entries(rule.keepValues ?? {}).map(([label, value]) => code(`${label}="${value}"`))
+        return `Keep only ${kept.join(", ") || "one value"} of ${metric}, then drop ${labels}`
+      }
+      const merged = rule.impact?.mergesSeries ? " (merged series keep one sample)" : ""
+      return `Drop label${rule.labels.length === 1 ? "" : "s"} ${labels} from ${metric}${merged}`
+    }
     case "drop_series":
       return `Drop series of ${metric} where ${code(`${rule.match.label}=~"${rule.match.regex}"`)}`
     case "keep_buckets":

@@ -947,7 +947,7 @@ export function AttributionPage() {
           framed
           icon={TagIcon}
           title="Attribution is off"
-          description={`Turn it on to attribute every ${signal === "logs" ? "stream" : "series"} to an owner by labels such as team, namespace or service, with custom rules for the rest.`}
+          description={`See each ${signal === "logs" ? "stream" : "series"}'s owner by labels such as team or namespace.`}
         >
           <Button asChild>
             <Link to={`${paths.settings}#attribution`}>

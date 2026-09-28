@@ -4,12 +4,14 @@ import {
   CheckCircleIcon,
   CopyIcon,
   DownloadSimpleIcon,
-  LinkIcon,
   SquaresFourIcon,
   UploadSimpleIcon,
   WarningCircleIcon,
 } from "@phosphor-icons/react"
 import { toast } from "sonner"
+
+import { useShellActions } from "@/app/shell/shell-actions"
+import { InfoTip } from "@/components/info-tip"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
@@ -26,7 +28,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel, FieldSeparator } from "@/components/ui/field"
+import { Field, FieldGroup, FieldLabel, FieldSeparator } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
@@ -55,6 +57,7 @@ function createErrorText(error: unknown, uid: string, mode: TransportMode) {
 }
 
 function ExportFlow({ onDone }: { onDone: () => void }) {
+  const { openGrafanaConnect } = useShellActions()
   const hasLogs = useAppStore((state) => Boolean(state.logsSettings.baseUrl.trim()))
   const groupLabel = useAppStore((state) => state.logsSnapshot?.groupLabel ?? state.logsSettings.groupLabel ?? "service_name")
   const grafana = useAppStore((state) => state.grafanaSettings)
@@ -128,38 +131,38 @@ function ExportFlow({ onDone }: { onDone: () => void }) {
     <>
       <DialogHeader className="px-4 pt-4">
         <DialogTitle>Export Grafana dashboard</DialogTitle>
-        <DialogDescription>
-          A dashboard with Cardinal's overview whose jobs, metrics and services link back here. Its data sources are variables, so it imports into
-          any Grafana.
-        </DialogDescription>
+        <DialogDescription>Cardinal's overview as a Grafana dashboard that links back here. Imports into any Grafana.</DialogDescription>
       </DialogHeader>
       <div className="flex min-h-0 flex-col gap-5 overflow-y-auto px-4 pb-4">
         <FieldGroup className="gap-4">
           <div className="grid gap-3 sm:grid-cols-2">
             <Field orientation="horizontal">
-              <FieldContent>
-                <FieldLabel htmlFor="export-metrics">Metrics</FieldLabel>
-                <FieldDescription>Series, series by job, top metrics, churn.</FieldDescription>
-              </FieldContent>
+              <FieldLabel htmlFor="export-metrics" title="Series, series by job, top metrics, churn">
+                Metrics
+              </FieldLabel>
               <Switch id="export-metrics" checked={metrics} onCheckedChange={(checked) => (setMetrics(checked), resetResult())} />
             </Field>
             <Field orientation="horizontal">
-              <FieldContent>
-                <FieldLabel htmlFor="export-logs">Logs</FieldLabel>
-                <FieldDescription>Volume, streams and top values by a label.</FieldDescription>
-              </FieldContent>
+              <FieldLabel htmlFor="export-logs" title="Volume, streams and top values by a label">
+                Logs
+              </FieldLabel>
               <Switch id="export-logs" checked={logs} onCheckedChange={(checked) => (setLogs(checked), resetResult())} />
             </Field>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <Field>
-              <FieldLabel htmlFor="export-cardinal-url">Cardinal URL</FieldLabel>
+              <FieldLabel htmlFor="export-cardinal-url" className="gap-1">
+                Cardinal URL
+                <InfoTip label="What is this for?">Where the links open. Also editable later as the dashboard's cardinal_url variable.</InfoTip>
+              </FieldLabel>
               <Input id="export-cardinal-url" value={cardinalUrl} onChange={(event) => (setCardinalUrl(event.target.value), resetResult())} />
-              <FieldDescription>Where the links open. Also editable later as the dashboard's cardinal_url variable.</FieldDescription>
             </Field>
             {logs ? (
               <Field data-invalid={invalidLabel || undefined}>
-                <FieldLabel htmlFor="export-group-label">Logs group label</FieldLabel>
+                <FieldLabel htmlFor="export-group-label" className="gap-1">
+                  Logs group label
+                  <InfoTip label="What is this for?">Panels group streams by it; links open that group in Cardinal.</InfoTip>
+                </FieldLabel>
                 <Input
                   id="export-group-label"
                   className="font-mono"
@@ -167,7 +170,6 @@ function ExportFlow({ onDone }: { onDone: () => void }) {
                   aria-invalid={invalidLabel || undefined}
                   onChange={(event) => (setLabel(event.target.value), resetResult())}
                 />
-                <FieldDescription>Panels group streams by it; links open that group in Cardinal.</FieldDescription>
               </Field>
             ) : null}
             <Field>
@@ -195,8 +197,12 @@ function ExportFlow({ onDone }: { onDone: () => void }) {
               <Badge variant="outline" className="font-mono">
                 {uid.trim() || DEFAULT_DASHBOARD_UID}
               </Badge>
-              <span className="text-xs text-muted-foreground">
+              <span className="flex items-center gap-1 text-xs text-muted-foreground">
                 {built.summary.panels.length} panels · {built.summary.links} data links · {(built.summary.bytes / 1024).toFixed(1)} KB
+                <InfoTip label="Variables and query cost">
+                  Variables: {built.summary.variables.join(", ")}. The {"{__name__=~\".+\"}"} counts are heavy on large tenants; panel descriptions
+                  suggest recording rules.
+                </InfoTip>
               </span>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -216,11 +222,6 @@ function ExportFlow({ onDone }: { onDone: () => void }) {
                 </div>
               ))}
             </div>
-            <p className="mt-2 flex items-start gap-1.5 text-xs text-muted-foreground">
-              <LinkIcon className="mt-0.5 size-3.5 shrink-0" />
-              Variables: {built.summary.variables.join(", ")}. The {"{__name__=~\".+\"}"} counts are heavy on large tenants; panel descriptions
-              suggest recording rules.
-            </p>
           </div>
         ) : null}
 
@@ -228,10 +229,10 @@ function ExportFlow({ onDone }: { onDone: () => void }) {
         {canCreate ? (
           <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex min-w-0 flex-col gap-0.5">
-                <p className="text-sm font-medium">Create in {hostOf(connection!.baseUrl)}</p>
-                <p className="text-xs text-muted-foreground">Needs a token with the Editor role. Without Overwrite, an existing uid is never replaced.</p>
-              </div>
+              <p className="flex min-w-0 items-center gap-1 text-sm font-medium">
+                Create in {hostOf(connection!.baseUrl)}
+                <InfoTip label="What does it need?">Needs a token with the Editor role. Without Overwrite, an existing uid is never replaced.</InfoTip>
+              </p>
               <Field orientation="horizontal" className="w-auto">
                 <Checkbox id="export-overwrite" checked={overwrite} onCheckedChange={(checked) => (setOverwrite(checked === true), resetResult())} />
                 <FieldLabel htmlFor="export-overwrite">Overwrite</FieldLabel>
@@ -256,9 +257,12 @@ function ExportFlow({ onDone }: { onDone: () => void }) {
             ) : null}
           </div>
         ) : (
-          <p className="text-xs text-muted-foreground">
-            To create it in Grafana directly, connect Grafana with an Editor token in Settings → Grafana. Or import the JSON: Dashboards → New →
-            Import.
+          <p className="flex flex-wrap items-center gap-x-1 gap-y-1.5 text-xs text-muted-foreground">
+            Import the JSON (Dashboards → New → Import), or
+            <Button type="button" size="xs" variant="outline" onClick={openGrafanaConnect}>
+              connect Grafana
+            </Button>
+            to create it directly.
           </p>
         )}
       </div>

@@ -5,7 +5,15 @@ import { ruleSpec } from "@/lib/agent/tools"
 import { adaptiveChangeDiffs, compileAdaptiveMetrics, planRevert } from "@/lib/core/compile/adaptive-metrics"
 import { renderAlloy } from "@/lib/core/compile/alloy"
 import { planRelabel } from "@/lib/core/compile/plan"
-import { renderPrometheus } from "@/lib/core/compile/prometheus"
+import { aggregationRecordName, renderPrometheus } from "@/lib/core/compile/prometheus"
+import {
+  classifyBackend,
+  defaultMetricsDestination,
+  effectiveMetricsDestination,
+  mergeChoicesFor,
+  metricsDestinations,
+  profileFor,
+} from "@/lib/core/backend-profile"
 import { parseAlloyRelabel } from "@/lib/core/parse/alloy"
 import { parsePrometheusRelabel } from "@/lib/core/parse/prometheus"
 import { createLimiter, runWithConcurrency } from "@/lib/core/concurrency"
@@ -13,11 +21,11 @@ import { familyMembers, histogramFamily } from "@/lib/core/families"
 import { normalizeLegacyJob } from "@/lib/core/jobs"
 import { queries, selector } from "@/lib/core/promql"
 import { parseLiteralAlternation, regexProblem } from "@/lib/core/regex"
-import { activateOrCreate, createRule, isShadowed, mergeRules, ruleKey, shadowedBy, type Rule } from "@/lib/core/rules"
+import { activateOrCreate, createRule, isShadowed, mergeChoiceOf, mergeRules, ruleKey, shadowedBy, type DropLabelsRule, type Rule } from "@/lib/core/rules"
 import { classifyValue, detectIdLike, generalizePath } from "@/lib/core/id-like"
 import { base64UrlDecode, base64UrlEncode, parseRuleSetJson, readShareHash, shareHash } from "@/lib/core/share"
 import { diffAgainstBaseline, updateBaseline } from "@/lib/core/rule-diff"
-import { prDescription, renderHeader } from "@/lib/core/report"
+import { describeRule, prDescription, renderHeader } from "@/lib/core/report"
 import { confirmationKey, guardedLabel, orphanWarning, summarizeEvidence } from "@/lib/core/usage-gate"
 import { computeExpectedSavings, formatDelta, snapshotImpact } from "@/lib/core/savings"
 import { buildSnapshotFromRows, type Snapshot } from "@/lib/core/snapshot"
@@ -78,10 +86,11 @@ describe("relabel compile", () => {
     expect(doc.metric_relabel_configs[0].regex).toBe("prometheus\\.scrape\\.default;(http_requests_total)")
   })
 
-  it("never emits lossy label drops as relabel rules", () => {
+  it("holds back merging label drops until the user picks what to do", () => {
     const plan = planRelabel([dropLabels("m", ["pod"], undefined, true)], { mode: "combined" })
     expect(plan.sections[0].steps).toHaveLength(0)
-    expect(plan.warnings[0]).toMatch(/Adaptive Metrics/)
+    expect(plan.blocked.map(({ reason }) => reason)).toEqual(["undecided"])
+    expect(plan.warnings[0]).toMatch(/merges series/)
   })
 
   it("places unscoped drops in every job emitting the metric when split by job", () => {
@@ -1003,5 +1012,174 @@ describe("signals and legacy routes", () => {
     expect(legacyRedirect("/metrics/explore/up", "", "metrics")).toBeNull()
     expect(legacyRedirect("/rules", "", "metrics")).toBeNull()
     expect(legacyRedirect("/nope", "", "metrics")).toBeNull()
+  })
+})
+
+describe("backend profile", () => {
+  const probe = (patch: Partial<Parameters<typeof classifyBackend>[0]>) =>
+    classifyBackend({ baseUrl: "https://prom.example.com", buildinfo: null, tsdb: null, mimirCardinality: false, ...patch }, new Date(0))
+  const prometheusBuild = { version: "3.13.0", revision: "40af9c2", goVersion: "go1.26.4" }
+
+  it("tells the backends apart", () => {
+    expect(probe({ buildinfo: prometheusBuild, tsdb: "prometheus" }).kind).toBe("prometheus")
+    // Prometheus-shaped buildinfo without the TSDB status API is not plain Prometheus.
+    expect(probe({ buildinfo: prometheusBuild }).kind).toBe("unknown")
+    expect(probe({ buildinfo: { application: "Grafana Mimir", version: "2.14.0", revision: "x", goVersion: "go1.23" } }).kind).toBe("mimir")
+    expect(probe({ mimirCardinality: true }).kind).toBe("mimir")
+    expect(probe({ buildinfo: { version: "0.35.1", revision: "x", goVersion: "go1.22" } }).kind).toBe("thanos")
+    expect(probe({ buildinfo: { version: "2.24.0" } }).kind).toBe("victoriametrics")
+    expect(probe({ tsdb: "victoriametrics" }).kind).toBe("victoriametrics")
+    expect(probe({}).kind).toBe("unknown")
+  })
+
+  it("spots Grafana Cloud by host or by its weekly Mimir builds", () => {
+    const hosted = probe({ baseUrl: "https://prometheus-prod-10-prod-us-central-0.grafana.net/api/prom" })
+    expect(hosted).toMatchObject({ kind: "grafana-cloud", adaptiveApi: true })
+    // Play's grafanacloud-prom through Grafana's data source proxy.
+    const proxied = probe({
+      baseUrl: "https://play.grafana.org/api/datasources/proxy/uid/grafanacloud-prom",
+      buildinfo: { application: "Grafana Mimir", version: "r411-926f316c", revision: "a5b92939", goVersion: "go1.26.7" },
+    })
+    expect(proxied).toMatchObject({ kind: "grafana-cloud", adaptiveApi: false, version: "r411-926f316c" })
+  })
+
+  it("applies only to the URL it was detected for", () => {
+    const profile = probe({ buildinfo: prometheusBuild, tsdb: "prometheus" })
+    expect(profileFor(profile, "https://prom.example.com/")).toBe(profile)
+    expect(profileFor(profile, "https://other.example.com")).toBeNull()
+    expect(profileFor(null, "https://prom.example.com")).toBeNull()
+  })
+
+  it("offers Grafana Cloud as a destination only on Grafana Cloud", () => {
+    expect(metricsDestinations({ kind: "prometheus" })).not.toContain("grafana-cloud")
+    expect(metricsDestinations({ kind: "grafana-cloud" })[0]).toBe("grafana-cloud")
+    expect(defaultMetricsDestination({ kind: "prometheus" })).toBe("prometheus")
+    expect(defaultMetricsDestination({ kind: "mimir" })).toBe("alloy")
+    expect(defaultMetricsDestination(null)).toBe("prometheus")
+    expect(effectiveMetricsDestination("grafana-cloud", { kind: "prometheus" })).toBe("prometheus")
+    expect(effectiveMetricsDestination("alloy", { kind: "prometheus" })).toBe("alloy")
+    expect(mergeChoicesFor("prometheus")).toEqual(["drop", "keep_value"])
+    expect(mergeChoicesFor("remote-write")).toContain("aggregate")
+  })
+})
+
+describe("merging label drops", () => {
+  const merging = (patch: Partial<DropLabelsRule> = {}, job?: string): Rule => ({ ...dropLabels("node_cpu_seconds_total", ["cpu"], job, true), ...patch }) as Rule
+
+  it("defaults to dropping anyway only when nothing uses the label", () => {
+    const rule = merging() as DropLabelsRule
+    expect(mergeChoiceOf(rule, true)).toBe("drop")
+    expect(mergeChoiceOf(rule, false)).toBeNull()
+    expect(mergeChoiceOf({ ...rule, onMerge: "aggregate" }, true)).toBe("aggregate")
+  })
+
+  it("drops the label anyway as a metric-scoped clear", () => {
+    const plan = planRelabel([merging({ onMerge: "drop" })], { mode: "combined" })
+    expect(plan.blocked).toEqual([])
+    const configs = (parse(renderPrometheus(plan)) as { metric_relabel_configs: Array<Record<string, unknown>> }).metric_relabel_configs
+    expect(configs).toEqual([{ source_labels: ["__name__", "cpu"], regex: "node_cpu_seconds_total;.+", action: "replace", target_label: "cpu", replacement: "" }])
+    expect(describeRule(merging({ onMerge: "drop" }))).toMatch(/merged series keep one sample/)
+  })
+
+  it("keeps one value, then drops the label, and reads it back", () => {
+    const rule = merging({ onMerge: "keep_value", keepValues: { cpu: "0" } }, "node")
+    const plan = planRelabel([rule], { mode: "combined" })
+    const configs = (parse(renderPrometheus(plan)) as { metric_relabel_configs: Array<Record<string, unknown>> }).metric_relabel_configs
+    expect(configs.map((config) => config.action)).toEqual(["replace", "drop", "labeldrop", "replace"])
+    expect(configs[0]).toMatchObject({ source_labels: ["job", "__name__", "cpu"], regex: "node;node_cpu_seconds_total;(0)", target_label: "__tmp_cardinal_keep_value" })
+    for (const parsed of [parsePrometheusRelabel(renderPrometheus(plan)), parseAlloyRelabel(renderAlloy(plan))]) {
+      expect(parsed.warnings).toEqual([])
+      expect(parsed.rules).toHaveLength(1)
+      expect(parsed.rules[0]).toMatchObject({ kind: "drop_labels", selector: { job: "node" }, labels: ["cpu"], onMerge: "keep_value", keepValues: { cpu: "0" } })
+    }
+    expect(describeRule(rule)).toBe('Keep only cpu="0" of node_cpu_seconds_total, then drop cpu')
+  })
+
+  it("aggregates on remote write as a recording rule plus a drop of the raw metric", () => {
+    const rule = merging({ onMerge: "aggregate" })
+    const scrape = planRelabel([rule], { mode: "combined" })
+    expect(scrape.blocked.map(({ reason }) => reason)).toEqual(["aggregate"])
+    const plan = planRelabel([rule], { mode: "combined", aggregate: true })
+    expect(plan.aggregations).toEqual([{ job: undefined, metric: "node_cpu_seconds_total", labels: ["cpu"] }])
+    const text = renderPrometheus(plan, "remote_write")
+    const doc = parse(text) as {
+      remote_write: Array<{ write_relabel_configs: Array<Record<string, unknown>> }>
+      groups: Array<{ rules: Array<{ record: string; expr: string }> }>
+    }
+    expect(doc.remote_write[0].write_relabel_configs).toEqual([{ source_labels: ["__name__"], regex: "node_cpu_seconds_total", action: "drop" }])
+    expect(doc.groups[0].rules).toEqual([
+      { record: "node_cpu_seconds_total:sum_without_cpu", expr: 'sum without (cpu) ({__name__="node_cpu_seconds_total"})' },
+    ])
+    expect(aggregationRecordName({ metric: "m", labels: ["a", "b"] })).toBe("m:sum_without_a_b")
+    const back = parsePrometheusRelabel(text)
+    expect(back.rules).toHaveLength(1)
+    expect(back.rules[0]).toMatchObject({ kind: "drop_labels", labels: ["cpu"], onMerge: "aggregate" })
+  })
+
+  it("maps choices onto Adaptive Metrics", () => {
+    const keep = compileAdaptiveMetrics([merging({ onMerge: "keep_value", keepValues: { cpu: "0" } })])
+    expect(keep.rules).toEqual([])
+    expect(keep.warnings[0]).toMatch(/keeping one value/)
+    const drop = compileAdaptiveMetrics([merging({ onMerge: "drop" })])
+    expect(drop.rules[0]).toMatchObject({ metric: "node_cpu_seconds_total", drop_labels: ["cpu"] })
+  })
+
+  it("only lets a label drop shadow another that treats merges the same way", () => {
+    const global = merging({ onMerge: "drop" })
+    const scopedKeep = merging({ onMerge: "keep_value", keepValues: { cpu: "1" } }, "node")
+    const scopedDrop = merging({ onMerge: "drop" }, "node")
+    expect(isShadowed(scopedKeep, [global, scopedKeep])).toBe(false)
+    expect(isShadowed(scopedDrop, [global, scopedDrop])).toBe(true)
+  })
+
+  it("keeps the merge choice when rules fold", () => {
+    const current = merging({ onMerge: "keep_value", keepValues: { cpu: "0" } }) as DropLabelsRule
+    const incoming = { ...createRule({ kind: "drop_labels", selector: { metric: "node_cpu_seconds_total" }, labels: ["mode"], origin: "user" }), onMerge: "keep_value", keepValues: { mode: "idle" } } as Rule
+    const [folded] = mergeRules([current], [incoming]).rules as DropLabelsRule[]
+    expect(folded.labels).toEqual(["cpu", "mode"])
+    expect(folded.keepValues).toEqual({ cpu: "0", mode: "idle" })
+    const activated = activateOrCreate([current], { kind: "drop_labels", selector: { metric: "node_cpu_seconds_total" }, labels: ["cpu"], origin: "user", onMerge: "aggregate" })
+    expect(activated[0]).toMatchObject({ onMerge: "aggregate", keepValues: undefined })
+  })
+
+  it("builds bounded merge-group and keep-value queries", () => {
+    expect(queries.mergeGroups({ metric: "m" }, ["cpu"], 3)).toBe('topk(3, count without (cpu) ({__name__="m"}) > 1)')
+    expect(queries.seriesKeeping({ metric: "m", matchers: { job: "j" } }, { cpu: "0" })).toBe('count({__name__="m",job="j",cpu=~"|0"})')
+    expect(() => queries.mergeGroups({ metric: "m" }, ["bad label"], 3)).toThrow()
+  })
+})
+
+describe("logs destinations", () => {
+  it("offers Grafana Cloud only with Adaptive Logs, and defaults to it there", async () => {
+    const { logsDestinations, defaultLogsDestination, effectiveLogsDestination, logsFormatsFor, isLogsDestination } = await import("@/lib/core/backend-profile")
+    expect(logsDestinations(false)).toEqual(["alloy", "promtail"])
+    expect(logsDestinations(true)[0]).toBe("grafana-cloud")
+    expect(defaultLogsDestination(false)).toBe("alloy")
+    expect(defaultLogsDestination(true)).toBe("grafana-cloud")
+    // A Grafana Cloud pick that no longer applies falls back to the default.
+    expect(effectiveLogsDestination("grafana-cloud", false)).toBe("alloy")
+    expect(effectiveLogsDestination("promtail", true)).toBe("promtail")
+    expect(effectiveLogsDestination(undefined, true)).toBe("grafana-cloud")
+    expect(logsFormatsFor("grafana-cloud")).toEqual(["adaptive", "alloy"])
+    expect(logsFormatsFor("promtail")).toEqual(["promtail", "limits"])
+    expect(logsFormatsFor("alloy")).not.toContain("adaptive")
+    expect(isLogsDestination("promtail")).toBe(true)
+    expect(isLogsDestination("fluentd")).toBe(false)
+  })
+})
+
+describe("auto transport mode", () => {
+  it("tries direct first, then the proxy for public hosts", async () => {
+    const { autoModes, needsRelay } = await import("@/lib/core/transport-plan")
+    const base = { privateHost: false, cloudHost: false, selfHosted: false, relaySet: false }
+    expect(autoModes(base)).toEqual(["direct", "proxy"])
+    expect(autoModes({ ...base, cloudHost: true })).toEqual(["proxy"])
+    // The hosted proxy can't reach private hosts: a relay or this server can.
+    expect(autoModes({ ...base, privateHost: true })).toEqual(["direct"])
+    expect(autoModes({ ...base, privateHost: true, relaySet: true })).toEqual(["direct", "relay"])
+    expect(autoModes({ ...base, privateHost: true, selfHosted: true })).toEqual(["direct", "proxy"])
+    expect(needsRelay({ ...base, privateHost: true })).toBe(true)
+    expect(needsRelay({ ...base, privateHost: true, relaySet: true })).toBe(false)
+    expect(needsRelay(base)).toBe(false)
   })
 })

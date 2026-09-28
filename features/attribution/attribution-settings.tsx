@@ -3,9 +3,10 @@ import { ArrowRightIcon, TagIcon } from "@phosphor-icons/react"
 import { Link, useLocation } from "react-router"
 
 import { paths } from "@/app/paths"
+import { InfoTip } from "@/components/info-tip"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Field, FieldContent, FieldDescription, FieldLabel } from "@/components/ui/field"
+import { Field, FieldLabel } from "@/components/ui/field"
 import { Switch } from "@/components/ui/switch"
 import { LabelPicker } from "@/features/attribution/label-picker"
 import { useLabelNames } from "@/features/attribution/use-attribution"
@@ -57,14 +58,14 @@ export function AttributionSection() {
           <TagIcon className="size-4 text-muted-foreground" />
           Attribution
         </CardTitle>
-        <CardDescription>Who owns each series, by labels such as team or namespace, then custom rules. Adds owner cost and savings.</CardDescription>
+        <CardDescription>Owner cost and savings, by labels such as team or namespace.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
         <Field orientation="horizontal">
-          <FieldContent>
-            <FieldLabel htmlFor="attribution-enabled">Enable attribution</FieldLabel>
-            <FieldDescription>Adds the Attribution tab, owner badges on jobs and the agent's get_attribution tool.</FieldDescription>
-          </FieldContent>
+          <FieldLabel htmlFor="attribution-enabled" className="gap-1">
+            Enable attribution
+            <InfoTip label="What does it add?">Adds the Attribution tab, owner badges on jobs and the agent's get_attribution tool.</InfoTip>
+          </FieldLabel>
           <Switch id="attribution-enabled" checked={enabled} onCheckedChange={toggle} />
         </Field>
 
@@ -86,34 +87,21 @@ export function AttributionSection() {
             ))}
           </div>
 
-          <ol className="flex flex-col gap-2 rounded-2xl border border-well-border bg-well p-4 text-sm text-muted-foreground [corner-shape:squircle]">
-            <li className="flex gap-2.5">
-              <Step n={1} />
-              <span>
-                Each series is attributed to its {first ? <Code>{first}</Code> : "Primary label"}'s value, e.g. {first ? <Code>{`${first}="payments"`}</Code> : "payments"} owns it.
-              </span>
-            </li>
-            <li className="flex gap-2.5">
-              <Step n={2} />
-              <span>
-                If the series lacks that label, the {second ? <Code>{second}</Code> : "Secondary label"} is used, then the {third ? <Code>{third}</Code> : "Third"}.
-              </span>
-            </li>
-            <li className="flex gap-2.5">
-              <Step n={3} />
-              <span>
-                Series with none of them fall through to the custom rules ({owners.length} owner{owners.length === 1 ? "" : "s"} matching job, metric prefix or label).
-              </span>
-            </li>
-            <li className="flex gap-2.5">
-              <Step n={4} />
-              <span>Whatever is left is Unattributed.</span>
-            </li>
-          </ol>
-
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-xs text-muted-foreground">
-              {chain.length ? `Attributed by ${chain.join(" → ")}${owners.length ? ", then custom rules" : ""}.` : owners.length ? "No labels set: custom rules only." : "Pick a label or add custom rules."}
+            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+              {chain.length ? `Attributed by ${chain.join(" → ")}${owners.length ? ", then custom rules" : ""}` : owners.length ? "Custom rules only" : "Pick a label or add custom rules"}
+              <InfoTip label="How attribution resolves">
+                <ol className="flex list-decimal flex-col gap-1 pl-4">
+                  <li>Each series goes to its {first ? <Code>{first}</Code> : "Primary label"}'s value.</li>
+                  <li>
+                    Without it, the {second ? <Code>{second}</Code> : "Secondary label"}, then the {third ? <Code>{third}</Code> : "Third"}.
+                  </li>
+                  <li>
+                    Then the custom rules ({owners.length} owner{owners.length === 1 ? "" : "s"} matching job, metric prefix or label).
+                  </li>
+                  <li>Whatever is left is Unattributed.</li>
+                </ol>
+              </InfoTip>
             </span>
             <Button asChild variant="outline" size="sm">
               <Link to={paths.attribution}>
@@ -128,10 +116,3 @@ export function AttributionSection() {
   )
 }
 
-function Step({ n }: { n: number }) {
-  return (
-    <span aria-hidden className="flex size-5 shrink-0 items-center justify-center rounded-full bg-background text-xs font-medium text-foreground tabular-nums">
-      {n}
-    </span>
-  )
-}

@@ -35,6 +35,8 @@ export interface ConnectionProblem {
   snippet?: string
   /** A settings change that likely fixes it. */
   fix?: { label: string; patch: Partial<ConnectionSettings> }
+  /** The way out is somewhere else to connect from: a relay, or Cardinal self-hosted on that network. */
+  help?: "relay"
 }
 
 export const TEST_TIMEOUT_MS = 10_000
@@ -86,7 +88,7 @@ export function relayProblem(error: RelayError): ConnectionProblem {
   switch (error.kind) {
     case "not-configured":
     case "invalid-url":
-      return { kind: "relay-config", title: "Set up the relay first", detail: `${error.message} Settings → Relay takes the relay's URL and the token it printed.` }
+      return { kind: "relay-config", title: "Set up the relay first", detail: `${error.message} Settings → Relay takes the relay's URL and the token it printed.`, help: "relay" }
     case "mixed-content":
       return {
         kind: "relay-mixed-content",
@@ -169,7 +171,7 @@ export async function diagnose(error: unknown, draft: ConnectionSettings, api: B
     if (privateHost && server) {
       return {
         kind: "cors",
-        title: `${host} answered, but the browser blocked the response (CORS)`,
+        title: `${host} blocks browser requests (CORS)`,
         detail: "This Cardinal server can reach hosts on its network, so it needs no CORS: route requests through it.",
         fix: { label: "Use this server", patch: { mode: "proxy" } },
       }
@@ -177,7 +179,8 @@ export async function diagnose(error: unknown, draft: ConnectionSettings, api: B
     if (privateHost) {
       return {
         kind: "cors",
-        title: `${host} answered, but the browser blocked the response (CORS)`,
+        title: `${host} is private: connect through a relay or self-hosted Cardinal`,
+        help: "relay",
         detail:
           "Either route requests through a Cardinal relay on your network (no CORS needed), or allow this origin on the backend: for Prometheus, start it with this flag; for Mimir, Thanos or a reverse proxy, send Access-Control-Allow-Origin for this origin and allow the Authorization and X-Scope-OrgID headers on OPTIONS preflights.",
         snippet: corsFlag(origin),
@@ -188,7 +191,7 @@ export async function diagnose(error: unknown, draft: ConnectionSettings, api: B
     if (status === 404) return diagnose(new HttpError(404, api === "loki" ? "/loki/api/v1/labels" : "/api/v1/query", "", { baseUrl: draft.baseUrl.trim() }), draft, api)
     return {
       kind: "cors",
-      title: `${host} answered, but the browser blocked the response (CORS)`,
+      title: `${host} blocks browser requests (CORS)`,
       detail:
         status === 200
           ? "The backend doesn't allow requests from this origin, but it works through the Cardinal proxy. Turn the proxy on, or allow this origin on the backend (for Prometheus, the flag below)."
@@ -227,7 +230,8 @@ export async function diagnose(error: unknown, draft: ConnectionSettings, api: B
       case "private":
         return {
           kind: "private-proxy",
-          title: "The hosted proxy can't reach private hosts",
+          title: `${host} is private: connect through a relay or self-hosted Cardinal`,
+          help: "relay",
           detail: `${host} is on a private network. Route requests through a Cardinal relay on that network (Settings → Relay), or call it directly and allow this origin on the backend (for Prometheus, the flag below).`,
           snippet: corsFlag(origin),
           fix: relaySet ? { label: "Use the relay", patch: { mode: "relay" } } : { label: "Use direct mode", patch: { mode: "direct" } },

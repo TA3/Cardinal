@@ -1,6 +1,7 @@
 import { Document, isScalar, isSeq, visit } from "yaml"
 
-import { KEEP_BUCKET_MARK, type RelabelPlan, type RelabelSection, type RelabelStep } from "@/lib/core/compile/plan"
+import { KEEP_BUCKET_MARK, KEEP_VALUE_MARK, type Aggregation, type RelabelPlan, type RelabelSection, type RelabelStep } from "@/lib/core/compile/plan"
+import { assertLabelName, selector } from "@/lib/core/promql"
 import { escapeJoinedPart, joinSeparator, literalAlternation } from "@/lib/core/regex"
 
 export interface RelabelConfig {
@@ -44,10 +45,23 @@ export function toRelabelConfigs(step: RelabelStep): RelabelConfig[] {
       { regex: KEEP_BUCKET_MARK, action: "labeldrop" },
     ]
   }
+  if (step.kind === "keep_value") {
+    return [
+      {
+        ...joinedCondition(step.job, step.metric, [step.label], [`(${literalAlternation([step.value])})`]),
+        action: "replace",
+        target_label: KEEP_VALUE_MARK,
+        replacement: "1",
+      },
+      // The label set to another value, and not marked: drop.
+      { ...joinedCondition(step.job, step.metric, [step.label, KEEP_VALUE_MARK], [".+", ""]), action: "drop" },
+      { regex: KEEP_VALUE_MARK, action: "labeldrop" },
+    ]
+  }
   return [toRelabelConfig(step)]
 }
 
-function toRelabelConfig(step: Exclude<RelabelStep, { kind: "drop_series" | "keep_buckets" }>): RelabelConfig {
+function toRelabelConfig(step: Exclude<RelabelStep, { kind: "drop_series" | "keep_buckets" | "keep_value" }>): RelabelConfig {
   if (step.kind === "drop") {
     const names = literalAlternation(step.metrics)
     if (step.job === undefined) return { source_labels: ["__name__"], regex: names, action: "drop" }
@@ -104,13 +118,29 @@ const configs = (sections: RelabelSection[]) => sections.flatMap((section) => se
  */
 export type PrometheusStage = "scrape" | "remote_write"
 
+/** The series a remote-write aggregation records: `<metric>:sum_without_<labels>`. */
+export function aggregationRecordName(aggregation: Pick<Aggregation, "metric" | "labels">) {
+  return `${aggregation.metric}:sum_without_${aggregation.labels.map(assertLabelName).join("_")}`
+}
+
+/** A recording rule summing the metric without the dropped labels. */
+export function aggregationRule(aggregation: Aggregation) {
+  const sel = selector({ metric: aggregation.metric, matchers: aggregation.job === undefined ? undefined : { job: aggregation.job } })
+  return { record: aggregationRecordName(aggregation), expr: `sum without (${aggregation.labels.map(assertLabelName).join(", ")}) (${sel})` }
+}
+
+export const AGGREGATION_GROUP = "cardinal-aggregations"
+
 function renderRemoteWrite(plan: RelabelPlan) {
   const sections = plan.sections.filter((section) => section.steps.length > 0)
   if (sections.length === 0) return "write_relabel_configs: []\n"
   // Every step already carries its job condition, so one list serves all jobs.
-  return `# Add write_relabel_configs to the remote_write entry that ships to your remote backend.\n${renderYaml({
+  const relabel = `# Add write_relabel_configs to the remote_write entry that ships to your remote backend.\n${renderYaml({
     remote_write: [{ url: "https://<your-remote-write-endpoint>/api/v1/push", write_relabel_configs: configs(sections) }],
   })}`
+  if (plan.aggregations.length === 0) return relabel
+  const groups = renderYaml({ groups: [{ name: AGGREGATION_GROUP, rules: plan.aggregations.map(aggregationRule) }] })
+  return `${relabel}\n# Recording rules: add to a rule file (rule_files) so the sums are shipped instead of the dropped raw series.\n${groups}`
 }
 
 /**

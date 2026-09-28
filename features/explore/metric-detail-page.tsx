@@ -1,20 +1,21 @@
 import * as React from "react"
-import { CaretDownIcon, CaretRightIcon, FingerprintIcon, FunnelIcon, ShieldCheckIcon, WarningIcon, XIcon } from "@phosphor-icons/react"
+import { CaretDownIcon, CaretRightIcon, ChartBarIcon, FingerprintIcon, FunnelIcon, TagIcon, XIcon } from "@phosphor-icons/react"
 import { useQuery } from "@tanstack/react-query"
 import { Link, useParams, useSearchParams } from "react-router"
 
 import { jobPath } from "@/app/paths"
 import { CopyButton } from "@/components/code-block"
+import { useCost } from "@/components/cost-text"
 import { DropToggle } from "@/components/drop-toggle"
-import { EmptyState } from "@/components/empty-state"
 import { Page, PageHeader } from "@/components/page"
 import { RequireSnapshot } from "@/components/require-snapshot"
-import { DropScopeToggle, MergeNote, RuleActions, RuleDescription, RuleImpact, RuleOriginBadge } from "@/components/rule-parts"
+import { InfoTip } from "@/components/info-tip"
+import { DropScopeToggle, RuleActions, RuleDescription, RuleImpact, RuleOriginBadge } from "@/components/rule-parts"
 import { ShareBar } from "@/components/share-bar"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Item, ItemContent, ItemDescription, ItemGroup, ItemTitle } from "@/components/ui/item"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
@@ -24,7 +25,7 @@ import { targetJob, type DropScope } from "@/features/explore/drop-scope"
 import { HistogramPanel } from "@/features/histograms/histogram-panel"
 import { DashboardEvidenceLinks, EvidenceList } from "@/features/rules/drop-gate"
 import { BucketPicker, SeriesPatternForm, valuesPattern } from "@/features/rules/series-rule-forms"
-import { Term } from "@/features/rules/term"
+import { RuleMergeControl, useLabelDropImpact, useUnusedMerges } from "@/features/rules/merge-choice"
 import { useUsageEvidence } from "@/features/rules/usage"
 import { DashboardLabelBadge } from "@/features/usage/dashboard-label-badge"
 import { connectionKey, useConnection, useLabelValues, useMetricDrilldown, useSeriesByJob } from "@/hooks/use-cardinality"
@@ -37,8 +38,9 @@ import { fullMatch } from "@/lib/core/regex"
 import { shadowedBy } from "@/lib/core/rules"
 import type { Snapshot } from "@/lib/core/snapshot"
 import { summarizeEvidence } from "@/lib/core/usage-gate"
-import { fetchTopLabelValues, measureImpact } from "@/lib/sources/prometheus"
+import { fetchTopLabelValues } from "@/lib/sources/prometheus"
 import { metricDropRule, selectionView, useAppStore } from "@/lib/store/app-store"
+import { cn } from "@/lib/utils"
 
 // Label measurements (−series if dropped, top values for the ID check) start
 // on hover or expand; at most two run at once so sweeping over the table
@@ -57,21 +59,6 @@ function useTopValues(metric: string, label: string, enabled: boolean, job?: str
   })
 }
 
-/** Series removed if `label` were dropped: `count(sel) − count(count without (label) (sel))`. */
-function useLabelDropImpact(metric: string, label: string, enabled: boolean, job?: string) {
-  const connection = useConnection()
-  return useQuery({
-    queryKey: ["label-drop-impact", connectionKey(connection), metric, label, job ?? null],
-    enabled: Boolean(connection) && enabled,
-    queryFn: ({ signal }) =>
-      measure(() =>
-        measureImpact(connection!, { kind: "drop_labels", selector: job === undefined ? { metric } : { metric, job }, labels: [label] }, signal)
-      ),
-    staleTime: 5 * 60_000,
-    retry: false,
-  })
-}
-
 function DropImpactCell({ metric, label, job, requested }: { metric: string; label: string; job?: string; requested: boolean }) {
   const { data, isFetching, error } = useLabelDropImpact(metric, label, requested, job)
   if (!requested) return <span className="text-xs text-muted-foreground/60">hover</span>
@@ -83,13 +70,13 @@ function DropImpactCell({ metric, label, job, requested }: { metric: string; lab
       <TooltipTrigger asChild>
         <span className="flex flex-col items-end tabular-nums" tabIndex={0}>
           <span className="text-sm">{formatDelta(-saved)}</span>
-          {data.mergesSeries ? <span className="text-[11px] text-destructive">merges series</span> : null}
+          {data.mergesSeries ? <span className="text-[11px] text-brand-ink">merges series</span> : null}
         </span>
       </TooltipTrigger>
       <TooltipContent className="max-w-64">
         {data.mergesSeries
-          ? `Dropping ${label} collapses ${formatNumber(data.seriesBefore)} series into ${formatNumber(data.seriesAfter)}. That needs aggregation; a relabel drop would create duplicate samples.`
-          : `Every series stays distinct without ${label}, so a relabel drop is safe but saves no series (only bytes).`}
+          ? `${formatNumber(data.seriesBefore)} → ${formatNumber(data.seriesAfter)} series without ${label}. Dropping it asks how to handle the merge.`
+          : `Every series stays distinct without ${label}: it saves no series, only bytes.`}
       </TooltipContent>
     </Tooltip>
   )
@@ -250,7 +237,7 @@ function LabelRow({
             {open ? <CaretDownIcon /> : <CaretRightIcon />}
           </button>
         </TableCell>
-        <TableCell className="max-w-0 min-w-40 font-mono text-xs">
+        <TableCell className="max-w-0 min-w-28 font-mono text-xs sm:min-w-40">
           <span className="flex min-w-0 items-center gap-2">
             <span className="truncate" title={label}>
               {label}
@@ -265,7 +252,7 @@ function LabelRow({
           </span>
         </TableCell>
         <TableCell className="text-right tabular-nums">{formatNumber(cardinality)}</TableCell>
-        <TableCell className="text-right">
+        <TableCell className="hidden text-right sm:table-cell">
           <DropImpactCell metric={metric} label={label} job={job} requested={requested} />
         </TableCell>
         <TableCell className="hidden md:table-cell">
@@ -278,7 +265,7 @@ function LabelRow({
       {open ? (
         <TableRow id={`values-${index}`} className="hover:bg-transparent">
           <TableCell />
-          <TableCell colSpan={5} className="whitespace-normal">
+          <TableCell colSpan={5} className="max-w-0 whitespace-normal">
             <LabelValues metric={metric} label={label} job={job} scope={scope} seriesCount={seriesCount} />
           </TableCell>
         </TableRow>
@@ -293,12 +280,14 @@ function LabelsCard({
   scope,
   expanded,
   onExpand,
+  className,
 }: {
   metric: string
   job?: string
   scope: DropScope
   expanded: string | null
   onExpand: (label: string | null) => void
+  className?: string
 }) {
   const { data, isPending, error } = useMetricDrilldown(metric, job)
   const rules = useAppStore((state) => state.rules)
@@ -307,14 +296,15 @@ function LabelsCard({
   const metricDropped = dropMetrics.includes(metric)
 
   return (
-    <Card>
+    <Card id="labels" className={cn("scroll-mt-36 transition-shadow duration-500", className)}>
       <CardHeader>
-        <CardTitle>Labels</CardTitle>
-        <CardDescription>
-          Distinct values per label (its <Term id="cardinality">cardinality</Term>), largest first. Hover a label to measure how many{" "}
-          <Term id="activeSeries">series</Term> dropping it removes; expand it to see its top values and drop only the series matching
-          a pattern.
-        </CardDescription>
+        <CardTitle className="flex items-center gap-1">
+          Labels
+          <InfoTip label="About this table">
+            Distinct values per label (its cardinality), largest first. Hover a label to measure how many series dropping it removes;
+            expand it to see its top values and drop only the series matching a pattern.
+          </InfoTip>
+        </CardTitle>
       </CardHeader>
       <CardContent>
         {error ? (
@@ -335,16 +325,14 @@ function LabelsCard({
                 <TableHead className="w-8" />
                 <TableHead>Label</TableHead>
                 <TableHead className="text-right">Values</TableHead>
-                <TableHead className="text-right">
+                <TableHead className="hidden text-right sm:table-cell">
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <span tabIndex={0} className="cursor-help underline decoration-dotted underline-offset-[3px]">
                         −series if dropped
                       </span>
                     </TooltipTrigger>
-                    <TooltipContent className="max-w-64">
-                      Measured on hover with count(count without (label) (…)). Labels that merge series need aggregation, not relabelling.
-                    </TooltipContent>
+                    <TooltipContent className="max-w-64">Measured on hover with count(count without (label) (…)).</TooltipContent>
                   </Tooltip>
                 </TableHead>
                 <TableHead className="hidden w-36 md:table-cell">Relative</TableHead>
@@ -388,7 +376,6 @@ function SeriesByJobCard({ metric, job, onFilter }: { metric: string; job?: stri
     <Card size="sm">
       <CardHeader>
         <CardTitle>Series by job</CardTitle>
-        <CardDescription>Filter the labels to one job.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-2">
         {isPending ? (
@@ -433,7 +420,6 @@ function UsageCard({ metric }: { metric: string }) {
     <Card size="sm">
       <CardHeader>
         <CardTitle>Used by</CardTitle>
-        <CardDescription>Alerting and recording rules, Grafana dashboards and alerts once scanned in Settings, and Grafana Cloud usage.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-2">
         {evidence?.rules?.length ? (
@@ -451,7 +437,7 @@ function UsageCard({ metric }: { metric: string }) {
           </ItemGroup>
         ) : null}
         {isPending ? null : <DashboardEvidenceLinks evidence={evidence} />}
-        <EvidenceList summary={summary} pending={isPending} />
+        <EvidenceList summary={summary} pending={isPending} compact />
       </CardContent>
     </Card>
   )
@@ -459,39 +445,55 @@ function UsageCard({ metric }: { metric: string }) {
 
 function MetricRulesCard({ metric, totalSeries }: { metric: string; totalSeries: number }) {
   const allRules = useAppStore((state) => state.rules)
-  const rules = allRules.filter((rule) => rule.selector.metric === metric && rule.status !== "rejected")
+  const rules = React.useMemo(() => allRules.filter((rule) => rule.selector.metric === metric && rule.status !== "rejected"), [allRules, metric])
+  const { unused } = useUnusedMerges(rules)
+  // Nothing to show until there's a rule: the header's actions make one.
+  if (rules.length === 0) return null
   return (
     <Card size="sm">
       <CardHeader>
         <CardTitle>Rules</CardTitle>
       </CardHeader>
       <CardContent>
-        {rules.length === 0 ? (
-          <EmptyState compact icon={ShieldCheckIcon} title="No rules yet" description="Drop the metric or pick labels to drop." />
-        ) : (
-          <ItemGroup className="gap-2">
-            {rules.map((rule) => (
-              <Item key={rule.id} variant="outline" size="sm" className="items-start">
-                <ItemContent className="min-w-0 gap-2">
-                  <RuleDescription rule={rule} hideMetric supersededBy={rule.status === "active" ? shadowedBy(rule, allRules) : undefined} />
-                  <div className="flex flex-wrap items-center gap-1">
-                    <RuleOriginBadge rule={rule} />
-                    {rule.status === "proposed" ? <Badge variant="secondary">Proposed</Badge> : null}
-                  </div>
-                  {rule.rationale ? <ItemDescription className="line-clamp-3">{rule.rationale}</ItemDescription> : null}
-                  <MergeNote rule={rule} />
-                </ItemContent>
-                <div className="flex flex-col items-end gap-2">
-                  <RuleImpact rule={rule} totalSeries={totalSeries} />
-                  <RuleActions rule={rule} />
+        <ItemGroup className="gap-2">
+          {rules.map((rule) => (
+            <Item key={rule.id} variant="outline" size="sm" className="items-start">
+              <ItemContent className="min-w-0 gap-2">
+                <RuleDescription rule={rule} hideMetric supersededBy={rule.status === "active" ? shadowedBy(rule, allRules) : undefined} />
+                <div className="flex flex-wrap items-center gap-1">
+                  <RuleOriginBadge rule={rule} />
+                  {rule.status === "proposed" ? <Badge variant="secondary">Proposed</Badge> : null}
                 </div>
-              </Item>
-            ))}
-          </ItemGroup>
-        )}
+                {rule.rationale ? <ItemDescription className="line-clamp-3">{rule.rationale}</ItemDescription> : null}
+                <RuleMergeControl rule={rule} unused={unused.has(rule.id)} />
+              </ItemContent>
+              <div className="flex flex-col items-end gap-2">
+                <RuleImpact rule={rule} totalSeries={totalSeries} />
+                <RuleActions rule={rule} />
+              </div>
+            </Item>
+          ))}
+        </ItemGroup>
       </CardContent>
     </Card>
   )
+}
+
+const FLASH = "ring-2 ring-brand/60 ring-offset-2 ring-offset-background"
+
+/** Scrolls to a section and rings it briefly, so a header action shows where it leads. */
+function useFlash() {
+  const [target, setTarget] = React.useState<string | null>(null)
+  const timer = React.useRef<ReturnType<typeof setTimeout>>(undefined)
+  React.useEffect(() => () => clearTimeout(timer.current), [])
+  const flash = (id: string) => {
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    document.getElementById(id)?.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" })
+    setTarget(id)
+    clearTimeout(timer.current)
+    timer.current = setTimeout(() => setTarget(null), 1600)
+  }
+  return { flashed: (id: string) => (target === id ? FLASH : undefined), flash }
 }
 
 function MetricDetail({ metric, snapshot }: { metric: string; snapshot: Snapshot }) {
@@ -502,6 +504,9 @@ function MetricDetail({ metric, snapshot }: { metric: string; snapshot: Snapshot
   const job = jobParam === null ? undefined : jobFromParam(jobParam)
   const expanded = params.get("label")
   const [scope, setScope] = React.useState<DropScope>("job")
+  const { format: formatCost } = useCost()
+  const { flashed, flash } = useFlash()
+  const isBucket = histogramFamily(metric).part === "bucket"
 
   const update = (patch: Record<string, string | null>) =>
     setParams(
@@ -521,7 +526,6 @@ function MetricDetail({ metric, snapshot }: { metric: string; snapshot: Snapshot
   const scopedDrops = rules.filter(
     (rule) => rule.status === "active" && rule.kind === "drop_metric" && rule.selector.metric === metric && rule.selector.job !== undefined
   ).length
-  const hasMergingRule = rules.some((rule) => rule.selector.metric === metric && rule.status === "active" && rule.impact?.mergesSeries)
   const link = typeof window === "undefined" ? "" : `${window.location.origin}${window.location.pathname}${params.size ? `?${params}` : ""}`
 
   return (
@@ -551,30 +555,33 @@ function MetricDetail({ metric, snapshot }: { metric: string; snapshot: Snapshot
         }
         title={<span className="font-mono">{metric}</span>}
         description={
-          summary
-            ? `${formatNumber(summary.seriesCount)} active series, ${summary.percentageOfTotal.toFixed(2)}% of the total.${job !== undefined ? ` Labels below are for job ${jobLabel(job)}.` : ""}`
-            : "Not in the current snapshot."
+          summary ? (
+            <span className="tabular-nums" title={`${summary.percentageOfTotal.toFixed(2)}% of all series`}>
+              <span className="font-medium text-foreground">{formatNumber(summary.seriesCount)} series</span>
+              {formatCost(summary.seriesCount) ? ` · ${formatCost(summary.seriesCount)}` : ""}
+            </span>
+          ) : (
+            "Not in the current snapshot."
+          )
         }
         actions={
           <>
             {job !== undefined ? <DropScopeToggle value={scope} onChange={setScope} job={job} /> : null}
+            <DropToggle metric={metric} job={job} scope={scope} size="lg" idleText="Drop metric" />
+            <Button variant="outline" onClick={() => flash("labels")}>
+              <TagIcon data-icon="inline-start" />
+              Drop labels…
+            </Button>
+            {isBucket ? (
+              <Button variant="outline" onClick={() => flash("histogram")}>
+                <ChartBarIcon data-icon="inline-start" />
+                Trim buckets
+              </Button>
+            ) : null}
             <CopyButton text={link} label="Copy link" className="h-8 px-3" />
-            <DropToggle metric={metric} job={job} scope={scope} size="lg" />
           </>
         }
       />
-      {hasMergingRule ? (
-        <Alert>
-          <WarningIcon />
-          <AlertTitle>
-            Some label drops <Term id="mergesSeries">merge series</Term>
-          </AlertTitle>
-          <AlertDescription>
-            Those only work as Adaptive Metrics aggregations; relabel exports skip them. Each rule below says how many series collapse
-            and offers relabel-safe alternatives.
-          </AlertDescription>
-        </Alert>
-      ) : null}
       <div className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <LabelsCard
           metric={metric}
@@ -582,10 +589,11 @@ function MetricDetail({ metric, snapshot }: { metric: string; snapshot: Snapshot
           scope={job === undefined ? "all" : scope}
           expanded={expanded}
           onExpand={(label) => update({ label })}
+          className={flashed("labels")}
         />
         <div className="flex flex-col gap-4">
           <MetricRulesCard metric={metric} totalSeries={snapshot.totalSeries} />
-          <HistogramPanel metric={metric} />
+          <HistogramPanel metric={metric} className={flashed("histogram")} />
           <SeriesByJobCard metric={metric} job={job} onFilter={(next) => update({ job: next === undefined ? null : jobToParam(next) })} />
           <UsageCard metric={metric} />
         </div>

@@ -112,6 +112,10 @@ export function compileAdaptiveMetrics(
       )
       continue
     }
+    if (rule.onMerge === "keep_value") {
+      warnings.push(`${metric}: keeping one value of ${rule.labels.join(", ")} can't be an Adaptive Metrics aggregation. Skipped; export it as relabel config.`)
+      continue
+    }
     const current = desired.get(metric)
     if (current?.drop) continue
     desired.set(metric, {
@@ -217,6 +221,7 @@ export function recommendationToRule(rec: AdaptiveRecommendation): Rule | null {
         ...base,
         kind: "drop_labels",
         labels: rec.drop_labels,
+        onMerge: "aggregate",
         rationale: `Adaptive Metrics recommendation, aggregating with ${rec.aggregations?.join(", ") ?? "defaults"} (${usage}).`,
       }),
       impact,

@@ -4,17 +4,23 @@ import { BookOpenIcon, MagnifyingGlassIcon } from "@phosphor-icons/react"
 import { EmptyState } from "@/components/empty-state"
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
+import { useLogsAdaptive, useMetricsTarget } from "@/hooks/use-cardinality"
 import { GLOSSARY, type GlossaryEntry } from "@/lib/core/glossary"
 
 const ENTRIES: GlossaryEntry[] = [...Object.values(GLOSSARY)].sort((a, b) => a.term.localeCompare(b.term))
 
-/** The glossary as a searchable side sheet. */
+/** The glossary as a searchable side sheet. Grafana Cloud's Adaptive terms only show on Grafana Cloud. */
 export function GlossarySheet({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const [query, setQuery] = React.useState("")
+  const { adaptive } = useMetricsTarget()
+  const adaptiveLogs = useLogsAdaptive()
   const needle = query.trim().toLowerCase()
+  const shown = ENTRIES.filter(
+    (entry) => (adaptive || entry !== GLOSSARY.adaptiveMetrics) && (adaptiveLogs || entry !== GLOSSARY.adaptiveLogs)
+  )
   const entries = needle
-    ? ENTRIES.filter((entry) => [entry.term, entry.short, entry.long].some((text) => text.toLowerCase().includes(needle)))
-    : ENTRIES
+    ? shown.filter((entry) => [entry.term, entry.short, entry.long].some((text) => text.toLowerCase().includes(needle)))
+    : shown
 
   return (
     <Sheet

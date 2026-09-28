@@ -15,7 +15,7 @@ import { ShortcutsDialog } from "@/app/shell/shortcuts-dialog"
 import { TokenBanner } from "@/app/shell/token-banner"
 import { TopBar } from "@/app/shell/top-bar"
 import { Kbd } from "@/components/ui/kbd"
-import { useRefreshSignalSnapshot } from "@/hooks/use-cardinality"
+import { useBackendDetection, useRefreshSignalSnapshot } from "@/hooks/use-cardinality"
 import { useAgentBridge } from "@/hooks/use-agent-bridge"
 import { useLogRuleImpacts } from "@/hooks/use-log-rule-impacts"
 import { useRuleImpacts } from "@/hooks/use-rule-impacts"
@@ -82,6 +82,7 @@ export function AppShell() {
   useAgentBridge()
   useRuleImpacts()
   useLogRuleImpacts()
+  useBackendDetection()
   useTrackSignal()
 
   const navigate = useNavigate()

@@ -1,9 +1,10 @@
 import { jobLabel } from "@/lib/core/jobs"
-import { activeRules, isShadowed, sortUnique, type Rule } from "@/lib/core/rules"
+import { activeRules, isShadowed, sortUnique, type DropLabelsRule, type Rule } from "@/lib/core/rules"
 
 // Turns a RuleSet into a target-independent relabel plan that the Prometheus
-// and Alloy emitters render. Lossy label drops are excluded here: relabelling
-// them away produces duplicate series, so they belong in an aggregation target.
+// and Alloy emitters render. A label drop that merges series follows the
+// rule's `onMerge` choice; one without a choice (or one asking to aggregate
+// where the target can't) is held back in `blocked` for the UI to resolve.
 
 export type RelabelMode = "combined" | "split-by-job"
 
@@ -11,6 +12,8 @@ export interface RelabelOptions {
   mode: RelabelMode
   /** Every job emitting each metric; used to place unscoped rules per job. */
   jobsByMetric?: Record<string, string[]>
+  /** Aggregations become recording rules plus a drop of the raw metric (remote write only). */
+  aggregate?: boolean
 }
 
 export interface RelabelDrop {
@@ -44,7 +47,30 @@ export interface RelabelKeepBuckets {
   buckets: string[]
 }
 
-export type RelabelStep = RelabelDrop | RelabelLabelClear | RelabelSeriesDrop | RelabelKeepBuckets
+/** Drops the series of a metric whose `label` is set to anything but `value`. */
+export interface RelabelKeepValue {
+  kind: "keep_value"
+  job?: string
+  metric: string
+  label: string
+  value: string
+}
+
+export type RelabelStep = RelabelDrop | RelabelLabelClear | RelabelSeriesDrop | RelabelKeepBuckets | RelabelKeepValue
+type RelabelExtra = RelabelSeriesDrop | RelabelKeepBuckets | RelabelKeepValue
+
+/** A recording rule summing a metric without some labels; the raw metric is dropped from what's shipped. */
+export interface Aggregation {
+  job?: string
+  metric: string
+  labels: string[]
+}
+
+/** A merging label drop the plan left out: no choice yet, or "aggregate" where the target can't. */
+export interface BlockedRule {
+  rule: DropLabelsRule
+  reason: "undecided" | "aggregate"
+}
 
 /**
  * Temporary label marking kept buckets. RE2 has no negation, so "drop le not
@@ -52,6 +78,8 @@ export type RelabelStep = RelabelDrop | RelabelLabelClear | RelabelSeriesDrop | 
  * The `__tmp` prefix is reserved for exactly this by Prometheus.
  */
 export const KEEP_BUCKET_MARK = "__tmp_cardinal_keep_le"
+/** The same trick for keeping one value of a label. */
+export const KEEP_VALUE_MARK = "__tmp_cardinal_keep_value"
 
 export interface RelabelSection {
   /** Scrape job this section belongs in; undefined = applies globally, "" = series without a job. */
@@ -62,15 +90,19 @@ export interface RelabelSection {
 export interface RelabelPlan {
   sections: RelabelSection[]
   warnings: string[]
+  blocked: BlockedRule[]
+  aggregations: Aggregation[]
 }
 
 export function planRelabel(rules: Rule[], options: RelabelOptions): RelabelPlan {
   const warnings: string[] = []
+  const blocked: BlockedRule[] = []
+  const aggregations: Aggregation[] = []
   const active = activeRules(rules)
 
   const drops: Array<{ job?: string; metric: string }> = []
   const clears: Array<{ job?: string; metric: string; label: string }> = []
-  const extras: Array<RelabelSeriesDrop | RelabelKeepBuckets> = []
+  const extras: RelabelExtra[] = []
 
   for (const rule of active) {
     if (rule.kind === "drop_metric") {
@@ -86,25 +118,37 @@ export function planRelabel(rules: Rule[], options: RelabelOptions): RelabelPlan
       extras.push({ kind: "keep_buckets", job: rule.selector.job, metric: rule.selector.metric, buckets: rule.buckets })
       continue
     }
-    const target = `${rule.selector.metric}${rule.selector.job !== undefined ? ` (job ${jobLabel(rule.selector.job)})` : ""}`
-    if (rule.impact?.mergesSeries) {
-      warnings.push(
-        `Skipped dropping [${rule.labels.join(", ")}] on ${target}: it merges series, which relabelling turns into duplicate samples. Use an Adaptive Metrics aggregation instead.`
-      )
+    const { job, metric } = rule.selector
+    const merges = Boolean(rule.impact?.mergesSeries)
+    const choice = rule.onMerge
+    const target = `[${rule.labels.join(", ")}] on ${metric}${job !== undefined ? ` (job ${jobLabel(job)})` : ""}`
+    if (merges && !choice) {
+      blocked.push({ rule, reason: "undecided" })
+      warnings.push(`Left out ${target}: dropping it merges series. Choose drop anyway, keep one value or aggregate.`)
       continue
     }
-    if (!rule.impact) {
-      warnings.push(
-        `Dropping [${rule.labels.join(", ")}] on ${target} has not been checked for series merges. Measure its impact before applying.`
-      )
+    if (choice === "aggregate" && (merges || !rule.impact)) {
+      if (!options.aggregate) {
+        blocked.push({ rule, reason: "aggregate" })
+        warnings.push(`Left out ${target}: aggregating needs remote write or Grafana Cloud. Choose drop anyway or keep one value here.`)
+        continue
+      }
+      drops.push({ job, metric })
+      aggregations.push({ job, metric, labels: rule.labels })
+      continue
     }
-    for (const label of rule.labels) {
-      clears.push({ job: rule.selector.job, metric: rule.selector.metric, label })
+    if (choice === "keep_value") {
+      for (const label of rule.labels) {
+        const value = rule.keepValues?.[label]
+        if (value !== undefined && value !== "") extras.push({ kind: "keep_value", job, metric, label, value })
+      }
     }
+    for (const label of rule.labels) clears.push({ job, metric, label })
   }
+  aggregations.sort((a, b) => a.metric.localeCompare(b.metric) || compareJobs(a.job, b.job))
 
   if (options.mode === "combined") {
-    return { sections: [{ steps: buildSteps(drops, clears, extras) }], warnings }
+    return { sections: [{ steps: buildSteps(drops, clears, extras) }], warnings, blocked, aggregations }
   }
 
   // split-by-job: one section per scrape job. Rules without a job are placed
@@ -140,7 +184,7 @@ export function planRelabel(rules: Rule[], options: RelabelOptions): RelabelPlan
     .sort(([a], [b]) => compareJobs(a, b))
     .map(([job, entry]) => ({ job, steps: buildSteps(entry.drops, entry.clears, entry.extras) }))
 
-  return { sections, warnings }
+  return { sections, warnings, blocked, aggregations }
 }
 
 /** Orders undefined (every job) first, then "" (no job), then by name. */
@@ -159,7 +203,7 @@ function compareJobs(a: string | undefined, b: string | undefined) {
 function buildSteps(
   drops: Array<{ job?: string; metric: string }>,
   clears: Array<{ job?: string; metric: string; label: string }>,
-  extras: Array<RelabelSeriesDrop | RelabelKeepBuckets> = []
+  extras: RelabelExtra[] = []
 ): RelabelStep[] {
   const steps: RelabelStep[] = []
 

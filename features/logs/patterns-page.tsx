@@ -29,13 +29,12 @@ import {
 import { groupLink } from "@/features/logs/streams-shared"
 import { formatSpan } from "@/features/logs/volume-parts"
 import { Term } from "@/features/rules/term"
-import { authErrorText, useLogsConnection } from "@/hooks/use-cardinality"
+import { authErrorText, useLogsAdaptive } from "@/hooks/use-cardinality"
 import { formatNumber } from "@/lib/cardinality/dashboard-helpers"
 import { BYTES_NOTE, formatBytes } from "@/lib/core/bytes"
 import { MIN_PATTERN_COVERAGE, patternSpanSeconds } from "@/lib/core/logs/patterns"
 import { groupNoun } from "@/lib/core/logs/snapshot"
 import type { LogsSnapshot } from "@/lib/core/logs/types"
-import { hasAdaptiveLogs } from "@/lib/sources/adaptive-logs"
 
 // Patterns: the line templates Loki's pattern ingester found for a service
 // (or the top five), ranked by lines, with estimated bytes and the same Drop
@@ -68,8 +67,8 @@ function NoIngester() {
 }
 
 function AdaptiveLogsHint() {
-  const connection = useLogsConnection()
-  if (!connection || !hasAdaptiveLogs(connection)) return null
+  const adaptive = useLogsAdaptive()
+  if (!adaptive) return null
   return (
     <Reveal>
       <Frame>

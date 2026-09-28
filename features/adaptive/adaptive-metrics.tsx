@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { InfoTip } from "@/components/info-tip"
 import { Term } from "@/features/rules/term"
 import { useAdaptiveRecommendations, useIsGrafanaCloud } from "@/hooks/use-cardinality"
 import { formatDelta, formatNumber } from "@/lib/cardinality/dashboard-helpers"
@@ -183,10 +184,12 @@ export function AdaptiveMetrics() {
   const cloud = useIsGrafanaCloud()
   return (
     <div className="flex flex-col gap-3">
-      <p className="max-w-2xl text-sm text-muted-foreground">
-        Grafana Cloud's recommendations, based on which labels your dashboards, queries and alerts actually use. They{" "}
-        <Term id="dropVsAggregate">aggregate</Term> rather than drop, so label removals that <Term id="mergesSeries">merge series</Term> are safe
-        here. Proposals go to Rules for review; apply them from the Rules export.
+      <p className="flex items-center gap-1 text-sm text-muted-foreground">
+        Grafana Cloud's suggestions from actual usage; propose them to review in Rules.
+        <InfoTip label="About recommendations">
+          Based on which labels your dashboards, queries and alerts use. They aggregate rather than drop, so label removals that merge
+          series are safe here. Apply accepted ones from the Rules export.
+        </InfoTip>
       </p>
       {cloud ? (
         <Recommendations />
@@ -194,8 +197,8 @@ export function AdaptiveMetrics() {
         <EmptyState
           framed
           icon={SparkleIcon}
-          title="Grafana Cloud only"
-          description="Adaptive Metrics aggregates series server-side in Grafana Cloud. Connect a Grafana Cloud Prometheus endpoint to see its recommendations."
+          title="Connect Grafana Cloud directly"
+          description="Recommendations need the stack's Prometheus URL and an access policy token, not Grafana's data source proxy."
         >
           <Button asChild variant="outline">
             <Link to={paths.settings}>Data sources</Link>

@@ -1,16 +1,17 @@
 import * as React from "react"
-import { CheckCircleIcon, NetworkIcon, PulseIcon, WarningCircleIcon } from "@phosphor-icons/react"
+import { CheckCircleIcon, NetworkIcon, PulseIcon } from "@phosphor-icons/react"
 
 import { CodeBlock } from "@/components/code-block"
+import { InfoTip } from "@/components/info-tip"
 import { LiveDot } from "@/components/motion"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field"
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
 import { relayProblem, type ConnectionProblem } from "@/features/settings/connection-check"
+import { ProblemLine, SELF_HOST_DOCS } from "@/features/settings/problem-line"
 import { HOSTED_ORIGIN, type RelayInfo } from "@/lib/sources/proxy-constants"
 import { fetchRelayInfo, RelayError } from "@/lib/sources/transport"
 import { useRelayStore } from "@/lib/store/relay-store"
@@ -60,9 +61,7 @@ export function RelaySection() {
           Relay
         </CardTitle>
         <CardDescription>
-          {server
-            ? "This page is served by a self-hosted Cardinal server, so Proxy already reaches your network. A relay is only needed for backends on another network."
-            : "Reach Prometheus, Loki and Grafana on your network: run a Cardinal server there, then choose Relay on a connection. Your backends need no CORS setup."}
+          {server ? "Only for backends on another network: this server already reaches its own." : "Reach backends on your network through a Cardinal server there."}
         </CardDescription>
         {relay.url.trim() ? (
           <CardAction>
@@ -76,16 +75,27 @@ export function RelaySection() {
       <CardContent>
         <FieldGroup>
           <Field>
-            <FieldLabel>Start a relay</FieldLabel>
+            <FieldLabel className="gap-1">
+              Start a relay
+              <InfoTip label="Other ways to run it">
+                Or run the <code className="font-mono">cardinal</code> binary. It prints a relay token at startup; set CARDINAL_RELAY_TOKEN to keep the
+                same one across restarts.{" "}
+                <a href={SELF_HOST_DOCS} target="_blank" rel="noreferrer" className="underline underline-offset-2">
+                  Self-host docs
+                </a>
+              </InfoTip>
+            </FieldLabel>
             <CodeBlock code={relayCommand(origin)} className="w-full" />
-            <FieldDescription>
-              Or run the <code className="font-mono text-xs">cardinal</code> binary from GitHub Releases. It prints a relay token at startup; set
-              CARDINAL_RELAY_TOKEN to keep the same one across restarts.
-            </FieldDescription>
           </Field>
           <div className="grid gap-4 sm:grid-cols-2">
             <Field>
-              <FieldLabel htmlFor="relay-url">Relay URL</FieldLabel>
+              <FieldLabel htmlFor="relay-url" className="gap-1">
+                Relay URL
+                <InfoTip label="Browser prompts">
+                  Saved in this browser. From an HTTPS page the browser asks once to allow local network access; allow it. A relay on another
+                  machine needs HTTPS, since browsers block plain-http private addresses from HTTPS pages.
+                </InfoTip>
+              </FieldLabel>
               <Input
                 id="relay-url"
                 placeholder="http://localhost:9181"
@@ -106,23 +116,12 @@ export function RelaySection() {
               />
             </Field>
           </div>
-          <FieldDescription>
-            Saved in this browser. From an HTTPS page the browser asks once to allow local network access; allow it. A relay on another machine
-            needs HTTPS (a reverse proxy or a real certificate), since browsers block plain-http private addresses from HTTPS pages.
-          </FieldDescription>
           {result && "problem" in result ? (
-            <Alert variant="destructive" role="alert" data-problem={result.problem.kind}>
-              <WarningCircleIcon />
-              <AlertTitle>{result.problem.title}</AlertTitle>
-              <AlertDescription className="flex flex-col items-start gap-2">
-                <span>{result.problem.detail}</span>
-                {result.problem.snippet ? <CodeBlock code={result.problem.snippet} className="w-full" /> : null}
-              </AlertDescription>
-            </Alert>
+            <ProblemLine problem={{ ...result.problem, help: undefined }} />
           ) : result ? (
             <p className="flex items-center gap-1.5 text-sm text-brand-ink" role="status">
               <CheckCircleIcon className="size-4 shrink-0" weight="fill" />
-              Cardinal server {result.info.version} answered in {result.info.latencyMs} ms; this origin and the token are allowed.
+              Relay {result.info.version} answered in {result.info.latencyMs} ms
             </p>
           ) : null}
           <Field orientation="horizontal">
