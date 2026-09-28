@@ -21,13 +21,14 @@ import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 import { diagnose, TEST_TIMEOUT_MS, type ConnectionProblem } from "@/features/settings/connection-check"
 import { PickFromGrafana, type PickedDatasource } from "@/features/settings/pick-from-grafana"
+import { privateHostHint, TransportModeField } from "@/features/relay/transport-mode-field"
 import { ViaGrafana } from "@/features/grafana/via-grafana"
 import type { Signal } from "@/lib/core/signals"
 import { fetchLogsSnapshot, testLokiConnection, type LokiCheck } from "@/lib/sources/loki"
 import { fetchSnapshot, testConnection, type ConnectionCheck } from "@/lib/sources/prometheus"
-import { isPrivateHost } from "@/lib/sources/proxy-constants"
 import { isGrafanaCloudHost, type AuthMode } from "@/lib/sources/transport"
 import { currentConnection, useAppStore, type ConnectionSettings } from "@/lib/store/app-store"
+import { useSelfHosted } from "@/lib/store/relay-store"
 
 export function authOptions(signal: Signal): Array<{ value: AuthMode; label: string }> {
   return [
@@ -176,7 +177,12 @@ export function ConnectionForm({ signal = "metrics", onConnected }: { signal?: S
   const [lastSaved, setLastSaved] = React.useState(saved)
   if (saved !== lastSaved) {
     setLastSaved(saved)
-    if (connectionFields(saved).baseUrl !== connectionFields(lastSaved).baseUrl || saved.authMode !== lastSaved.authMode || saved.token !== lastSaved.token) {
+    if (
+      connectionFields(saved).baseUrl !== connectionFields(lastSaved).baseUrl ||
+      saved.authMode !== lastSaved.authMode ||
+      saved.token !== lastSaved.token ||
+      saved.mode !== lastSaved.mode
+    ) {
       setDraft(saved)
     }
   }
@@ -190,7 +196,8 @@ export function ConnectionForm({ signal = "metrics", onConnected }: { signal?: S
 
   const hostname = hostnameOf(draft.baseUrl)
   const cloud = isGrafanaCloudHost(draft.baseUrl)
-  const privateHost = hostname ? isPrivateHost(hostname) : false
+  const selfHosted = useSelfHosted()
+  const privateHint = privateHostHint(hostname, draft.mode, selfHosted)
   const pending = phase !== "idle"
 
   async function run(analyze: boolean) {
@@ -301,7 +308,7 @@ export function ConnectionForm({ signal = "metrics", onConnected }: { signal?: S
               const becameCloud = isGrafanaCloudHost(baseUrl) && !isGrafanaCloudHost(draft.baseUrl)
               set(
                 becameCloud
-                  ? { baseUrl, mode: "proxy", authMode: draft.authMode === "none" || draft.authMode === "basic" ? "grafana-cloud" : draft.authMode }
+                  ? { baseUrl, mode: draft.mode === "direct" ? "proxy" : draft.mode, authMode: draft.authMode === "none" || draft.authMode === "basic" ? "grafana-cloud" : draft.authMode }
                   : { baseUrl }
               )
             }}
@@ -391,16 +398,7 @@ export function ConnectionForm({ signal = "metrics", onConnected }: { signal?: S
         ) : null}
 
         <FieldSeparator />
-        <Field orientation="horizontal">
-          <FieldContent>
-            <FieldLabel htmlFor={id("proxy")}>Route through the Cardinal proxy</FieldLabel>
-            <FieldDescription>
-              Needed for Grafana Cloud and backends without CORS. Credentials pass through the Cardinal Worker and are never
-              stored. Backends on a private network need this off.
-            </FieldDescription>
-          </FieldContent>
-          <Switch id={id("proxy")} checked={draft.mode === "proxy"} onCheckedChange={(checked) => set({ mode: checked ? "proxy" : "direct" })} />
-        </Field>
+        <TransportModeField id={id("mode")} value={draft.mode} onChange={(mode) => set({ mode })} />
         {usesToken ? (
           <Field orientation="horizontal">
             <FieldContent>
@@ -411,17 +409,15 @@ export function ConnectionForm({ signal = "metrics", onConnected }: { signal?: S
           </Field>
         ) : null}
 
-        {cloud && draft.mode !== "proxy" ? (
+        {cloud && draft.mode === "direct" ? (
           <Alert>
             <InfoIcon />
-            <AlertDescription>Grafana Cloud does not allow browser requests; turn on the proxy.</AlertDescription>
+            <AlertDescription>Grafana Cloud does not allow browser requests; choose Proxy.</AlertDescription>
           </Alert>
-        ) : privateHost && draft.mode === "proxy" ? (
+        ) : privateHint ? (
           <Alert>
             <InfoIcon />
-            <AlertDescription>
-              {hostname} is a private or local host. The proxy can't reach it; turn the proxy off and let the browser call it directly.
-            </AlertDescription>
+            <AlertDescription>{privateHint}</AlertDescription>
           </Alert>
         ) : draft.authMode === "mimir" && draft.mode === "direct" ? (
           <Alert>

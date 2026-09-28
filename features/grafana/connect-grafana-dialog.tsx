@@ -26,6 +26,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 import { hostOf } from "@/features/grafana/via-grafana"
+import { privateHostHint, TransportModeField } from "@/features/relay/transport-mode-field"
 import { diagnose, TEST_TIMEOUT_MS } from "@/features/settings/connection-check"
 import { SnapshotProgressLine } from "@/features/settings/connection-form"
 import { startGrafanaScan } from "@/features/usage/grafana-store"
@@ -41,10 +42,10 @@ import {
 } from "@/lib/core/grafana-connect"
 import type { Signal } from "@/lib/core/signals"
 import { listDatasources } from "@/lib/sources/grafana"
-import { isPrivateHost } from "@/lib/sources/proxy-constants"
 import { fetchLogsSnapshot, testLokiConnection } from "@/lib/sources/loki"
 import { fetchSnapshot, testConnection } from "@/lib/sources/prometheus"
 import { currentConnection, useAppStore, type ConnectionSettings } from "@/lib/store/app-store"
+import { useSelfHosted } from "@/lib/store/relay-store"
 
 // Connect Grafana: one Grafana URL and token, then a Prometheus and a Loki data
 // source (or neither) connected through Grafana's data source proxy, an
@@ -298,6 +299,7 @@ function ConnectFlow({ onDone }: { onDone: () => void }) {
   const [url, setUrl] = React.useState(saved.baseUrl)
   const [token, setToken] = React.useState(saved.token)
   const [mode, setMode] = React.useState(saved.mode)
+  const selfHosted = useSelfHosted()
   const [remember, setRemember] = React.useState(saved.rememberToken)
   const [listing, setListing] = React.useState<{ status: "idle" | "loading" | "done"; latencyMs?: number; error?: string }>({ status: "idle" })
   const [detection, setDetection] = React.useState<GrafanaDetection | null>(null)
@@ -448,13 +450,17 @@ function ConnectFlow({ onDone }: { onDone: () => void }) {
   }
 
   const detected = detection && drafts
-  const privateHost = (() => {
-    try {
-      return isPrivateHost(new URL(url.trim()).hostname)
-    } catch {
-      return false
-    }
-  })()
+  const privateHint = privateHostHint(
+    (() => {
+      try {
+        return new URL(url.trim()).hostname
+      } catch {
+        return null
+      }
+    })(),
+    mode,
+    selfHosted
+  )
 
   return (
     <>
@@ -504,13 +510,7 @@ function ConnectFlow({ onDone }: { onDone: () => void }) {
               </a>
             </FieldDescription>
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field orientation="horizontal">
-                <FieldContent>
-                  <FieldLabel htmlFor="connect-grafana-proxy">Cardinal proxy</FieldLabel>
-                  <FieldDescription>Grafana sends no CORS headers; keep on unless it allows this origin.</FieldDescription>
-                </FieldContent>
-                <Switch id="connect-grafana-proxy" checked={mode === "proxy"} onCheckedChange={(checked) => edit(setMode)(checked ? "proxy" : "direct")} />
-              </Field>
+              <TransportModeField id="connect-grafana-mode" value={mode} onChange={edit(setMode)} compact />
               <Field orientation="horizontal">
                 <FieldContent>
                   <FieldLabel htmlFor="connect-grafana-remember">Remember token</FieldLabel>
@@ -519,10 +519,10 @@ function ConnectFlow({ onDone }: { onDone: () => void }) {
                 <Switch id="connect-grafana-remember" checked={remember} onCheckedChange={setRemember} />
               </Field>
             </div>
-            {privateHost && mode === "proxy" ? (
+            {privateHint ? (
               <Alert>
                 <InfoIcon />
-                <AlertDescription>That's a private or local host: the proxy can't reach it. Turn the proxy off.</AlertDescription>
+                <AlertDescription>{privateHint}</AlertDescription>
               </Alert>
             ) : null}
             <div className="flex flex-wrap items-center gap-3">

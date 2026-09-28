@@ -11,6 +11,7 @@ import { ThemeProvider } from "@/components/theme-provider"
 import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { isAuthError } from "@/hooks/use-cardinality"
+import { detectServer } from "@/features/relay/detect"
 import { useAppStore } from "@/lib/store/app-store"
 
 // A 401 anywhere means the token is missing or wrong; the shell then asks for it.
@@ -42,3 +43,5 @@ createRoot(document.getElementById("root")!).render(
     </ThemeProvider>
   </StrictMode>
 )
+
+void detectServer()

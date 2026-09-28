@@ -20,19 +20,21 @@ import { Progress } from "@/components/ui/progress"
 import { cancelGrafanaScan, grafanaConnection, startGrafanaScan, useGrafanaStore } from "@/features/usage/grafana-store"
 import { useNow } from "@/features/usage/use-dashboard-usage"
 import { formatAge, hostOf, type GrafanaUsageIndex } from "@/lib/core/grafana-usage"
-import { CorsError, HttpError } from "@/lib/sources/transport"
+import { CorsError, HttpError, RelayError, type TransportMode } from "@/lib/sources/transport"
 import { useAppStore } from "@/lib/store/app-store"
 
 export const GRAFANA_TIMEOUT_MS = 15_000
 
 /** What went wrong with a Grafana request, in terms of what to change. */
-export function explainGrafanaError(error: unknown, mode: "direct" | "proxy") {
+export function explainGrafanaError(error: unknown, mode: TransportMode) {
   if (error instanceof CorsError) {
-    return "The browser couldn't read Grafana directly: Grafana doesn't send CORS headers by default. Turn on the proxy for a public Grafana, or allow this origin in a reverse proxy in front of Grafana."
+    return "The browser couldn't read Grafana directly: Grafana doesn't send CORS headers by default. Choose Proxy for a public Grafana or Relay for one on your network, or allow this origin in a reverse proxy in front of Grafana."
   }
+  if (error instanceof RelayError) return error.message
   if (error instanceof HttpError && error.proxyFailure === "private") {
-    return "The proxy can't reach private or local hosts. Turn the proxy off; the browser then calls Grafana itself, which needs CORS allowed for this origin."
+    return "The hosted proxy can't reach private or local hosts. Choose Relay to go through a Cardinal server on your network, or Direct if Grafana allows this origin (CORS)."
   }
+  if (error instanceof HttpError && error.proxyFailure && error.proxyFailure !== "token") return error.message
   if (error instanceof HttpError && (error.status === 401 || error.status === 403)) {
     return `Grafana refused the request (HTTP ${error.status}). Use a service account token (Viewer is enough), or check that anonymous access is on if you left the token empty.`
   }

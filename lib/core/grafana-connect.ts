@@ -10,7 +10,7 @@ import {
 
 // Structural copies of lib/sources/transport's types (lib/core stays DOM-free).
 type AuthMode = "none" | "basic" | "bearer" | "grafana-cloud" | "mimir"
-type TransportMode = "direct" | "proxy"
+type TransportMode = "direct" | "proxy" | "relay"
 
 // "Connect Grafana" as pure planning: which Prometheus and Loki data sources a
 // Grafana offers (detectGrafanaDatasources), and the per-signal connection

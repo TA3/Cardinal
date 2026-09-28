@@ -37,14 +37,14 @@ import { explainGrafanaError } from "@/features/usage/grafana-section"
 import { copyText } from "@/lib/clipboard"
 import { DEFAULT_DASHBOARD_TITLE, DEFAULT_DASHBOARD_UID, grafanaDashboard, summarizeDashboard } from "@/lib/core/grafana-dashboard"
 import { createDashboard, dashboardExists } from "@/lib/sources/grafana"
-import { HttpError } from "@/lib/sources/transport"
+import { HttpError, type TransportMode } from "@/lib/sources/transport"
 import { useAppStore } from "@/lib/store/app-store"
 
 // Export a Grafana dashboard that mirrors Cardinal's overview and links back
 // into it. Download or copy the JSON, or (with an Editor token) create it in
 // the connected Grafana; an existing uid is only replaced when asked to.
 
-function createErrorText(error: unknown, uid: string, mode: "direct" | "proxy") {
+function createErrorText(error: unknown, uid: string, mode: TransportMode) {
   if (error instanceof HttpError) {
     if (error.status === 403)
       return "Grafana refused (HTTP 403): creating dashboards needs the Editor role (or dashboards:create on the folder). This token looks read-only; download the JSON and import it instead, or use an Editor token."

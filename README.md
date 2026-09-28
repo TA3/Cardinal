@@ -4,6 +4,7 @@
   <p><strong>Find and cut cardinality in Prometheus and Loki.</strong></p>
   <p>
     <a href="https://cardinal.ta3.dev">Open the app</a> ·
+    <a href="#self-host">Self-host</a> ·
     <a href="#run-it-yourself">Run it yourself</a> ·
     <a href="#connect-an-agent">Connect an agent</a>
   </p>
@@ -48,6 +49,32 @@ openssl rand -hex 32 | bunx wrangler secret put PROXY_SECRET
 Locally, put it in `.dev.vars` together with `PUBLIC_HOSTNAMES=localhost,127.0.0.1`. Set `PUBLIC_HOSTNAMES` and
 `routes` in `wrangler.jsonc` to your own domain.
 
+## Self-host
+
+One binary serves the app and a proxy that, unlike the hosted one, reaches private and loopback hosts, so Prometheus,
+Loki and Grafana on your network work without CORS.
+
+```bash
+docker run -p 9181:9181 ghcr.io/ta3/cardinal
+```
+
+Or download a binary for Linux, macOS or Windows from [Releases](https://github.com/TA3/cardinal/releases) and run
+`./cardinal` (it listens on `127.0.0.1:9181`; see `--help`). Limit what it may reach with `--allow-hosts`. Agent
+sessions stay on the hosted app. Anyone who can open the server can use its proxy, so keep it on a trusted network or
+behind auth.
+
+**Relay mode.** Keep using [cardinal.ta3.dev](https://cardinal.ta3.dev) and let the same server reach your network:
+
+1. Start it: `docker run -p 127.0.0.1:9181:9181 ghcr.io/ta3/cardinal`. It prints a relay token; set
+   `CARDINAL_RELAY_TOKEN` to keep one across restarts.
+2. In **Settings → Relay**, enter `http://localhost:9181` and the token, then Test. Chrome asks to allow local network
+   access; allow it.
+3. Choose **Relay** on a metrics, logs or Grafana connection.
+
+Only `https://cardinal.ta3.dev` and origins added with `--origin` can use the relay, and only with the token. A relay on
+another machine needs HTTPS (a reverse proxy or a real certificate): browsers block plain-http private addresses from
+an https page.
+
 ## Connect an agent
 
 Open **Agent → Start agent session**, then add the endpoint to your MCP client:
@@ -90,6 +117,7 @@ lib/core/     pure logic: PromQL, LogQL, rules, compilers, parsers
 lib/sources/  Prometheus, Loki, Grafana and Adaptive Telemetry clients
 lib/agent/    MCP tools and the tab-side executor
 worker/       worker entry, proxy, sessions, MCP server
+relay/        self-hosted server and relay (Bun), shares lib/proxy with the worker
 ```
 
 </details>

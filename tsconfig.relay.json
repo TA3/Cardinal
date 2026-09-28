@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.relay.tsbuildinfo",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["bun"]
+  },
+  "include": ["relay", "lib/proxy", "lib/sources/proxy-constants.ts", "worker/guard.ts", "package.json"],
+  "exclude": ["relay/dist"]
+}

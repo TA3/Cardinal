@@ -6,10 +6,11 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field"
+import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
-import { Switch } from "@/components/ui/switch"
+import { TransportModeField } from "@/features/relay/transport-mode-field"
+import { explainGrafanaError } from "@/features/usage/grafana-section"
 import { grafanaKey } from "@/features/usage/grafana-store"
 import { datasourceProxyUrl, listDatasources, type DatasourceType, type GrafanaDatasource } from "@/lib/sources/grafana"
 import { HttpError, type AuthMode, type TransportMode } from "@/lib/sources/transport"
@@ -39,6 +40,8 @@ function hostOf(url: string | undefined) {
 }
 
 function problemText(error: unknown) {
+  if (error instanceof HttpError && error.proxyFailure === "private") return explainGrafanaError(error, "proxy")
+  if (error instanceof HttpError && error.proxyFailure && error.proxyFailure !== "token") return error.message
   if (error instanceof HttpError) {
     if (error.status === 401 || error.status === 403)
       return "Grafana refused the request. Anonymous access may be off: enter a service account token (Viewer role is enough)."
@@ -61,7 +64,7 @@ export function PickFromGrafana({
   const [open, setOpen] = React.useState(false)
   const [url, setUrl] = React.useState("")
   const [token, setToken] = React.useState("")
-  const [mode, setMode] = React.useState<TransportMode>("proxy")
+  const [mode, setMode] = React.useState<TransportMode>(saved.mode)
   const [state, setState] = React.useState<{ status: "idle" | "loading" | "done"; items: GrafanaDatasource[]; error: string | null }>({
     status: "idle",
     items: [],
@@ -142,13 +145,7 @@ export function PickFromGrafana({
               />
               <FieldDescription>Viewer role is enough. It becomes the connection's bearer token.</FieldDescription>
             </Field>
-            <Field orientation="horizontal">
-              <FieldContent>
-                <FieldLabel htmlFor="grafana-pick-proxy">Route through the Cardinal proxy</FieldLabel>
-                <FieldDescription>Grafana doesn't send CORS headers; leave this on unless your Grafana allows this origin.</FieldDescription>
-              </FieldContent>
-              <Switch id="grafana-pick-proxy" checked={mode === "proxy"} onCheckedChange={(checked) => setMode(checked ? "proxy" : "direct")} />
-            </Field>
+            <TransportModeField id="grafana-pick-mode" value={mode} onChange={setMode} compact />
             <Button type="submit" variant="outline" className="self-start" disabled={!url.trim() || state.status === "loading"}>
               {state.status === "loading" ? <Spinner data-icon="inline-start" /> : <ListMagnifyingGlassIcon data-icon="inline-start" />}
               List data sources

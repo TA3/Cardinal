@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Kbd, KbdGroup } from "@/components/ui/kbd"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { SelfHostedBadge } from "@/features/relay/self-hosted-badge"
 import { useConnection, useNeedsTokenFor, useRuleCounts, useSavings } from "@/hooks/use-cardinality"
 import { useSignal, useSwitchSignal } from "@/hooks/use-signal"
 import { SIGNALS, SIGNAL_LABEL, signalHome } from "@/lib/core/signals"
@@ -198,6 +199,7 @@ export function TopBar({
           >
             <Logo />
           </Link>
+          <SelfHostedBadge />
           <div className="shrink-0">
             <SignalSwitch />
           </div>

@@ -6,5 +6,6 @@
     "lib": ["ES2023"],
     "types": ["./worker/worker-configuration.d.ts", "node", "vitest/importMeta"]
   },
-  "include": ["worker", "lib/core", "lib/agent/tools.ts", "lib/agent/protocol.ts", "lib/sources/proxy-constants.ts", "lib/prometheus/types.ts", "app/paths.ts", "vite.config.ts", "vitest.config.ts", "**/*.test.ts"]
+  "include": ["worker", "lib/core", "lib/agent/tools.ts", "lib/agent/protocol.ts", "lib/sources/proxy-constants.ts", "lib/proxy", "lib/prometheus/types.ts", "app/paths.ts", "vite.config.ts", "vitest.config.ts", "**/*.test.ts"],
+  "exclude": ["relay"]
 }

@@ -38,5 +38,8 @@ node_modules
 
 # vite / wrangler
 /dist
+
+# cardinal server binaries
+/relay/dist
 .wrangler
 .dev.vars*

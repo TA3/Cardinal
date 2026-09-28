@@ -5,6 +5,7 @@ import {
   CurrencyDollarIcon,
   HardDrivesIcon,
   LockKeyIcon,
+  NetworkIcon,
   PaletteIcon,
   PlugsIcon,
   RobotIcon,
@@ -41,6 +42,7 @@ import { ConnectionForm } from "@/features/settings/connection-form"
 import { LogsConnectionSection, LogsPriceField } from "@/features/settings/logs-connection-section"
 import { AttributionSection } from "@/features/attribution/attribution-settings"
 import { GrafanaSection } from "@/features/grafana/grafana-section"
+import { RelaySection } from "@/features/relay/relay-section"
 import { endAgentSession } from "@/hooks/use-agent-bridge"
 import { useAppStore } from "@/lib/store/app-store"
 
@@ -100,6 +102,11 @@ const PRIVACY_FACTS = [
     icon: CloudIcon,
     title: "Proxy mode",
     text: "Requests, with the token, pass through the Cardinal Worker to reach backends without CORS. They are forwarded, never stored or logged.",
+  },
+  {
+    icon: NetworkIcon,
+    title: "Relay mode",
+    text: "Requests go from this browser to your own Cardinal server, which forwards them to backends on its network. Cardinal's servers never see them.",
   },
   {
     icon: RobotIcon,
@@ -295,6 +302,7 @@ export function SettingsPage() {
       <GrafanaSection />
       <ConnectionSection />
       <LogsConnectionSection />
+      <RelaySection />
       <PrivacySection />
       <PricingSection />
       <AttributionSection />

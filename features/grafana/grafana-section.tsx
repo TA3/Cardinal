@@ -21,12 +21,13 @@ import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 import { hostOf, useGrafanaLink } from "@/features/grafana/via-grafana"
+import { privateHostHint, TransportModeField } from "@/features/relay/transport-mode-field"
 import { grafanaConnection } from "@/features/usage/grafana-store"
 import { explainGrafanaError, GRAFANA_TIMEOUT_MS, GrafanaUsagePanel } from "@/features/usage/grafana-section"
 import type { Signal } from "@/lib/core/signals"
 import { testGrafana, type GrafanaCheck } from "@/lib/sources/grafana"
-import { isPrivateHost } from "@/lib/sources/proxy-constants"
 import { useAppStore } from "@/lib/store/app-store"
+import { useSelfHosted } from "@/lib/store/relay-store"
 
 const SERVICE_ACCOUNT_DOCS = "https://grafana.com/docs/grafana/latest/administration/service-accounts/"
 
@@ -84,7 +85,8 @@ export function GrafanaSection() {
     setProblem(null)
   }
   const hostname = hostnameOf(settings.baseUrl)
-  const privateHost = hostname ? isPrivateHost(hostname) : false
+  const selfHosted = useSelfHosted()
+  const privateHint = privateHostHint(hostname, settings.mode, selfHosted)
   const connection = grafanaConnection(settings)
 
   async function test() {
@@ -155,16 +157,7 @@ export function GrafanaSection() {
             </a>
           </FieldDescription>
           <FieldSeparator />
-          <Field orientation="horizontal">
-            <FieldContent>
-              <FieldLabel htmlFor="grafana-proxy">Route through the Cardinal proxy</FieldLabel>
-              <FieldDescription>
-                Grafana doesn't send CORS headers by default, so a public Grafana needs this. A Grafana on your network needs it off, and CORS
-                allowed for this origin.
-              </FieldDescription>
-            </FieldContent>
-            <Switch id="grafana-proxy" checked={settings.mode === "proxy"} onCheckedChange={(checked) => set({ mode: checked ? "proxy" : "direct" })} />
-          </Field>
+          <TransportModeField id="grafana-mode" value={settings.mode} onChange={(mode) => set({ mode })} />
           <Field orientation="horizontal">
             <FieldContent>
               <FieldLabel htmlFor="grafana-remember">Remember token on this device</FieldLabel>
@@ -172,12 +165,15 @@ export function GrafanaSection() {
             </FieldContent>
             <Switch id="grafana-remember" checked={settings.rememberToken} onCheckedChange={(checked) => set({ rememberToken: checked })} />
           </Field>
-          {privateHost && settings.mode === "proxy" ? (
+          {privateHint ? (
             <Alert>
               <InfoIcon />
-              <AlertDescription>
-                {hostname} is a private or local host. The proxy can't reach it; turn the proxy off and let the browser call it directly.
-              </AlertDescription>
+              <AlertDescription>{privateHint}</AlertDescription>
+            </Alert>
+          ) : settings.mode === "direct" && settings.baseUrl.trim() ? (
+            <Alert>
+              <InfoIcon />
+              <AlertDescription>Grafana doesn't send CORS headers by default: direct mode needs this origin allowed, e.g. in a reverse proxy in front of it.</AlertDescription>
             </Alert>
           ) : null}
           {problem ? (
