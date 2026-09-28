@@ -51,16 +51,14 @@ Locally, put it in `.dev.vars` together with `PUBLIC_HOSTNAMES=localhost,127.0.0
 
 ## Self-host
 
-One binary serves the app and a proxy that, unlike the hosted one, reaches private and loopback hosts, so Prometheus,
-Loki and Grafana on your network work without CORS.
+The container serves the app and a proxy that, unlike the hosted one, reaches private and loopback hosts, so
+Prometheus, Loki and Grafana on your network work without CORS.
 
 ```bash
 docker run -p 9181:9181 ghcr.io/ta3/cardinal
 ```
 
-Or download a binary for Linux, macOS or Windows from [Releases](https://github.com/TA3/cardinal/releases) and run
-`./cardinal` (it listens on `127.0.0.1:9181`; see `--help`). Limit what it may reach with `--allow-hosts`. Agent
-sessions stay on the hosted app. Anyone who can open the server can use its proxy, so keep it on a trusted network or
+Limit what it may reach with `--allow-hosts`. Agent sessions stay on the hosted app. Anyone who can open the server can use its proxy, so keep it on a trusted network or
 behind auth.
 
 **Relay mode.** Keep using [cardinal.ta3.dev](https://cardinal.ta3.dev) and let the same server reach your network:

@@ -5,7 +5,7 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: write
+  contents: read
   packages: write
 
 jobs:
@@ -38,21 +38,3 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  binaries:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.3"
-      - run: bun install --frozen-lockfile
-      - run: bun run relay:build
-        env:
-          CARDINAL_VERSION: ${{ github.ref_name }}
-      - name: Checksums
-        working-directory: relay/dist
-        run: sha256sum cardinal-* > SHA256SUMS.txt
-      - name: GitHub Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release create "$GITHUB_REF_NAME" relay/dist/cardinal-* relay/dist/SHA256SUMS.txt --title "$GITHUB_REF_NAME" --generate-notes --verify-tag

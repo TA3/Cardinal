@@ -14,7 +14,6 @@
     "format": "prettier --write \"**/*.{ts,tsx}\"",
     "typecheck": "tsc -b",
     "relay": "bun relay/main.ts",
-    "relay:build": "vite build && bun relay/build.ts"
   },
   "dependencies": {
     "@fontsource-variable/geist-mono": "^5.3.0",
