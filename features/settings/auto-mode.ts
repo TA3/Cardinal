@@ -1,6 +1,6 @@
 import { autoModes, type TransportContext } from "@/lib/core/transport-plan"
 import { isPrivateHost } from "@/lib/sources/proxy-constants"
-import { CorsError, isGrafanaCloudHost, type TransportMode } from "@/lib/sources/transport"
+import { CorsError, isGrafanaCloudHost, supportsLocalNetworkAccess, type TransportMode } from "@/lib/sources/transport"
 import { useRelayStore } from "@/lib/store/relay-store"
 
 // Auto mode: try each transport the backend allows (lib/core/transport-plan),
@@ -9,8 +9,9 @@ import { useRelayStore } from "@/lib/store/relay-store"
 
 export function transportContext(baseUrl: string): TransportContext {
   let hostname = ""
+  let protocol = ""
   try {
-    hostname = new URL(baseUrl.trim()).hostname
+    ;({ hostname, protocol } = new URL(baseUrl.trim()))
   } catch {
     // an invalid URL fails later with a config problem
   }
@@ -20,6 +21,8 @@ export function transportContext(baseUrl: string): TransportContext {
     cloudHost: isGrafanaCloudHost(baseUrl),
     selfHosted: server !== null,
     relaySet: Boolean(relay.url.trim()),
+    mixedContent: globalThis.location?.protocol === "https:" && protocol === "http:",
+    localNetworkAccess: supportsLocalNetworkAccess(),
   }
 }
 
@@ -31,7 +34,9 @@ export async function withAutoMode<T>(
   manual: TransportMode | null,
   attempt: (mode: TransportMode) => Promise<T>
 ): Promise<ModeResult<T>> {
-  const modes = manual ? [manual] : autoModes(transportContext(baseUrl))
+  const planned = autoModes(transportContext(baseUrl))
+  // Nothing can work (plain http on a private host, no relay): try direct so the check explains why.
+  const modes: TransportMode[] = manual ? [manual] : planned.length ? planned : ["direct"]
   let last: ModeResult<T> = { ok: false, mode: modes[0], error: new Error("No transport to try") }
   for (const [index, mode] of modes.entries()) {
     try {

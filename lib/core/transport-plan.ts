@@ -15,12 +15,18 @@ export interface TransportContext {
   selfHosted: boolean
   /** A relay is configured in Settings. */
   relaySet: boolean
+  /** An https page calling a plain-http backend, which browsers block as mixed content. */
+  mixedContent?: boolean
+  /** The browser can ask for local network access (Chrome 142+), which lifts that block for private hosts. */
+  localNetworkAccess?: boolean
 }
 
-export function autoModes({ privateHost, cloudHost, selfHosted, relaySet }: TransportContext): TransportMode[] {
+export function autoModes({ privateHost, cloudHost, selfHosted, relaySet, mixedContent, localNetworkAccess }: TransportContext): TransportMode[] {
   if (cloudHost) return ["proxy"]
-  if (privateHost) return selfHosted ? ["direct", "proxy"] : relaySet ? ["direct", "relay"] : ["direct"]
-  return ["direct", "proxy"]
+  // Plain http from an https page only works directly on a private host, and only where the browser can ask for access.
+  const direct: TransportMode[] = mixedContent && !(privateHost && localNetworkAccess) ? [] : ["direct"]
+  if (privateHost) return selfHosted ? [...direct, "proxy"] : relaySet ? [...direct, "relay"] : direct
+  return [...direct, "proxy"]
 }
 
 /** The private host needs somewhere else to connect from: auto mode ran out of options. */

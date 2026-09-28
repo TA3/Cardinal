@@ -1,7 +1,7 @@
 import { testLokiConnection } from "@/lib/sources/loki"
 import { isQueryLimitError, testConnection } from "@/lib/sources/prometheus"
 import { isPrivateHost } from "@/lib/sources/proxy-constants"
-import { CorsError, HttpError, isGrafanaCloudHost, probeReachable, ProxyTokenError, RelayError } from "@/lib/sources/transport"
+import { CorsError, HttpError, isGrafanaCloudHost, probeReachable, ProxyTokenError, RelayError, supportsLocalNetworkAccess } from "@/lib/sources/transport"
 import type { ConnectionSettings } from "@/lib/store/app-store"
 import { useRelayStore } from "@/lib/store/relay-store"
 
@@ -151,6 +151,13 @@ export async function diagnose(error: unknown, draft: ConnectionSettings, api: B
       // handled below
     }
     const privateHost = target ? isPrivateHost(target.hostname) : false
+    if (target && globalThis.location?.protocol === "https:" && target.protocol === "http:" && privateHost && !supportsLocalNetworkAccess()) {
+      return {
+        kind: "mixed-content",
+        title: "This browser blocks http:// on your network from an https page",
+        detail: "Use Chrome 142 or later (it asks to allow local network access), run a relay, or self-host Cardinal.",
+      }
+    }
     if (target && globalThis.location?.protocol === "https:" && target.protocol === "http:" && !privateHost) {
       return {
         kind: "mixed-content",

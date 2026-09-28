@@ -300,15 +300,20 @@ function supportsLocalNetworkAccess() {
   return typeof Request !== "undefined" && "targetAddressSpace" in Request.prototype
 }
 
+export { supportsLocalNetworkAccess }
+
 /**
- * Fetch options for a request to the relay. An HTTPS page may call a plain-http
- * relay on the local network only when the fetch says so (Local Network
- * Access exempts it from mixed-content blocking); loopback is always allowed.
+ * Fetch options for a plain-http host on the local network (a relay or a
+ * backend in direct mode). An HTTPS page may call one only when the fetch says
+ * so: Local Network Access exempts it from mixed-content blocking and asks the
+ * user once. Loopback is always allowed.
  */
-function relayInit(relayUrl: URL, init: RequestInit): RequestInit {
-  if (globalThis.location?.protocol !== "https:" || relayUrl.protocol !== "http:" || isLoopbackHost(relayUrl.hostname)) return init
+function localNetworkInit(target: URL, init: RequestInit): RequestInit {
+  if (globalThis.location?.protocol !== "https:" || target.protocol !== "http:" || isLoopbackHost(target.hostname)) return init
+  if (!isPrivateHost(target.hostname)) return init
   return { ...init, targetAddressSpace: "local" } as RequestInit
 }
+const relayInit = localNetworkInit
 
 async function localNetworkDenied(relayUrl: URL) {
   const names = isLoopbackHost(relayUrl.hostname) ? ["loopback-network", "local-network-access"] : ["local-network", "local-network-access"]
@@ -418,7 +423,7 @@ export async function send(connection: Connection, request: HttpRequest): Promis
       cache: "no-store",
       signal: request.signal,
     }
-    return fetch(url, relay ? relayInit(url, init) : init)
+    return fetch(url, relay || connection.mode === "direct" ? localNetworkInit(url, init) : init)
   }
 
   let response: Response

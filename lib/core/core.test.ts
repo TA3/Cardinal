@@ -1178,6 +1178,12 @@ describe("auto transport mode", () => {
     expect(autoModes({ ...base, privateHost: true })).toEqual(["direct"])
     expect(autoModes({ ...base, privateHost: true, relaySet: true })).toEqual(["direct", "relay"])
     expect(autoModes({ ...base, privateHost: true, selfHosted: true })).toEqual(["direct", "proxy"])
+    // Plain http from an https page: public hosts skip straight to the proxy.
+    expect(autoModes({ ...base, mixedContent: true })).toEqual(["proxy"])
+    // Private hosts go direct only where the browser can ask for local network access.
+    expect(autoModes({ ...base, privateHost: true, mixedContent: true, localNetworkAccess: true })).toEqual(["direct"])
+    expect(autoModes({ ...base, privateHost: true, mixedContent: true })).toEqual([])
+    expect(autoModes({ ...base, privateHost: true, mixedContent: true, relaySet: true })).toEqual(["relay"])
     expect(needsRelay({ ...base, privateHost: true })).toBe(true)
     expect(needsRelay({ ...base, privateHost: true, relaySet: true })).toBe(false)
     expect(needsRelay(base)).toBe(false)
