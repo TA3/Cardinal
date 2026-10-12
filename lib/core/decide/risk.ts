@@ -1,7 +1,5 @@
-import type {
-  LogOpportunity,
-  MetricOpportunity,
-} from "@/lib/core/opportunities"
+import type { Preference } from "@/lib/core/decide/learn"
+import type { LogOpportunity, MetricOpportunity } from "@/lib/core/opportunities"
 import { summarizeEvidence, type UsageEvidence } from "@/lib/core/usage-gate"
 
 // How safe a cut is, in one word, with how sure Cardinal is and why. The
@@ -10,8 +8,8 @@ import { summarizeEvidence, type UsageEvidence } from "@/lib/core/usage-gate"
 //
 // Confidence is how much of the usage picture was actually checked (rules,
 // dashboards, Grafana Cloud usage) and whether the saving was measured. It
-// is a plain score, not a calibrated probability; a learned model can
-// replace `scoreMetric` / `scoreLog` later with the same output shape.
+// is a plain score, not a calibrated probability. learn.ts then shifts the
+// level by what this user accepted and rejected before.
 
 export type RiskLevel = "safe" | "review" | "risky"
 
@@ -31,6 +29,8 @@ export interface Assessment {
   why: string[]
   /** The evidence that, once gathered, could change the verdict. */
   missing?: "usage" | "dashboards"
+  /** The user's track record on cuts like this, when there is one (see learn.ts). */
+  learned?: Preference
 }
 
 const clamp = (value: number) => Math.max(0, Math.min(1, value))
@@ -69,22 +69,14 @@ export function assessMetric(
     why.push("Usage couldn't be checked")
   } else if (summary.used) {
     level = "risky"
-    why.push(
-      item.label
-        ? `Something may use ${item.label}`
-        : "Rules or dashboards use it"
-    )
+    why.push(item.label ? `Something may use ${item.label}` : "Rules or dashboards use it")
   } else if (!seen.dashboards && !seen.cloud) {
     level = "review"
     missing = "dashboards"
     why.push("Not in alert or recording rules; dashboards not checked")
   } else {
     level = "safe"
-    why.push(
-      item.label
-        ? `Nothing groups or filters by ${item.label}`
-        : "No rule, dashboard or query uses it"
-    )
+    why.push(item.label ? `Nothing groups or filters by ${item.label}` : "No rule, dashboard or query uses it")
   }
 
   if (item.reason === "buckets" && level === "safe") {
@@ -96,11 +88,7 @@ export function assessMetric(
     level = "review"
     why.push("Churn driver from the last hour only")
   }
-  if (
-    item.rule.kind === "drop_labels" &&
-    item.rule.onMerge === undefined &&
-    summary?.used
-  ) {
+  if (item.rule.kind === "drop_labels" && item.rule.onMerge === undefined && summary?.used) {
     why.push("Merged series need a choice")
   }
   if (item.estimate) why.push("Saving is an estimate")
@@ -147,11 +135,7 @@ export function assessLog(
   } else {
     level = labelQueried === false ? "safe" : "review"
     confidence = labelQueried === false ? 0.8 : 0.5
-    why.push(
-      labelQueried === false
-        ? "No checked query selects by it"
-        : "Stays searchable as metadata; queries weren't checked"
-    )
+    why.push(labelQueried === false ? "No checked query selects by it" : "Stays searchable as metadata; queries weren't checked")
   }
 
   if (sensitive) {
@@ -164,8 +148,5 @@ export function assessLog(
 
 /** Safe first, then by confidence (highest first). */
 export function compareAssessments(a: Assessment, b: Assessment) {
-  return (
-    RISK_ORDER.indexOf(a.level) - RISK_ORDER.indexOf(b.level) ||
-    b.confidence - a.confidence
-  )
+  return RISK_ORDER.indexOf(a.level) - RISK_ORDER.indexOf(b.level) || b.confidence - a.confidence
 }

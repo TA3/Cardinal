@@ -6,13 +6,7 @@ import type { MergeChoice } from "@/lib/core/rules"
 // totals. Otherwise it stays the user's call (keeping one value needs a value
 // picked, which only a person can do).
 
-export function suggestMergeChoice({
-  used,
-  choices,
-}: {
-  used: boolean | undefined
-  choices: MergeChoice[]
-}): MergeChoice | null {
+export function suggestMergeChoice({ used, choices }: { used: boolean | undefined; choices: MergeChoice[] }): MergeChoice | null {
   if (used === false) return "drop"
   if (used === true && choices.includes("aggregate")) return "aggregate"
   return null

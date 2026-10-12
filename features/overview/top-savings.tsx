@@ -14,6 +14,7 @@ import { cacheDrilldownFor, connectionKey, useConnection } from "@/hooks/use-car
 import { formatDelta } from "@/lib/cardinality/dashboard-helpers"
 import { DEFAULT_CHURN_WINDOW, rankChurn } from "@/lib/core/churn"
 import { createLimiter } from "@/lib/core/concurrency"
+import { applyPreference, learnedPreference, metricRuleKeys } from "@/lib/core/decide/learn"
 import { assessMetric } from "@/lib/core/decide/risk"
 import { histogramFamily } from "@/lib/core/families"
 import { quantileUsage } from "@/lib/core/histograms"
@@ -145,6 +146,7 @@ function useChurnDrivers() {
 
 export function useMetricOpportunities(snapshot: Snapshot) {
   const rules = useAppStore((state) => state.rules)
+  const decisions = useAppStore((state) => state.decisions)
   const big = React.useMemo(() => bigMetrics(snapshot.metrics, { limit: 20 }), [snapshot.metrics])
   const names = React.useMemo(() => big.map((item) => item.metric), [big])
   const usage = useUsageEvidence(names)
@@ -181,8 +183,11 @@ export function useMetricOpportunities(snapshot: Snapshot) {
       const item = churnOpportunity({ metric: row.metric, job: row.job, label: driver.label, churned: row.churned, used: undefined })
       if (item) all.push(item)
     }
-    return rankOpportunities(all, rules).map((item) => ({ ...item, risk: assessMetric(item, usage.byMetric[item.metric]) }))
-  }, [usage.isPending, usage.byMetric, big, used, idLike.data, histograms.data, churn.rows, rules])
+    return rankOpportunities(all, rules).map((item) => ({
+      ...item,
+      risk: applyPreference(assessMetric(item, usage.byMetric[item.metric]), learnedPreference(decisions, metricRuleKeys(item.rule))),
+    }))
+  }, [usage.isPending, usage.byMetric, big, used, idLike.data, histograms.data, churn.rows, rules, decisions])
 
   const impacts = React.useMemo(() => new Map((idLike.data ?? []).map((finding) => [`${finding.metric}\u0000${finding.label}`, finding.impact])), [idLike.data])
   const loading = usage.isPending || (idMetrics.length > 0 && idLike.isPending) || histograms.isPending || churn.pending

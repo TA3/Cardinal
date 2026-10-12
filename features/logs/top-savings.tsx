@@ -10,6 +10,7 @@ import { patternTableRows } from "@/features/logs/pattern-table"
 import { useProposeLogRule } from "@/features/logs/volume-propose"
 import { formatNumber } from "@/lib/cardinality/dashboard-helpers"
 import { formatBytes } from "@/lib/core/bytes"
+import { applyPreference, learnedPreference, logRuleKeys } from "@/lib/core/decide/learn"
 import { assessLog } from "@/lib/core/decide/risk"
 import { adviseLogLabel } from "@/lib/core/logs/label-advice"
 import { patternLineFilter, patternPreview } from "@/lib/core/logs/patterns"
@@ -27,6 +28,7 @@ const SERVICES = 5
 /** Ranked log opportunities with their risk, and whether pattern queries are still running. */
 export function useLogOpportunities(snapshot: LogsSnapshot | null) {
   const rules = useAppStore((state) => state.logRules)
+  const decisions = useAppStore((state) => state.decisions)
   const groupLabel = snapshot?.groupLabel ?? ""
   const services = React.useMemo(
     () => (snapshot ? snapshot.groups.filter((group) => group.value !== "").slice(0, SERVICES).map((group) => group.value) : []),
@@ -56,7 +58,7 @@ export function useLogOpportunities(snapshot: LogsSnapshot | null) {
   )
   const items = rankLogOpportunities([...patternOpportunities(groupLabel, perService), ...labels], rules).map((item) => ({
     ...item,
-    risk: assessLog(item),
+    risk: applyPreference(assessLog(item), learnedPreference(decisions, logRuleKeys(item.rule))),
   }))
   return { items, loading }
 }

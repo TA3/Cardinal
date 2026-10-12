@@ -20,12 +20,14 @@ export function RiskBadge({ risk, className }: { risk: Assessment; className?: s
         </Badge>
       </TooltipTrigger>
       <TooltipContent className="max-w-72">
-        <ul className="flex flex-col gap-1">
-          {risk.why.map((line) => (
-            <li key={line}>{line}</li>
-          ))}
-        </ul>
-        <p className="mt-1 opacity-70">Checked: {Math.round(risk.confidence * 100)}% of the evidence</p>
+        <div className="flex flex-col gap-1">
+          <ul className="flex flex-col gap-1">
+            {risk.why.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+          <p className="opacity-70">Checked: {Math.round(risk.confidence * 100)}% of the evidence</p>
+        </div>
       </TooltipContent>
     </Tooltip>
   )

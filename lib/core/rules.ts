@@ -31,6 +31,8 @@ interface RuleBase {
   rationale?: string
   impact?: RuleImpact
   createdAt: string
+  /** Rejected with "Not now": hidden from suggestions until then, then suggested again. */
+  snoozedUntil?: string
 }
 
 export interface DropMetricRule extends RuleBase {

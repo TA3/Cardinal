@@ -1,4 +1,5 @@
 import { roughReductionSavings, suggestBuckets, type ClassicHistogram } from "@/lib/core/histograms"
+import { snoozeExpired } from "@/lib/core/decide/learn"
 import { histogramFamily } from "@/lib/core/families"
 import type { IdLikeVerdict } from "@/lib/core/id-like"
 import { logRuleKey, type LogRuleInput } from "@/lib/core/logs/rules"
@@ -187,10 +188,10 @@ export function ruleCovers(rule: Rule, candidate: OpportunityRule) {
 }
 
 /** The status of the strongest rule covering the candidate: active beats proposed beats rejected. */
-function coveringStatus(rules: Rule[], candidate: OpportunityRule): RuleStatus | null {
+function coveringStatus(rules: Rule[], candidate: OpportunityRule, now: number): RuleStatus | null {
   let found: RuleStatus | null = null
   for (const rule of rules) {
-    if (!ruleCovers(rule, candidate)) continue
+    if (snoozeExpired(rule, now) || !ruleCovers(rule, candidate)) continue
     if (rule.status === "active") return "active"
     if (rule.status === "proposed" || found === null) found = rule.status
   }
@@ -201,11 +202,12 @@ const REASON_ORDER: OpportunityReason[] = ["unused", "id_like", "buckets", "chur
 
 /**
  * Ranks opportunities by series saved. Items a rule already handles (active)
- * or the user turned down (rejected) are gone; pending proposals stay, marked
- * "proposed". A metric that can go whole hides its smaller label and bucket
- * items, and the same label found twice (ID-like and churn) shows once.
+ * or the user turned down (rejected, until a "Not now" snooze runs out) are
+ * gone; pending proposals stay, marked "proposed". A metric that can go whole
+ * hides its smaller label and bucket items, and the same label found twice
+ * (ID-like and churn) shows once.
  */
-export function rankOpportunities(items: MetricOpportunity[], rules: Rule[] = []): Array<MetricOpportunity & { state: OpportunityState }> {
+export function rankOpportunities(items: MetricOpportunity[], rules: Rule[] = [], now = Date.now()): Array<MetricOpportunity & { state: OpportunityState }> {
   const wholeMetric = new Set(items.filter((item) => item.rule.kind === "drop_metric").map((item) => item.metric))
   const best = new Map<string, MetricOpportunity>()
   for (const item of items) {
@@ -216,7 +218,7 @@ export function rankOpportunities(items: MetricOpportunity[], rules: Rule[] = []
   }
   const ranked: Array<MetricOpportunity & { state: OpportunityState }> = []
   for (const item of best.values()) {
-    const status = coveringStatus(rules, item.rule)
+    const status = coveringStatus(rules, item.rule, now)
     if (status === "active" || status === "rejected") continue
     ranked.push({ ...item, state: status === "proposed" ? "proposed" : "open" })
   }
@@ -354,9 +356,10 @@ export function labelOpportunities(
  * moves by streams. Rules that already exist hide them (active, rejected)
  * or mark them "proposed", matched by rule identity.
  */
-export function rankLogOpportunities(items: LogOpportunity[], rules: LogRule[] = []): Array<LogOpportunity & { state: OpportunityState }> {
+export function rankLogOpportunities(items: LogOpportunity[], rules: LogRule[] = [], now = Date.now()): Array<LogOpportunity & { state: OpportunityState }> {
   const statusByKey = new Map<string, LogRuleStatus>()
   for (const rule of rules) {
+    if (snoozeExpired(rule, now)) continue
     const key = logRuleKey(rule)
     const current = statusByKey.get(key)
     if (current === "active") continue

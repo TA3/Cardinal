@@ -46,6 +46,8 @@ interface LogRuleBase {
   rationale?: string
   impact?: LogRuleImpact
   createdAt: string
+  /** Rejected with "Not now": hidden from suggestions until then, then suggested again. */
+  snoozedUntil?: string
 }
 
 export interface DropStreamsRule extends LogRuleBase {

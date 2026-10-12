@@ -35,6 +35,15 @@ import type { LogsRange, LogsSnapshot, LogsSnapshotProgress, LogsSnapshotSummary
 import { activateOrCreateLogRule, foldLogRules, mergeLogRules, migrateKeepHacks, toggleLogRule, type LogRuleInput } from "@/lib/core/logs/rules"
 import type { LogRule, LogRuleImpact, LogRuleStatus } from "@/lib/core/logs/types"
 import type { MetricDrilldown } from "@/lib/prometheus/types"
+import {
+  appendDecisions,
+  decisionsFor,
+  logRuleKeys,
+  metricRuleKeys,
+  snoozeUntil,
+  type Decision,
+  type RejectReason,
+} from "@/lib/core/decide/learn"
 import type { GrafanaDatasourceLink, RememberedChoices } from "@/lib/core/grafana-connect"
 
 // App state shared by the UI and the agent bridge. Server data that is cheap to
@@ -195,7 +204,8 @@ interface AppState {
   clearRules: () => void
   addRules: (rules: Rule[]) => AddRulesResult
   replaceRules: (rules: Rule[]) => AddRulesResult
-  setRuleStatus: (ids: string[], status: Rule["status"]) => void
+  /** Moving a proposal to active or rejected is filed as a decision; "later" snoozes a rejection. */
+  setRuleStatus: (ids: string[], status: Rule["status"], reason?: RejectReason) => void
   setRuleImpact: (id: string, impact: RuleImpact | undefined) => void
   invalidateImpacts: () => void
   setRelabelMode: (mode: RelabelMode) => void
@@ -257,7 +267,11 @@ interface AppState {
   logRules: LogRule[]
   /** Merges like addRules (lib/core/logs/rules mergeLogRules). */
   addLogRules: (rules: LogRule[]) => AddRulesResult
-  setLogRuleStatus: (ids: string[], status: LogRuleStatus) => void
+  setLogRuleStatus: (ids: string[], status: LogRuleStatus, reason?: RejectReason) => void
+
+  /** Accepted and rejected proposals, metrics and logs, newest last (lib/core/decide/learn). Persisted. */
+  decisions: Decision[]
+  forgetDecisions: () => void
   setLogRuleImpact: (id: string, impact: LogRuleImpact | undefined) => void
   removeLogRule: (id: string) => void
   /** Removes active and rejected log rules; proposals stay for review, as with clearRules. */
@@ -482,6 +496,14 @@ function fromLegacyJob(job: string | undefined) {
   return job === LEGACY_NO_JOB ? "" : job
 }
 
+/** A rule moved to `status`: "Not now" rejections carry a snooze; any other move clears it. */
+function withStatus<T extends { status: string; snoozedUntil?: string }>(rule: T, status: T["status"], reason?: RejectReason): T {
+  const next = { ...rule, status }
+  delete next.snoozedUntil
+  if (status === "rejected" && reason === "later") next.snoozedUntil = snoozeUntil()
+  return next
+}
+
 function migrateSnapshot(snapshot: Snapshot | null | undefined) {
   if (!snapshot) return snapshot ?? null
   const fixMetric = (metric: Snapshot["metrics"][number]) => ({
@@ -538,6 +560,7 @@ type PersistedState = Partial<
     | "grafanaLinks"
     | "backendProfile"
     | "ruleDestinations"
+    | "decisions"
   >
 > & {
   snapshotOmitted?: boolean
@@ -631,6 +654,7 @@ export const useAppStore = create<AppState>()(
           logsAuthError: false,
           logsSnapshotProgress: null,
           logRules: [],
+          decisions: [],
           grafanaSettings: DEFAULT_GRAFANA_SETTINGS,
           grafanaLinks: {},
           backendProfile: null,
@@ -664,12 +688,18 @@ export const useAppStore = create<AppState>()(
         })
         return result
       },
-      setRuleStatus: (ids, status) =>
+      setRuleStatus: (ids, status, reason) =>
         set((state) => {
           const wanted = new Set(ids)
-          const updated = state.rules.map((rule) => (wanted.has(rule.id) ? { ...rule, status } : rule))
+          const decided = decisionsFor(
+            state.rules.filter((rule) => wanted.has(rule.id)),
+            status,
+            metricRuleKeys,
+            reason
+          )
+          const updated = state.rules.map((rule) => (wanted.has(rule.id) ? withStatus(rule, status, reason) : rule))
           // Accepting a proposal folds it into an existing rule with the same selector and status.
-          return { rules: foldStatus(updated, status) }
+          return { rules: foldStatus(updated, status), decisions: appendDecisions(state.decisions, decided) }
         }),
       setRuleImpact: (id, impact) =>
         set((state) => ({ rules: state.rules.map((rule) => (rule.id === id ? { ...rule, impact } : rule)) })),
@@ -792,12 +822,23 @@ export const useAppStore = create<AppState>()(
         })
         return result
       },
-      setLogRuleStatus: (ids, status) =>
+      setLogRuleStatus: (ids, status, reason) =>
         set((state) => {
           const wanted = new Set(ids)
+          const decided = decisionsFor(
+            state.logRules.filter((rule) => wanted.has(rule.id)),
+            status,
+            logRuleKeys,
+            reason
+          )
           // Accepting a proposal folds it into an existing rule with the same key and status.
-          return { logRules: foldLogRules(state.logRules.map((rule) => (wanted.has(rule.id) ? { ...rule, status } : rule))) }
+          return {
+            logRules: foldLogRules(state.logRules.map((rule) => (wanted.has(rule.id) ? withStatus(rule, status, reason) : rule))),
+            decisions: appendDecisions(state.decisions, decided),
+          }
         }),
+      decisions: [],
+      forgetDecisions: () => set({ decisions: [] }),
       setLogRuleImpact: (id, impact) =>
         set((state) => ({ logRules: state.logRules.map((rule) => (rule.id === id ? { ...rule, impact } : rule)) })),
       removeLogRule: (id) => set((state) => ({ logRules: state.logRules.filter((rule) => rule.id !== id) })),
@@ -879,6 +920,7 @@ export const useAppStore = create<AppState>()(
         grafanaLinks: state.grafanaLinks,
         backendProfile: state.backendProfile,
         ruleDestinations: state.ruleDestinations,
+        decisions: state.decisions,
       }),
       // Also used when another tab writes: keep this tab's in-memory token and,
       // when storage was full, its snapshot.
@@ -906,6 +948,7 @@ export const useAppStore = create<AppState>()(
           snapshot: snapshotOmitted ? current.snapshot : (persisted.snapshot ?? null),
           rules: persisted.rules ?? current.rules,
           logRules: Array.isArray(persisted.logRules) ? persisted.logRules : current.logRules,
+          decisions: Array.isArray(persisted.decisions) ? persisted.decisions : current.decisions,
           signal: isSignal(persisted.signal) ? persisted.signal : current.signal,
           drilldowns: sameConnection ? current.drilldowns : {},
           logsSettings,

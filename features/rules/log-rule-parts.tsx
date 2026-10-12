@@ -1,8 +1,9 @@
 import * as React from "react"
-import { CheckIcon, RobotIcon, ShieldCheckIcon, ShieldWarningIcon, SparkleIcon, TrashIcon, UploadSimpleIcon, UserIcon, WarningIcon, XIcon } from "@phosphor-icons/react"
+import { CheckIcon, RobotIcon, ShieldCheckIcon, ShieldWarningIcon, SparkleIcon, TrashIcon, UploadSimpleIcon, UserIcon, WarningIcon } from "@phosphor-icons/react"
 import { Link } from "react-router"
 
 import { CostText } from "@/components/cost-text"
+import { RejectMenu, SnoozeNote } from "@/components/reject-menu"
 import { Tip } from "@/components/tip"
 import {
   AlertDialog,
@@ -357,11 +358,7 @@ export function LogRuleActions({ rule }: { rule: LogRule }) {
   if (rule.status === "proposed") {
     return (
       <div className="flex justify-end gap-1">
-        <Tip label="Reject proposal">
-          <Button size="icon-sm" variant="ghost" aria-label="Reject" onClick={() => setLogRuleStatus([rule.id], "rejected")}>
-            <XIcon />
-          </Button>
-        </Tip>
+        <RejectMenu onReject={(reason) => setLogRuleStatus([rule.id], "rejected", reason)} />
         <LogAcceptAllButton
           rules={[rule]}
           trigger={
@@ -374,7 +371,8 @@ export function LogRuleActions({ rule }: { rule: LogRule }) {
     )
   }
   return (
-    <div className="flex justify-end gap-1">
+    <div className="flex items-center justify-end gap-1">
+      <SnoozeNote rule={rule} />
       {rule.status === "rejected" ? (
         <Button size="xs" variant="ghost" onClick={() => setLogRuleStatus([rule.id], "proposed")}>
           Restore

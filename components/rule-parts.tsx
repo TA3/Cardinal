@@ -5,12 +5,12 @@ import {
   TrashIcon,
   UploadSimpleIcon,
   UserIcon,
-  XIcon,
 } from "@phosphor-icons/react"
 
 import { CostText } from "@/components/cost-text"
 import { SegmentedControl } from "@/components/segmented-control"
 import { Badge } from "@/components/ui/badge"
+import { RejectMenu, SnoozeNote } from "@/components/reject-menu"
 import { Tip } from "@/components/tip"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -196,11 +196,7 @@ export function RuleActions({ rule }: { rule: Rule }) {
   if (rule.status === "proposed") {
     return (
       <div className="flex justify-end gap-1">
-        <Tip label="Reject proposal">
-          <Button size="icon-sm" variant="ghost" aria-label="Reject" onClick={() => setRuleStatus([rule.id], "rejected")}>
-            <XIcon />
-          </Button>
-        </Tip>
+        <RejectMenu onReject={(reason) => setRuleStatus([rule.id], "rejected", reason)} />
         <AcceptAllButton
           rules={[rule]}
           onAccept={(ids) => setRuleStatus(ids, "active")}
@@ -214,7 +210,8 @@ export function RuleActions({ rule }: { rule: Rule }) {
     )
   }
   return (
-    <div className="flex justify-end gap-1">
+    <div className="flex items-center justify-end gap-1">
+      <SnoozeNote rule={rule} />
       {rule.status === "rejected" ? (
         <Button size="xs" variant="ghost" onClick={() => setRuleStatus([rule.id], "proposed")}>
           Restore
