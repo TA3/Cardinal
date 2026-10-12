@@ -14,6 +14,7 @@ import { connectionKey, useConnection, useLabelValues, useMetricsTarget } from "
 import { formatNumber } from "@/lib/cardinality/dashboard-helpers"
 import { mergeChoicesFor, type MetricsDestination } from "@/lib/core/backend-profile"
 import { createLimiter } from "@/lib/core/concurrency"
+import { MERGE_DEFAULT_REASON, suggestMergeChoice } from "@/lib/core/decide/merge"
 import { histogramFamily } from "@/lib/core/families"
 import { mergesSeries, type DropLabelsRule, type MergeChoice, type Rule } from "@/lib/core/rules"
 import { fetchMergeGroups, fetchMetricType, measureImpact, type MetricType } from "@/lib/sources/prometheus"
@@ -64,28 +65,36 @@ function useMergeGroups(metric: string, labels: string[], job: string | undefine
 }
 
 /**
- * Which merging rules nothing is known to use (alert and recording rules,
- * scanned dashboards): those default to "drop anyway". By rule id.
+ * The suggested choice for each undecided merging rule, by rule id: "drop
+ * anyway" when nothing is known to use it (alert and recording rules,
+ * scanned dashboards), "aggregate" when something may and the destination
+ * can sum. Rules with neither stay undecided.
  */
-export function useUnusedMerges(rules: Rule[]) {
+export function useMergeDefaults(rules: Rule[]) {
+  const { destination } = useMetricsTarget()
   const merging = React.useMemo(() => rules.filter(mergesSeries), [rules])
   const metrics = React.useMemo(() => merging.map((rule) => rule.selector.metric), [merging])
   const { byMetric, isPending } = useUsageEvidence(metrics, merging.length > 0)
   return React.useMemo(() => {
-    const unused = new Set<string>()
+    const defaults = new Map<string, MergeChoice>()
     if (!isPending) {
+      const choices = mergeChoicesFor(destination)
       for (const rule of merging) {
         const summary = summarizeRule(rule, byMetric[rule.selector.metric])
-        if (summary && !summary.used) unused.add(rule.id)
+        const choice = suggestMergeChoice({ used: summary?.used, choices })
+        if (choice) defaults.set(rule.id, choice)
       }
     }
-    return { unused, isPending }
-  }, [merging, byMetric, isPending])
+    return { defaults, isPending }
+  }, [merging, byMetric, isPending, destination])
 }
 
-/** Rules with the unused-label default applied, for exports: an undecided unused drop becomes "drop anyway". */
-export function withMergeDefaults(rules: Rule[], unused: Set<string>): Rule[] {
-  return rules.map((rule) => (rule.kind === "drop_labels" && !rule.onMerge && unused.has(rule.id) ? { ...rule, onMerge: "drop" } : rule))
+/** Rules with the suggested merge choice applied, for exports: an undecided drop takes its default. */
+export function withMergeDefaults(rules: Rule[], defaults: Map<string, MergeChoice>): Rule[] {
+  return rules.map((rule) => {
+    const choice = rule.kind === "drop_labels" && !rule.onMerge ? defaults.get(rule.id) : undefined
+    return choice ? { ...rule, onMerge: choice } : rule
+  })
 }
 
 export const CHOICE_LABEL: Record<MergeChoice, string> = { drop: "Drop anyway", keep_value: "Keep one", aggregate: "Aggregate" }
@@ -221,7 +230,7 @@ export function MergeChoiceControl({
   labels: string[]
   decision: MergeDecision
   onChange: (decision: MergeDecision) => void
-  /** The choice shown is the unused-label default, not one the user made. */
+  /** The choice shown is the suggested default, not one the user made. */
   defaulted?: boolean
   className?: string
 }) {
@@ -260,7 +269,7 @@ export function MergeChoiceControl({
       ) : choice ? (
         <p className="text-xs text-muted-foreground">
           {consequence(choice, labels, type, destination)}
-          {defaulted ? " Default: nothing uses it." : ""}
+          {defaulted ? ` ${MERGE_DEFAULT_REASON[choice]}` : ""}
           <WhyTip destination={destination} />
         </p>
       ) : (
@@ -281,7 +290,7 @@ export function MergeChoiceControl({
 }
 
 /** The choice on an existing rule, stored on it. Nothing for rules that don't merge series. */
-export function RuleMergeControl({ rule, unused, className }: { rule: Rule; unused?: boolean; className?: string }) {
+export function RuleMergeControl({ rule, suggested, className }: { rule: Rule; suggested?: MergeChoice; className?: string }) {
   const setRuleMerge = useAppStore((state) => state.setRuleMerge)
   const onChange = React.useCallback(
     (decision: MergeDecision) => setRuleMerge(rule.id, decision.choice ?? undefined, decision.keepValues),
@@ -289,7 +298,7 @@ export function RuleMergeControl({ rule, unused, className }: { rule: Rule; unus
   )
   const labelRule: DropLabelsRule | null = rule.kind === "drop_labels" ? rule : null
   if (!labelRule || (!labelRule.impact?.mergesSeries && labelRule.onMerge !== "keep_value")) return null
-  const choice = labelRule.onMerge ?? (unused ? "drop" : null)
+  const choice = labelRule.onMerge ?? suggested ?? null
   return (
     <MergeChoiceControl
       metric={rule.selector.metric}

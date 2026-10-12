@@ -25,7 +25,7 @@ import { targetJob, type DropScope } from "@/features/explore/drop-scope"
 import { HistogramPanel } from "@/features/histograms/histogram-panel"
 import { DashboardEvidenceLinks, EvidenceList } from "@/features/rules/drop-gate"
 import { BucketPicker, SeriesPatternForm, valuesPattern } from "@/features/rules/series-rule-forms"
-import { RuleMergeControl, useLabelDropImpact, useUnusedMerges } from "@/features/rules/merge-choice"
+import { RuleMergeControl, useLabelDropImpact, useMergeDefaults } from "@/features/rules/merge-choice"
 import { useUsageEvidence } from "@/features/rules/usage"
 import { DashboardLabelBadge } from "@/features/usage/dashboard-label-badge"
 import { connectionKey, useConnection, useLabelValues, useMetricDrilldown, useSeriesByJob } from "@/hooks/use-cardinality"
@@ -446,7 +446,7 @@ function UsageCard({ metric }: { metric: string }) {
 function MetricRulesCard({ metric, totalSeries }: { metric: string; totalSeries: number }) {
   const allRules = useAppStore((state) => state.rules)
   const rules = React.useMemo(() => allRules.filter((rule) => rule.selector.metric === metric && rule.status !== "rejected"), [allRules, metric])
-  const { unused } = useUnusedMerges(rules)
+  const { defaults } = useMergeDefaults(rules)
   // Nothing to show until there's a rule: the header's actions make one.
   if (rules.length === 0) return null
   return (
@@ -465,7 +465,7 @@ function MetricRulesCard({ metric, totalSeries }: { metric: string; totalSeries:
                   {rule.status === "proposed" ? <Badge variant="secondary">Proposed</Badge> : null}
                 </div>
                 {rule.rationale ? <ItemDescription className="line-clamp-3">{rule.rationale}</ItemDescription> : null}
-                <RuleMergeControl rule={rule} unused={unused.has(rule.id)} />
+                <RuleMergeControl rule={rule} suggested={defaults.get(rule.id)} />
               </ItemContent>
               <div className="flex flex-col items-end gap-2">
                 <RuleImpact rule={rule} totalSeries={totalSeries} />

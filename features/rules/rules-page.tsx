@@ -31,7 +31,7 @@ import { ExportCard, MetricPlanActions, useMetricsExport, type ExportOutput } fr
 import { ImportDialog } from "@/features/rules/import-dialog"
 import { LogRulesPage } from "@/features/rules/log-rules-page"
 import { PlanHeader } from "@/features/rules/plan-header"
-import { RuleMergeControl, useUnusedMerges } from "@/features/rules/merge-choice"
+import { RuleMergeControl, useMergeDefaults } from "@/features/rules/merge-choice"
 import { hasLogShareHash } from "@/features/rules/log-share"
 import { SharedRulesBanner, ShareMenu } from "@/features/rules/share"
 import { Term } from "@/features/rules/term"
@@ -61,7 +61,7 @@ const EMPTY_COPY: Record<RuleStatus, { title: string; text: string }> = {
 function RulesTable({ rules, allRules, status, totalSeries }: { rules: Rule[]; allRules: Rule[]; status: RuleStatus; totalSeries: number }) {
   const metrics = React.useMemo(() => rules.map((rule) => rule.selector.metric), [rules])
   const { summaries, isPending } = useUsageSummaries(metrics, status !== "rejected" && rules.length > 0)
-  const { unused } = useUnusedMerges(rules)
+  const { defaults } = useMergeDefaults(rules)
   const { adaptive } = useMetricsTarget()
   if (rules.length === 0) {
     const text = status === "proposed" && adaptive ? "Agent and Adaptive Metrics suggestions land here." : EMPTY_COPY[status].text
@@ -108,7 +108,7 @@ function RulesTable({ rules, allRules, status, totalSeries }: { rules: Rule[]; a
                   {formatDelta(rule.impact.seriesAfter - rule.impact.seriesBefore)} series
                 </span>
               ) : null}
-              {status === "rejected" ? null : <RuleMergeControl rule={rule} unused={unused.has(rule.id)} className="mt-1.5" />}
+              {status === "rejected" ? null : <RuleMergeControl rule={rule} suggested={defaults.get(rule.id)} className="mt-1.5" />}
             </TableCell>
             <TableCell className="hidden md:table-cell">
               <RuleOriginBadge rule={rule} />

@@ -48,7 +48,7 @@ import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
 import { downloadFile } from "@/features/rules/share"
 import { readAdaptiveBackup, readImportBaseline, readStackUrl, storeAdaptiveBackup, storeStackUrl, useStorageVersion } from "@/features/rules/storage"
-import { RuleMergeControl, useUnusedMerges, withMergeDefaults } from "@/features/rules/merge-choice"
+import { RuleMergeControl, useMergeDefaults, withMergeDefaults } from "@/features/rules/merge-choice"
 import { useUsageSummaries } from "@/features/rules/usage"
 import { connectionKey, useConnection, useIsGrafanaCloud, useMetricsTarget } from "@/hooks/use-cardinality"
 import { metricsDestinations, type MetricsDestination } from "@/lib/core/backend-profile"
@@ -586,7 +586,7 @@ export interface MetricsExport {
   stage: PrometheusStage
   meta: string
   mode: RelabelMode
-  /** Active rules with the unused-merge default applied. */
+  /** Active rules with the suggested merge defaults applied. */
   rules: Rule[]
   /** Rules the output carries. */
   emitted: Rule[]
@@ -613,9 +613,9 @@ export function useMetricsExport(stored: Rule[], override: ExportOutput | null):
   const output = override && outputs.includes(override) ? override : destination
   const { format, stage, meta } = OUTPUT[output]
   const { cost } = useCost()
-  // Undecided label drops that nothing uses ship as "drop anyway".
-  const { unused } = useUnusedMerges(stored)
-  const rules = React.useMemo(() => withMergeDefaults(stored, unused), [stored, unused])
+  // Undecided label drops ship with their suggested choice (drop anyway, or aggregate where possible).
+  const { defaults } = useMergeDefaults(stored)
+  const rules = React.useMemo(() => withMergeDefaults(stored, defaults), [stored, defaults])
   // Generation time of what is shown; refreshed whenever the output changes.
   const generatedAt = React.useMemo(() => new Date(), [rules, format, stage, mode]) // eslint-disable-line react-hooks/exhaustive-deps
   const jobs = React.useMemo(() => (snapshot ? jobsByMetric(snapshot) : undefined), [snapshot])
