@@ -8,6 +8,7 @@ import { useCost } from "@/components/cost-text"
 import { SavingsList, type SavingsRowProps } from "@/components/savings-list"
 import { Button } from "@/components/ui/button"
 import { useChurn } from "@/features/churn/use-churn"
+import { useAutopilot } from "@/features/inbox/autopilot"
 import { useHistogramAnalysis } from "@/features/histograms/use-histograms"
 import { useUsageEvidence } from "@/features/rules/usage"
 import { cacheDrilldownFor, connectionKey, useConnection } from "@/hooks/use-cardinality"
@@ -15,7 +16,7 @@ import { formatDelta } from "@/lib/cardinality/dashboard-helpers"
 import { DEFAULT_CHURN_WINDOW, rankChurn } from "@/lib/core/churn"
 import { createLimiter } from "@/lib/core/concurrency"
 import { applyPreference, learnedPreference, metricRuleKeys } from "@/lib/core/decide/learn"
-import { assessMetric } from "@/lib/core/decide/risk"
+import { assessMetric, orderForReview } from "@/lib/core/decide/risk"
 import { histogramFamily } from "@/lib/core/families"
 import { quantileUsage } from "@/lib/core/histograms"
 import { detectIdLike } from "@/lib/core/id-like"
@@ -281,7 +282,8 @@ export function TopSavings({ snapshot, className }: { snapshot: Snapshot; classN
   const { format } = useCost()
   const open = items.filter((item) => item.state === "open")
   const total = open.reduce((sum, item) => sum + item.savedSeries, 0)
-  const rows = metricSavingsRows(items, propose, format)
+  const rows = metricSavingsRows(orderForReview(items), propose, format)
+  useAutopilot(items, loading, (item) => propose(item, { quiet: true }))
 
   return (
     <SavingsList

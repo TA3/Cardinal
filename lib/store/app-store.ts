@@ -180,6 +180,12 @@ interface AppState {
   agentPaused: boolean
   /** When false, get_label_values refuses to share label values with the agent. */
   agentShareLabelValues: boolean
+  /** Propose cuts rated safe as soon as they are found (they still wait in Rules for review). Persisted. */
+  autopilot: boolean
+  setAutopilot: (autopilot: boolean) => void
+  /** The Savings setup checklist was dismissed. Persisted. */
+  setupDismissed: boolean
+  setSetupDismissed: (dismissed: boolean) => void
   /**
    * Progress of the snapshot running now, null when none is. `total` is 0
    * while unknown (a single query, or listing jobs); per-job fallbacks on
@@ -548,6 +554,8 @@ type PersistedState = Partial<
     | "relabelMode"
     | "tokenExpected"
     | "agentShareLabelValues"
+    | "autopilot"
+    | "setupDismissed"
     | "attribution"
     | "signal"
     | "logsSettings"
@@ -601,6 +609,8 @@ export const useAppStore = create<AppState>()(
       agentActivity: [],
       agentPaused: false,
       agentShareLabelValues: true,
+      autopilot: false,
+      setupDismissed: false,
       snapshotProgress: null,
 
       updateSettings: (patch) =>
@@ -645,6 +655,8 @@ export const useAppStore = create<AppState>()(
           authError: false,
           snapshotProgress: null,
           agentShareLabelValues: true,
+          autopilot: false,
+          setupDismissed: false,
           attribution: DEFAULT_ATTRIBUTION,
           logsSettings: defaultLogsSettings,
           logsSnapshot: null,
@@ -728,6 +740,8 @@ export const useAppStore = create<AppState>()(
       recordAgentActivity: (activity) =>
         set((state) => ({ agentActivity: [activity, ...state.agentActivity].slice(0, 200) })),
       setAgentPaused: (agentPaused) => set({ agentPaused }),
+      setAutopilot: (autopilot) => set({ autopilot }),
+      setSetupDismissed: (setupDismissed) => set({ setupDismissed }),
       setAgentShareLabelValues: (agentShareLabelValues) => set({ agentShareLabelValues }),
       setSnapshotProgress: (snapshotProgress) => set({ snapshotProgress }),
 
@@ -908,6 +922,8 @@ export const useAppStore = create<AppState>()(
         relabelMode: state.relabelMode,
         tokenExpected: state.tokenExpected,
         agentShareLabelValues: state.agentShareLabelValues,
+        autopilot: state.autopilot,
+        setupDismissed: state.setupDismissed,
         attribution: state.attribution,
         signal: state.signal,
         logsSettings: state.logsSettings.rememberToken ? state.logsSettings : { ...state.logsSettings, token: "" },

@@ -11,12 +11,14 @@ import { Reveal, Stagger } from "@/components/motion"
 import { Page, PageHeader } from "@/components/page"
 import { SavingsList } from "@/components/savings-list"
 import { Button } from "@/components/ui/button"
+import { useAutopilot } from "@/features/inbox/autopilot"
+import { SetupChecklist } from "@/features/inbox/setup-checklist"
 import { logSavingsRows, useLogOpportunities } from "@/features/logs/top-savings"
 import { useProposeLogRule } from "@/features/logs/volume-propose"
 import { metricSavingsRows, useMetricOpportunities, useProposeOpportunity } from "@/features/overview/top-savings"
 import { formatDelta } from "@/lib/cardinality/dashboard-helpers"
 import { formatBytes } from "@/lib/core/bytes"
-import { RISK_LABEL, RISK_ORDER, type Assessment, type RiskLevel } from "@/lib/core/decide/risk"
+import { orderForReview, RISK_LABEL, RISK_ORDER, type Assessment, type RiskLevel } from "@/lib/core/decide/risk"
 import type { LogsSnapshot } from "@/lib/core/logs/types"
 import type { Snapshot } from "@/lib/core/snapshot"
 import { useAppStore } from "@/lib/store/app-store"
@@ -24,11 +26,6 @@ import { useAppStore } from "@/lib/store/app-store"
 // Savings: every cut Cardinal found, metrics and logs on one page, safest
 // first. Each signal keeps its own unit (series, bytes/day); "Propose N safe"
 // queues every cut rated safe for review in Rules in one click.
-
-/** Safe first; within a level the incoming order (largest saving first) holds. */
-function bySafety<T extends { risk: Assessment }>(items: T[]) {
-  return [...items].sort((a, b) => RISK_ORDER.indexOf(a.risk.level) - RISK_ORDER.indexOf(b.risk.level))
-}
 
 function countByRisk(items: Array<{ risk: Assessment; state: string }>) {
   const counts: Record<RiskLevel, number> = { safe: 0, review: 0, risky: 0 }
@@ -67,10 +64,11 @@ function MetricsSavings({ snapshot, onCounts }: { snapshot: Snapshot; onCounts: 
   const propose = useProposeOpportunity(snapshot, impacts)
   const bulk = useBulkPropose()
   const { format } = useCost()
-  const sorted = React.useMemo(() => bySafety(items), [items])
+  const sorted = React.useMemo(() => orderForReview(items), [items])
   const safe = sorted.filter((item) => item.state === "open" && item.risk.level === "safe")
   const total = items.filter((item) => item.state === "open").reduce((sum, item) => sum + item.savedSeries, 0)
   useReportCounts(items, onCounts)
+  useAutopilot(items, loading, (item) => propose(item, { quiet: true }))
 
   const needScan = items.filter((item) => item.state === "open" && item.risk.level !== "safe" && item.risk.missing === "dashboards").length
 
@@ -114,10 +112,11 @@ function LogsSavings({ snapshot, onCounts }: { snapshot: LogsSnapshot; onCounts:
   const propose = useProposeLogRule()
   const bulk = useBulkPropose()
   const { format } = useBytesCost()
-  const sorted = bySafety(items)
+  const sorted = orderForReview(items)
   const safe = sorted.filter((item) => item.state === "open" && item.risk.level === "safe")
   const total = items.filter((item) => item.state === "open").reduce((sum, item) => sum + (item.savedBytesPerDay ?? 0), 0)
   useReportCounts(items, onCounts)
+  useAutopilot(items, loading, (item) => propose(item.rule, { quiet: true }))
 
   return (
     <SavingsList
@@ -143,6 +142,12 @@ function LogsSavings({ snapshot, onCounts }: { snapshot: LogsSnapshot; onCounts:
   )
 }
 
+const HOW_IT_WORKS = [
+  { title: "Connect", text: "Grafana, Prometheus or Loki. No agent to install." },
+  { title: "Review cuts", text: "Each one is rated safe, review or risky, with why." },
+  { title: "Apply", text: "Export relabel or Alloy config, or apply on Grafana Cloud." },
+]
+
 function Connect() {
   const { openGrafanaConnect } = useShellActions()
   return (
@@ -150,6 +155,17 @@ function Connect() {
       <FrameHeader icon={PlugsConnectedIcon} title="Connect your data" meta="One step with Grafana" />
       <FrameWell className="flex flex-col gap-3 text-sm text-muted-foreground">
         <p>Point Cardinal at your Grafana and it finds the Prometheus and Loki data sources itself. Queries run from this tab; nothing is stored.</p>
+        <ol className="grid gap-2 sm:grid-cols-3">
+          {HOW_IT_WORKS.map((step, index) => (
+            <li key={step.title} className="flex gap-2 rounded-xl border border-well-border bg-background/40 px-3 py-2">
+              <span className="font-mono text-xs text-brand-ink tabular-nums">{index + 1}</span>
+              <span className="flex flex-col gap-0.5">
+                <span className="font-medium text-foreground">{step.title}</span>
+                <span className="text-xs">{step.text}</span>
+              </span>
+            </li>
+          ))}
+        </ol>
         <div className="flex flex-wrap gap-2">
           <Button type="button" onClick={openGrafanaConnect}>
             <PlugsConnectedIcon data-icon="inline-start" />
@@ -180,9 +196,7 @@ function Learning() {
   const count = decisions.filter((decision) => decision.reason !== "later").length
   if (!count) {
     return (
-      <p className="px-1 text-xs text-muted-foreground">
-        Ratings adapt as you accept and reject proposals in Rules. Nothing leaves this browser.
-      </p>
+      <p className="px-1 text-xs text-muted-foreground">Ratings adapt as you accept and reject proposals in Rules. Nothing leaves this browser.</p>
     )
   }
   return (
@@ -222,7 +236,11 @@ export function InboxPage() {
       <PageHeader
         title="Savings"
         status={<RiskSummary counts={counts} />}
-        description="Every cut Cardinal found, safest first. Safe means nothing that was checked uses it; hover a rating for why."
+        description={
+          snapshot || logs
+            ? "Every cut Cardinal found, safest first. Safe means nothing that was checked uses it; hover a rating for why."
+            : "Find the metrics, labels and log lines you pay for but don't use, and cut them safely."
+        }
       />
       <Stagger className="flex flex-col gap-4">
         {!snapshot && !logs ? (
@@ -230,6 +248,8 @@ export function InboxPage() {
             <Connect />
           </Reveal>
         ) : null}
+        {/* Renders nothing (no gap) once setup is done or dismissed. */}
+        {snapshot || logs ? <SetupChecklist /> : null}
         {snapshot ? (
           <Reveal>
             <MetricsSavings snapshot={snapshot} onCounts={setMetricCounts} />

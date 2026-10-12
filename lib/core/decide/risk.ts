@@ -146,6 +146,17 @@ export function assessLog(
   return { level, confidence: clamp(confidence), why }
 }
 
+/**
+ * The order cuts are shown in: open before already proposed, then safe
+ * before review before risky; otherwise the incoming order (largest saving
+ * first) holds.
+ */
+export function orderForReview<T extends { risk: Assessment; state: string }>(items: T[]) {
+  return [...items].sort(
+    (a, b) => Number(a.state === "proposed") - Number(b.state === "proposed") || RISK_ORDER.indexOf(a.risk.level) - RISK_ORDER.indexOf(b.risk.level)
+  )
+}
+
 /** Safe first, then by confidence (highest first). */
 export function compareAssessments(a: Assessment, b: Assessment) {
   return RISK_ORDER.indexOf(a.level) - RISK_ORDER.indexOf(b.level) || b.confidence - a.confidence

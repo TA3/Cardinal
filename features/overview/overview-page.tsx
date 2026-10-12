@@ -27,7 +27,6 @@ import { Kbd } from "@/components/ui/kbd"
 import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
-import { RuleDestinationStep } from "@/features/rules/destination"
 import { ChurnCard } from "@/features/churn/churn-card"
 import { SinceLastFrame } from "@/features/overview/since-last-frame"
 import { TopSavings } from "@/features/overview/top-savings"
@@ -439,7 +438,7 @@ function Dashboard({ snapshot }: { snapshot: Snapshot }) {
         }
       />
 
-      <RuleDestinationStep />
+      {/* Where rules go is asked in Rules, when it matters (exporting); Overview stays about the data. */}
       <Stagger className="flex flex-col gap-4">
         <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
           <Reveal className="min-w-0">

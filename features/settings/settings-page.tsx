@@ -7,6 +7,7 @@ import {
   CurrencyDollarIcon,
   GearSixIcon,
   HardDrivesIcon,
+  LightningIcon,
   LockKeyIcon,
   NetworkIcon,
   PaletteIcon,
@@ -131,6 +132,27 @@ function PrivacySection() {
             </ul>
           </CollapsibleContent>
         </Collapsible>
+      </CardContent>
+    </Card>
+  )
+}
+
+function AutopilotSection() {
+  const autopilot = useAppStore((state) => state.autopilot)
+  const setAutopilot = useAppStore((state) => state.setAutopilot)
+  return (
+    <Card id="autopilot" className="scroll-mt-32">
+      <CardHeader>
+        <SectionTitle icon={LightningIcon}>Autopilot</SectionTitle>
+      </CardHeader>
+      <CardContent>
+        <Field orientation="horizontal">
+          <FieldLabel htmlFor="autopilot" className="flex-col items-start gap-0.5">
+            Propose safe cuts automatically
+            <FieldDescription>Cuts rated safe go straight to Rules as proposals. Nothing is applied until you accept it.</FieldDescription>
+          </FieldLabel>
+          <Switch id="autopilot" checked={autopilot} onCheckedChange={setAutopilot} />
+        </Field>
       </CardContent>
     </Card>
   )
@@ -328,11 +350,13 @@ export function SettingsPage() {
     <Page className="max-w-4xl">
       <PageHeader title="Settings" description="Stored in this browser only." />
       <SectionHeading>Data sources</SectionHeading>
+      <GrafanaSection />
       <DataSourceCard signal="metrics" />
       <DataSourceCard signal="logs" />
-      <RuleDestinationSection />
-      <GrafanaSection />
+      <SectionHeading>Savings</SectionHeading>
       <PricingSection />
+      <RuleDestinationSection />
+      <AutopilotSection />
       <AdvancedSection open={advanced} onOpenChange={setAdvanced} />
     </Page>
   )

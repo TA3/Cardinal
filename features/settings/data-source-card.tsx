@@ -1,6 +1,6 @@
 import * as React from "react"
-import { ArrowsClockwiseIcon, ChartBarIcon, LinkBreakIcon, PencilSimpleIcon, ScrollIcon } from "@phosphor-icons/react"
-import { useNavigate } from "react-router"
+import { ArrowsClockwiseIcon, ChartBarIcon, LinkBreakIcon, PencilSimpleIcon, PlugsConnectedIcon, ScrollIcon } from "@phosphor-icons/react"
+import { useLocation, useNavigate } from "react-router"
 import { toast } from "sonner"
 
 import { paths } from "@/app/paths"
@@ -111,16 +111,18 @@ export function DataSourceCard({ signal }: { signal: Signal }) {
   const selfHosted = useSelfHosted()
   const backend = useBackendName(signal)
   const { openGrafanaConnect } = useShellActions()
-  const [editing, setEditing] = React.useState(false)
   const baseUrl = settings.baseUrl.trim()
   const connected = Boolean(baseUrl)
   // The header pill links to #logs-connection; Settings scrolls to it.
   const cardId = signal === "logs" ? "logs-connection" : "connection"
+  // An unconnected source shows one line until asked for its form (or deep-linked to it).
+  const { hash } = useLocation()
+  const [editing, setEditing] = React.useState(hash === `#${cardId}`)
 
   const status: Status = !connected ? "none" : authError ? "error" : locked ? "token" : "connected"
   const Icon = signal === "logs" ? ScrollIcon : ChartBarIcon
   const route = link ? null : routeLabel(settings.mode, selfHosted)
-  const showForm = !connected || editing || status === "token"
+  const showForm = editing || status === "token"
 
   return (
     <Card id={cardId} className="scroll-mt-32">
@@ -160,12 +162,28 @@ export function DataSourceCard({ signal }: { signal: Signal }) {
               <DisconnectButton signal={signal} name={link?.name ?? hostOf(baseUrl)} />
             </div>
           </div>
+        ) : !showForm ? (
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-muted-foreground">
+              {signal === "logs" ? "Loki, or Grafana Cloud Logs." : "Prometheus, Mimir or Grafana Cloud Metrics."}
+            </p>
+            <div className="flex shrink-0 flex-wrap gap-1.5">
+              <Button type="button" variant="outline" size="sm" onClick={openGrafanaConnect}>
+                <PlugsConnectedIcon data-icon="inline-start" />
+                Via Grafana
+              </Button>
+              <Button type="button" variant="outline" size="sm" onClick={() => setEditing(true)}>
+                <PencilSimpleIcon data-icon="inline-start" />
+                Enter a URL
+              </Button>
+            </div>
+          </div>
         ) : null}
         {showForm ? (
           <div className={cn(connected && "border-t border-well-border pt-4")}>
             <ConnectionForm
               signal={signal}
-              onCancel={connected && status !== "token" ? () => setEditing(false) : undefined}
+              onCancel={status !== "token" ? () => setEditing(false) : undefined}
               onConnected={() => {
                 setEditing(false)
                 if (!connected) navigate(signal === "logs" ? paths.logs : paths.overview)

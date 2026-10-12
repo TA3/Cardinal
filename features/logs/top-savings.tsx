@@ -5,13 +5,14 @@ import { logGroupPath, logLabelPath, paths } from "@/app/paths"
 import { useBytesCost } from "@/components/cost-text"
 import { SavingsList, type SavingsRowProps } from "@/components/savings-list"
 import { Button } from "@/components/ui/button"
+import { useAutopilot } from "@/features/inbox/autopilot"
 import { useServicesPatterns } from "@/features/logs/patterns-data"
 import { patternTableRows } from "@/features/logs/pattern-table"
 import { useProposeLogRule } from "@/features/logs/volume-propose"
 import { formatNumber } from "@/lib/cardinality/dashboard-helpers"
 import { formatBytes } from "@/lib/core/bytes"
 import { applyPreference, learnedPreference, logRuleKeys } from "@/lib/core/decide/learn"
-import { assessLog } from "@/lib/core/decide/risk"
+import { assessLog, orderForReview } from "@/lib/core/decide/risk"
 import { adviseLogLabel } from "@/lib/core/logs/label-advice"
 import { patternLineFilter, patternPreview } from "@/lib/core/logs/patterns"
 import { MAX_LABEL_VALUES } from "@/lib/core/logs/snapshot"
@@ -100,7 +101,8 @@ export function LogsTopSavings({ snapshot, className }: { snapshot: LogsSnapshot
 
   const open = items.filter((item) => item.state === "open" && item.savedBytesPerDay)
   const total = open.reduce((sum, item) => sum + (item.savedBytesPerDay ?? 0), 0)
-  const rows = logSavingsRows(items, propose, format)
+  const rows = logSavingsRows(orderForReview(items), propose, format)
+  useAutopilot(items, loading, (item) => propose(item.rule, { quiet: true }))
 
   return (
     <SavingsList

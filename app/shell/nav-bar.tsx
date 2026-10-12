@@ -55,8 +55,10 @@ const SIGNAL_TABS: Record<Signal, Tab[]> = {
   ],
 }
 
+// Where every cut lands first, for both signals: leads the bar.
+const SAVINGS_TAB: Tab = { to: paths.savings, label: "Savings", icon: LightningIcon }
+
 const SHARED_TABS: Tab[] = [
-  { to: paths.savings, label: "Savings", icon: LightningIcon },
   { to: paths.rules, label: "Rules", icon: ShieldCheckIcon },
   { to: paths.attribution, label: "Attribution", icon: TagIcon },
   { to: paths.agent, label: "Agent", icon: RobotIcon },
@@ -159,8 +161,8 @@ function NavTab({
 }
 
 /**
- * The tab bar under the header: the current signal's pages, a divider, then
- * the shared pages. Switching signal blur-swaps the signal tabs while the
+ * The tab bar under the header: Savings, the current signal's pages, then
+ * the shared pages, with dividers between. Switching signal blur-swaps the signal tabs while the
  * shared ones stay put; the dark active pill slides between tabs.
  */
 export function NavBar() {
@@ -201,6 +203,10 @@ export function NavBar() {
             className="isolate flex w-max items-center gap-0.5 rounded-full border border-frame-border bg-frame p-1 shadow-[0_1px_2px_rgba(0,0,0,0.06)]"
             onPointerLeave={() => setHovered(null)}
           >
+            <ul aria-label="Savings" className="flex items-center">
+              {renderTab(SAVINGS_TAB)}
+            </ul>
+            <span aria-hidden className="mx-1.5 h-4 w-px bg-border" />
             <div className="relative flex">
               <AnimatePresence mode="popLayout" initial={false}>
                 <motion.ul
