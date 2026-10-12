@@ -201,19 +201,23 @@ function LabelRow({
           </button>
         </TableCell>
         <TableCell className="max-w-0 min-w-16 sm:min-w-36">
-          <span className="flex min-w-0 items-center gap-1.5">
-            <span className="truncate font-mono text-xs" title={stat.label}>
+          {/* Badges go under the name and long names wrap, so a name is never cut short. */}
+          <span className="flex min-w-0 flex-col items-start gap-1">
+            <span className="max-w-full font-mono text-xs [overflow-wrap:anywhere]">
               {stat.label}
             </span>
-            <span className="hidden items-center gap-1.5 sm:flex">
-              {unique ? (
-                <Badge variant="destructive" className="shrink-0">
-                  one per stream
-                </Badge>
-              ) : null}
-              {stat.idLike ? <IdLikeBadge /> : null}
-              <DashboardUseBadge refs={uses} />
-            </span>
+            {unique || stat.idLike || uses.length ? (
+              <span className="hidden flex-wrap items-center gap-1 sm:flex">
+                {unique ? (
+                  // Red only when it drives the advice; with few streams it's a fact, not a problem.
+                  <Badge variant={advice.kind === "label_to_metadata" ? "destructive" : "outline"} className="shrink-0">
+                    one per stream
+                  </Badge>
+                ) : null}
+                {stat.idLike ? <IdLikeBadge /> : null}
+                <DashboardUseBadge refs={uses} />
+              </span>
+            ) : null}
           </span>
         </TableCell>
         <TableCell className="text-right tabular-nums">{formatNumber(stat.distinctValues)}</TableCell>

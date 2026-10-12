@@ -43,8 +43,8 @@ export const router = createBrowserRouter([
           // Logs
           { path: "logs", lazy: () => import("@/features/logs/logs-overview-page").then((m) => ({ Component: m.LogsOverviewPage })) },
           { path: "logs/streams", lazy: () => import("@/features/logs/streams-page").then((m) => ({ Component: m.StreamsPage })) },
-          // Group values may contain "/": logGroupPath encodes them into one segment.
-          { path: "logs/streams/:group", lazy: () => import("@/features/logs/stream-detail-page").then((m) => ({ Component: m.StreamDetailPage })) },
+          // Group values can contain "/": the whole rest of the path is the group (see logGroupPath).
+          { path: "logs/streams/*", lazy: () => import("@/features/logs/stream-detail-page").then((m) => ({ Component: m.StreamDetailPage })) },
           { path: "logs/labels", lazy: () => import("@/features/logs/labels-page").then((m) => ({ Component: m.LabelsPage })) },
           { path: "logs/volume", lazy: () => import("@/features/logs/volume-page").then((m) => ({ Component: m.LogVolumePage })) },
           { path: "logs/patterns", lazy: () => import("@/features/logs/patterns-page").then((m) => ({ Component: m.LogPatternsPage })) },

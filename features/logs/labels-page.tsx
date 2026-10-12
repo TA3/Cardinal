@@ -100,10 +100,8 @@ function LabelRow({
           </button>
         </TableCell>
         <TableCell className="max-w-0 min-w-36">
-          <span className="flex min-w-0 items-center gap-1.5">
-            <span className="truncate font-mono text-xs" title={stat.label}>
-              {stat.label}
-            </span>
+          <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
+            <span className="font-mono text-xs [overflow-wrap:anywhere]">{stat.label}</span>
             {stat.idLike ? <IdLikeBadge /> : null}
           </span>
         </TableCell>

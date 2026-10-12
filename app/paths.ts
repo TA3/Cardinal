@@ -42,9 +42,13 @@ export function rulesPath(tab: "active" | "proposed" | "rejected") {
   return `${paths.rules}?tab=${tab}`
 }
 
-/** A logs group's detail page (a service, by the snapshot's group label). One encoded segment, so values may contain "/". */
+/**
+ * A logs group's detail page (a service, by the snapshot's group label).
+ * Values can contain "/" (integrations/db-o11y): each part is its own
+ * segment, since servers decode an encoded "/" on reload.
+ */
 export function logGroupPath(group: string) {
-  return `${paths.logStreams}/${encodeURIComponent(group)}`
+  return `${paths.logStreams}/${group.split("/").map(encodeURIComponent).join("/")}`
 }
 
 /** The logs labels page, focused on `label`. */

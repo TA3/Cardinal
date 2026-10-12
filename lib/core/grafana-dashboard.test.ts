@@ -15,7 +15,7 @@ import { jobFromParam } from "@/lib/core/jobs"
 type Json = Record<string, unknown>
 
 // The routes in app/router.tsx that the links open.
-const ROUTES = [{ path: "metrics/jobs/*" }, { path: "metrics/explore/:metric" }, { path: "logs/streams/:group" }, { path: "metrics" }]
+const ROUTES = [{ path: "metrics/jobs/*" }, { path: "metrics/explore/:metric" }, { path: "logs/streams/*" }, { path: "metrics" }]
 const ORIGIN = "https://cardinal.example.com"
 
 // Grafana's data link formats (scenes formatRegistry): links default to
@@ -189,7 +189,7 @@ describe("grafanaDashboard", () => {
     }
   })
 
-  it("links log groups to /logs/streams/:group?by=, for tricky names", () => {
+  it("links log groups to /logs/streams/<group>?by=, for tricky names", () => {
     const logs = panelsOf(full).filter((panel) => (panel.datasource as { uid: string }).uid === "${logs}")
     expect(logs).toHaveLength(3)
     for (const panel of logs) {
@@ -197,8 +197,8 @@ describe("grafanaDashboard", () => {
       for (const service of TRICKY_SERVICES) {
         const scope = { vars: { cardinal_url: ORIGIN }, fields: { service_name: service }, labels: { service_name: service } }
         const { route, params, search } = resolve(interpolate(url, scope))
-        expect(route).toBe("logs/streams/:group")
-        expect(params.group).toBe(service)
+        expect(route).toBe("logs/streams/*")
+        expect(params["*"]).toBe(service)
         expect(search.get("by")).toBe("service_name")
         expect(matchRoutes(ROUTES, logGroupPath(service))![0].params).toEqual(params)
       }

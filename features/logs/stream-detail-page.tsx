@@ -123,7 +123,7 @@ function GroupDetail({ snapshot, group, by }: { snapshot: LogsSnapshot; group: s
 }
 
 export function StreamDetailPage() {
-  const { group = "" } = useParams()
+  const group = useParams()["*"] ?? ""
   const [params] = useSearchParams()
   return (
     <RequireLogsSnapshot>
