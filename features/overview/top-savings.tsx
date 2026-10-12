@@ -14,6 +14,7 @@ import { cacheDrilldownFor, connectionKey, useConnection } from "@/hooks/use-car
 import { formatDelta } from "@/lib/cardinality/dashboard-helpers"
 import { DEFAULT_CHURN_WINDOW, rankChurn } from "@/lib/core/churn"
 import { createLimiter } from "@/lib/core/concurrency"
+import { assessMetric } from "@/lib/core/decide/risk"
 import { histogramFamily } from "@/lib/core/families"
 import { quantileUsage } from "@/lib/core/histograms"
 import { detectIdLike } from "@/lib/core/id-like"
@@ -180,7 +181,7 @@ export function useMetricOpportunities(snapshot: Snapshot) {
       const item = churnOpportunity({ metric: row.metric, job: row.job, label: driver.label, churned: row.churned, used: undefined })
       if (item) all.push(item)
     }
-    return rankOpportunities(all, rules)
+    return rankOpportunities(all, rules).map((item) => ({ ...item, risk: assessMetric(item, usage.byMetric[item.metric]) }))
   }, [usage.isPending, usage.byMetric, big, used, idLike.data, histograms.data, churn.rows, rules])
 
   const impacts = React.useMemo(() => new Map((idLike.data ?? []).map((finding) => [`${finding.metric}\u0000${finding.label}`, finding.impact])), [idLike.data])
@@ -189,14 +190,14 @@ export function useMetricOpportunities(snapshot: Snapshot) {
 }
 
 /** Creates the opportunity's rule as a proposal; bucket trims are refined with the observed distribution first. */
-function useProposeOpportunity(snapshot: Snapshot, impacts: Map<string, RuleImpact>) {
+export function useProposeOpportunity(snapshot: Snapshot, impacts: Map<string, RuleImpact>) {
   const connection = useConnection()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const key = connectionKey(connection)
   const families = useHistogramAnalysis().data?.families
 
-  return async (item: MetricOpportunity) => {
+  return async (item: MetricOpportunity, { quiet = false }: { quiet?: boolean } = {}) => {
     const base = { origin: "user" as const, status: "proposed" as const, rationale: item.rationale }
     const selector = item.rule.job === undefined ? { metric: item.metric } : { metric: item.metric, job: item.rule.job }
     let rule: Rule
@@ -224,14 +225,16 @@ function useProposeOpportunity(snapshot: Snapshot, impacts: Map<string, RuleImpa
       rule = createRule({ ...base, kind: "keep_buckets", selector, buckets })
     }
     const { added } = useAppStore.getState().addRules([rule])
+    if (quiet) return added > 0
     if (!added) {
       toast.info("A rule already covers this")
-      return
+      return false
     }
     toast.success("Proposed", {
       description: `${reasonLabel(item)}: ${item.metric}${item.label ? ` −${item.label}` : ""}`,
       action: { label: "Review", onClick: () => navigate(rulesPath("proposed")) },
     })
+    return true
   }
 }
 
@@ -239,14 +242,15 @@ function itemTitle(item: MetricOpportunity) {
   return item.label ? `${item.metric} · ${item.label}` : item.metric
 }
 
-export function TopSavings({ snapshot, className }: { snapshot: Snapshot; className?: string }) {
-  const { items, loading, impacts } = useMetricOpportunities(snapshot)
-  const propose = useProposeOpportunity(snapshot, impacts)
-  const { format } = useCost()
-  const open = items.filter((item) => item.state === "open")
-  const total = open.reduce((sum, item) => sum + item.savedSeries, 0)
+type RankedMetricOpportunity = ReturnType<typeof useMetricOpportunities>["items"][number]
 
-  const rows: SavingsRowProps[] = items.map((item) => ({
+/** One Top savings row per metric opportunity. */
+export function metricSavingsRows(
+  items: RankedMetricOpportunity[],
+  propose: ReturnType<typeof useProposeOpportunity>,
+  format: (series: number) => string | null
+): SavingsRowProps[] {
+  return items.map((item) => ({
     id: item.id,
     reason: reasonLabel(item),
     titleText: itemTitle(item),
@@ -261,8 +265,18 @@ export function TopSavings({ snapshot, className }: { snapshot: Snapshot; classN
     saving: `${item.estimate ? "~" : ""}${formatDelta(-item.savedSeries)}`,
     cost: format(item.savedSeries) ?? undefined,
     state: item.state,
+    risk: item.risk,
     onPropose: () => propose(item),
   }))
+}
+
+export function TopSavings({ snapshot, className }: { snapshot: Snapshot; className?: string }) {
+  const { items, loading, impacts } = useMetricOpportunities(snapshot)
+  const propose = useProposeOpportunity(snapshot, impacts)
+  const { format } = useCost()
+  const open = items.filter((item) => item.state === "open")
+  const total = open.reduce((sum, item) => sum + item.savedSeries, 0)
+  const rows = metricSavingsRows(items, propose, format)
 
   return (
     <SavingsList

@@ -14,7 +14,7 @@ export function useProposeLogRule() {
   const addLogRules = useAppStore((state) => state.addLogRules)
   const navigate = useNavigate()
   return React.useCallback(
-    (input: LogRuleInput, options: { success?: string } = {}) => {
+    (input: LogRuleInput, options: { success?: string; quiet?: boolean } = {}) => {
       let rule: LogRule
       try {
         rule = createLogRule({ ...input, origin: "user", status: "proposed" })
@@ -23,6 +23,7 @@ export function useProposeLogRule() {
         return false
       }
       const { added } = addLogRules([rule])
+      if (options.quiet) return added > 0
       if (!added) {
         toast.info("A rule already covers this", { description: describeLogRule(rule) })
         return false

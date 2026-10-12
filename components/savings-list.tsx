@@ -4,11 +4,13 @@ import { Link } from "react-router"
 
 import { rulesPath } from "@/app/paths"
 import { EmptyState } from "@/components/empty-state"
+import { RiskBadge } from "@/components/risk-badge"
 import { Frame, FrameHeader, FrameWell } from "@/components/frame"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
+import type { Assessment } from "@/lib/core/decide/risk"
 import { cn } from "@/lib/utils"
 
 // "Top savings", shared by the metrics and logs overviews: one row per
@@ -25,10 +27,12 @@ export interface SavingsRowProps {
   saving: React.ReactNode
   cost?: React.ReactNode
   state: "open" | "proposed"
-  onPropose: () => void | Promise<void>
+  /** How safe the cut is; shown next to the reason. */
+  risk?: Assessment
+  onPropose: () => void | Promise<unknown>
 }
 
-function SavingsRow({ reason, title, titleText, detail, to, saving, cost, state, onPropose }: SavingsRowProps) {
+function SavingsRow({ reason, title, titleText, detail, to, saving, cost, state, risk, onPropose }: SavingsRowProps) {
   const [pending, setPending] = React.useState(false)
   const propose = async () => {
     setPending(true)
@@ -57,6 +61,7 @@ function SavingsRow({ reason, title, titleText, detail, to, saving, cost, state,
           {detail ? <span className="hidden min-w-0 shrink truncate text-xs text-muted-foreground md:inline">{detail}</span> : null}
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {risk ? <RiskBadge risk={risk} /> : null}
           <Badge variant="outline" className="h-5 px-1.5 text-[11px] font-normal text-muted-foreground">
             {reason}
           </Badge>
@@ -83,6 +88,29 @@ function SavingsRow({ reason, title, titleText, detail, to, saving, cost, state,
   )
 }
 
+/** "Propose N safe": proposes every open row rated safe in one go. */
+function ProposeSafeButton({ count, run }: { count: number; run: () => Promise<unknown> }) {
+  const [pending, setPending] = React.useState(false)
+  return (
+    <Button
+      size="xs"
+      variant="outline"
+      disabled={pending}
+      onClick={async () => {
+        setPending(true)
+        try {
+          await run()
+        } finally {
+          setPending(false)
+        }
+      }}
+    >
+      {pending ? <Spinner data-icon="inline-start" /> : <LightningIcon data-icon="inline-start" />}
+      Propose {count} safe
+    </Button>
+  )
+}
+
 /** The Top savings frame: the first `initial` rows, "See all" for the rest. */
 export function SavingsList({
   rows,
@@ -90,6 +118,8 @@ export function SavingsList({
   total,
   initial = 6,
   empty,
+  title = "Top savings",
+  proposeSafe,
   className,
 }: {
   rows: SavingsRowProps[]
@@ -99,15 +129,28 @@ export function SavingsList({
   total?: React.ReactNode
   initial?: number
   empty: { title: string; description?: React.ReactNode; action?: React.ReactNode }
+  title?: string
+  /** Bulk-propose the open rows rated safe; hidden when there are none. */
+  proposeSafe?: { count: number; run: () => Promise<unknown> }
   className?: string
 }) {
   const [all, setAll] = React.useState(false)
   const shown = all ? rows : rows.slice(0, initial)
+  const seeAll =
+    rows.length > initial ? (
+      <button
+        type="button"
+        onClick={() => setAll((value) => !value)}
+        className="shrink-0 rounded-full text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+      >
+        {all ? "Show fewer" : `See all ${rows.length}`}
+      </button>
+    ) : null
   return (
     <Frame className={cn("h-full", className)}>
       <FrameHeader
         icon={LightningIcon}
-        title="Top savings"
+        title={title}
         meta={
           <span className="inline-flex items-center gap-1.5">
             {total}
@@ -115,14 +158,11 @@ export function SavingsList({
           </span>
         }
         action={
-          rows.length > initial ? (
-            <button
-              type="button"
-              onClick={() => setAll((value) => !value)}
-              className="shrink-0 rounded-full text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
-            >
-              {all ? "Show fewer" : `See all ${rows.length}`}
-            </button>
+          proposeSafe?.count || seeAll ? (
+            <span className="flex items-center gap-3">
+              {proposeSafe?.count ? <ProposeSafeButton count={proposeSafe.count} run={proposeSafe.run} /> : null}
+              {seeAll}
+            </span>
           ) : undefined
         }
       />

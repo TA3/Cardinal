@@ -50,6 +50,7 @@ export const router = createBrowserRouter([
           { path: "logs/patterns", lazy: () => import("@/features/logs/patterns-page").then((m) => ({ Component: m.LogPatternsPage })) },
 
           // Shared
+          { path: "savings", lazy: () => import("@/features/inbox/inbox-page").then((m) => ({ Component: m.InboxPage })) },
           { path: "rules", lazy: () => import("@/features/rules/rules-page").then((m) => ({ Component: m.RulesPage })) },
           { path: "attribution", lazy: () => import("@/features/attribution/attribution-page").then((m) => ({ Component: m.AttributionPage })) },
           { path: "agent", lazy: () => import("@/features/agent/agent-page").then((m) => ({ Component: m.AgentPage })) },

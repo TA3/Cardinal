@@ -10,6 +10,7 @@ import { patternTableRows } from "@/features/logs/pattern-table"
 import { useProposeLogRule } from "@/features/logs/volume-propose"
 import { formatNumber } from "@/lib/cardinality/dashboard-helpers"
 import { formatBytes } from "@/lib/core/bytes"
+import { assessLog } from "@/lib/core/decide/risk"
 import { adviseLogLabel } from "@/lib/core/logs/label-advice"
 import { patternLineFilter, patternPreview } from "@/lib/core/logs/patterns"
 import { MAX_LABEL_VALUES } from "@/lib/core/logs/snapshot"
@@ -23,44 +24,52 @@ import { useAppStore } from "@/lib/store/app-store"
 
 const SERVICES = 5
 
-export function LogsTopSavings({ snapshot, className }: { snapshot: LogsSnapshot; className?: string }) {
+/** Ranked log opportunities with their risk, and whether pattern queries are still running. */
+export function useLogOpportunities(snapshot: LogsSnapshot | null) {
   const rules = useAppStore((state) => state.logRules)
-  const propose = useProposeLogRule()
-  const { format } = useBytesCost()
-  const groupLabel = snapshot.groupLabel
+  const groupLabel = snapshot?.groupLabel ?? ""
   const services = React.useMemo(
-    () => snapshot.groups.filter((group) => group.value !== "").slice(0, SERVICES).map((group) => group.value),
-    [snapshot.groups]
+    () => (snapshot ? snapshot.groups.filter((group) => group.value !== "").slice(0, SERVICES).map((group) => group.value) : []),
+    [snapshot]
   )
-  const patterns = useServicesPatterns(groupLabel, services, "1h", true)
+  const patterns = useServicesPatterns(groupLabel, services, "1h", Boolean(snapshot))
   const loading = patterns.some((query) => query.isPending && query.fetchStatus !== "idle")
+  if (!snapshot) return { items: [], loading: false }
 
   // Cheap enough per render (a few services' patterns); the query results are a new array every render anyway.
-  const items = (() => {
-    const perService = patterns.map((query) => ({
-      service: query.service,
-      patterns: patternTableRows(snapshot, groupLabel, query.service, query.data).rows.map((row) => ({
-        pattern: row.pattern,
-        level: row.level,
-        lineShare: row.lineShare,
-        bytesPerDay: row.bytesPerDay,
-        regex: patternLineFilter(row.pattern)?.regex ?? null,
-      })),
-    }))
-    const labels = labelOpportunities(
-      snapshot.labels.map((label) => {
-        const truncated = Boolean(snapshot.labelsTruncated && label.distinctValues >= MAX_LABEL_VALUES)
-        const advice = adviseLogLabel({ label: label.label, distinctValues: label.distinctValues, idLike: label.idLike, truncated })
-        return { ...label, move: advice.kind === "label_to_metadata" && advice.strength === "strong" }
-      })
-    )
-    return rankLogOpportunities([...patternOpportunities(groupLabel, perService), ...labels], rules)
-  })()
+  const perService = patterns.map((query) => ({
+    service: query.service,
+    patterns: patternTableRows(snapshot, groupLabel, query.service, query.data).rows.map((row) => ({
+      pattern: row.pattern,
+      level: row.level,
+      lineShare: row.lineShare,
+      bytesPerDay: row.bytesPerDay,
+      regex: patternLineFilter(row.pattern)?.regex ?? null,
+    })),
+  }))
+  const labels = labelOpportunities(
+    snapshot.labels.map((label) => {
+      const truncated = Boolean(snapshot.labelsTruncated && label.distinctValues >= MAX_LABEL_VALUES)
+      const advice = adviseLogLabel({ label: label.label, distinctValues: label.distinctValues, idLike: label.idLike, truncated })
+      return { ...label, move: advice.kind === "label_to_metadata" && advice.strength === "strong" }
+    })
+  )
+  const items = rankLogOpportunities([...patternOpportunities(groupLabel, perService), ...labels], rules).map((item) => ({
+    ...item,
+    risk: assessLog(item),
+  }))
+  return { items, loading }
+}
 
-  const open = items.filter((item) => item.state === "open" && item.savedBytesPerDay)
-  const total = open.reduce((sum, item) => sum + (item.savedBytesPerDay ?? 0), 0)
+type RankedLogOpportunity = ReturnType<typeof useLogOpportunities>["items"][number]
 
-  const rows: SavingsRowProps[] = items.map((item) => ({
+/** One Top savings row per log opportunity. */
+export function logSavingsRows(
+  items: RankedLogOpportunity[],
+  propose: ReturnType<typeof useProposeLogRule>,
+  format: (bytes: number, per?: string) => string | null
+): SavingsRowProps[] {
+  return items.map((item) => ({
     id: item.id,
     reason: LOG_REASON_LABEL[item.reason],
     titleText: item.reason === "noisy" ? `${item.subtitle}: ${item.title}` : item.title,
@@ -75,10 +84,21 @@ export function LogsTopSavings({ snapshot, className }: { snapshot: LogsSnapshot
           : "to metadata",
     cost: item.savedBytesPerDay !== null ? (format(item.savedBytesPerDay, "day") ?? undefined) : undefined,
     state: item.state,
+    risk: item.risk,
     onPropose: () => {
       propose(item.rule, { success: "Proposed" })
     },
   }))
+}
+
+export function LogsTopSavings({ snapshot, className }: { snapshot: LogsSnapshot; className?: string }) {
+  const propose = useProposeLogRule()
+  const { format } = useBytesCost()
+  const { items, loading } = useLogOpportunities(snapshot)
+
+  const open = items.filter((item) => item.state === "open" && item.savedBytesPerDay)
+  const total = open.reduce((sum, item) => sum + (item.savedBytesPerDay ?? 0), 0)
+  const rows = logSavingsRows(items, propose, format)
 
   return (
     <SavingsList

@@ -44,9 +44,9 @@ function withParam(search: string, key: string, value: string) {
  * The current URL for a pre-restructure one, or null when `pathname` isn't a
  * legacy route. Paths stay URL-encoded and the query string is kept.
  */
-export function legacyRedirect(pathname: string, search: string, signal: Signal): string | null {
+export function legacyRedirect(pathname: string, search: string): string | null {
   const path = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname
-  if (path === "/") return `${signalHome(signal)}${search}`
+  if (path === "/") return `/savings${search}`
   if (/^\/(jobs|churn|histograms)(\/|$)/.test(path)) return `/metrics${path}${search}`
   if (path === "/adaptive") return `/rules${withParam(search, "view", "recommendations")}`
   if (path === "/teams") return `/attribution${search}`

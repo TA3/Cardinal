@@ -1,11 +1,12 @@
 import { jobToParam } from "@/lib/core/jobs"
 
 // Route paths. Metrics pages live under /metrics, logs pages under /logs, and
-// shared pages (rules, attribution, agent, settings) at the top level. Job
+// shared pages (savings, rules, attribution, agent, settings) at the top level. Job
 // names may contain "/", so the job route is a splat and each segment is
 // encoded on its own.
 
 export const paths = {
+  savings: "/savings",
   overview: "/metrics",
   explore: "/metrics/explore",
   jobs: "/metrics/jobs",

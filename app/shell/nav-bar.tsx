@@ -6,6 +6,7 @@ import {
   ChartBarIcon,
   FingerprintIcon,
   HardDrivesIcon,
+  LightningIcon,
   ListBulletsIcon,
   RobotIcon,
   ShieldCheckIcon,
@@ -55,6 +56,7 @@ const SIGNAL_TABS: Record<Signal, Tab[]> = {
 }
 
 const SHARED_TABS: Tab[] = [
+  { to: paths.savings, label: "Savings", icon: LightningIcon },
   { to: paths.rules, label: "Rules", icon: ShieldCheckIcon },
   { to: paths.attribution, label: "Attribution", icon: TagIcon },
   { to: paths.agent, label: "Agent", icon: RobotIcon },
