@@ -1,7 +1,7 @@
 import { autoModes, type TransportContext } from "@/lib/core/transport-plan"
 import { isPrivateHost } from "@/lib/sources/proxy-constants"
 import { CorsError, isGrafanaCloudHost, supportsLocalNetworkAccess, type TransportMode } from "@/lib/sources/transport"
-import { useRelayStore } from "@/lib/store/relay-store"
+import { useServerStore } from "@/lib/store/server-store"
 
 // Auto mode: try each transport the backend allows (lib/core/transport-plan),
 // moving on only when the browser blocked the request. Any other answer (a
@@ -15,12 +15,11 @@ export function transportContext(baseUrl: string): TransportContext {
   } catch {
     // an invalid URL fails later with a config problem
   }
-  const { server, relay } = useRelayStore.getState()
+  const { server } = useServerStore.getState()
   return {
     privateHost: hostname ? isPrivateHost(hostname) : false,
     cloudHost: isGrafanaCloudHost(baseUrl),
     selfHosted: server !== null,
-    relaySet: Boolean(relay.url.trim()),
     mixedContent: globalThis.location?.protocol === "https:" && protocol === "http:",
     localNetworkAccess: supportsLocalNetworkAccess(),
   }
@@ -35,7 +34,7 @@ export async function withAutoMode<T>(
   attempt: (mode: TransportMode) => Promise<T>
 ): Promise<ModeResult<T>> {
   const planned = autoModes(transportContext(baseUrl))
-  // Nothing can work (plain http on a private host, no relay): try direct so the check explains why.
+  // Nothing can work (plain http on a private host): try direct so the check explains why.
   const modes: TransportMode[] = manual ? [manual] : planned.length ? planned : ["direct"]
   let last: ModeResult<T> = { ok: false, mode: modes[0], error: new Error("No transport to try") }
   for (const [index, mode] of modes.entries()) {
@@ -49,9 +48,18 @@ export async function withAutoMode<T>(
   return last
 }
 
-/** How a connection is routed, in a few words; null for direct. */
+/** How a connection is routed, in a few words. */
 export function routeLabel(mode: TransportMode, selfHosted: boolean) {
-  if (mode === "relay") return "via relay"
-  if (mode === "proxy") return selfHosted ? "via this server" : "via proxy"
-  return null
+  if (mode === "proxy") return selfHosted ? "via this server" : "via Cardinal's proxy"
+  return "directly from this browser"
+}
+
+/** Who besides the backend sees a connection's requests and token, in one sentence. */
+export function routePrivacy(mode: TransportMode, selfHosted: boolean) {
+  if (mode === "proxy") {
+    return selfHosted
+      ? "Requests go through the Cardinal server you run. Cardinal's hosted servers never see them."
+      : "Requests and your token pass through Cardinal's servers on the way to the backend. They are not stored or logged."
+  }
+  return "The browser calls the backend itself. Cardinal's servers never see the requests or the token."
 }

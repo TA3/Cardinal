@@ -40,6 +40,6 @@ node_modules
 /dist
 
 # cardinal server binaries
-/relay/dist
+/server/dist
 .wrangler
 .dev.vars*

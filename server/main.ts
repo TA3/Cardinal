@@ -3,11 +3,11 @@ import path from "node:path"
 
 import packageJson from "../package.json"
 import { ConfigError, DEFAULT_PORT, parseConfig, USAGE } from "./config"
-import { createRelayHandler } from "./server"
+import { createServerHandler } from "./server"
 import type { Assets } from "./static"
 
-// Entry point. `bun relay/main.ts` serves ../dist/client from disk; the
-// compiled binary (relay/build.ts) calls start() with the embedded files.
+// Entry point. `bun server/main.ts` serves ../dist/client from disk; the
+// compiled binary (server/build.ts) calls start() with the embedded files.
 
 function assetsFromDirectory(root: string): Assets {
   const assets = new Map<string, Blob>()
@@ -63,10 +63,10 @@ export async function start(options: StartOptions = {}) {
   const staticDir = config.staticDir ?? (options.assets ? undefined : path.resolve(import.meta.dir, "../dist/client"))
   const assets = staticDir ? assetsFromDirectory(staticDir) : options.assets!
   if (!assets.has("/index.html")) {
-    console.warn(`No app build found${staticDir ? ` in ${staticDir}` : ""}; run \`bun run build\` first. The relay still works.`)
+    console.warn(`No app build found${staticDir ? ` in ${staticDir}` : ""}; run \`bun run build\` first. The proxy still works.`)
   }
 
-  const handle = createRelayHandler({ config, assets, version, log: (message) => console.warn(message) })
+  const handle = createServerHandler({ config, assets, version })
   const server = Bun.serve({
     port: config.port,
     hostname: config.host,
@@ -79,8 +79,6 @@ export async function start(options: StartOptions = {}) {
   const lines = [
     `Cardinal ${version} on http://${shown}:${server.port}`,
     "",
-    `Relay token:     ${config.relayToken}${config.tokenGenerated ? "  (new each start; set CARDINAL_RELAY_TOKEN to keep one)" : ""}`,
-    `Relay origins:   ${config.origins.join(", ")}`,
     `Proxy targets:   ${config.allowHosts.length ? config.allowHosts.join(", ") : "any host, private and loopback included"}`,
   ]
   if (config.publicHosts.length) lines.push(`Public hosts:    ${config.publicHosts.join(", ")}`)

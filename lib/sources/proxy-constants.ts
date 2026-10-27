@@ -14,22 +14,16 @@ export const PROXY_ERROR_HEADER = "X-Cardinal-Proxy-Error"
  */
 export const CLIENT_HEADER = "X-Cardinal-Client"
 
-/** The hosted app; the self-hosted server allows it as a relay origin by default. */
-export const HOSTED_ORIGIN = "https://cardinal.ta3.dev"
-/** Answered by the self-hosted `cardinal` server only (see relay/). */
-export const RELAY_INFO_PATH = "/api/relay/info"
-/** Shared secret a cross-origin page (the hosted app in Relay mode) sends to a self-hosted server. */
-export const RELAY_TOKEN_HEADER = "X-Cardinal-Relay-Token"
+/** Answered by the self-hosted `cardinal` server only (see server/), so the app knows it is served by one. */
+export const SERVER_INFO_PATH = "/api/server/info"
 
-export interface RelayInfo {
+export interface ServerInfo {
   kind: "cardinal-server"
   version: string
   agentSessions: false
-  /** "self-hosted" when this page is served by the server, "relay" when another origin calls it. */
-  mode: "self-hosted" | "relay"
 }
 
-export function isRelayInfo(value: unknown): value is RelayInfo {
+export function isServerInfo(value: unknown): value is ServerInfo {
   return Boolean(value) && typeof value === "object" && (value as { kind?: unknown }).kind === "cardinal-server"
 }
 
@@ -44,8 +38,8 @@ export function isLoopbackHost(hostname: string) {
 
 /**
  * Hosts the proxy refuses to reach (loopback, private ranges, *.local, *.internal).
- * The hosted Worker refuses them; the self-hosted server and relays allow them.
- * Shared with the UI so it can suggest Relay or direct mode for these.
+ * The hosted Worker refuses them; the self-hosted server allows them.
+ * Shared with the UI so it can suggest direct mode or running Cardinal locally for these.
  */
 export function isPrivateHost(hostname: string) {
   // "localhost." and "metadata.google.internal." resolve like their dotless forms.

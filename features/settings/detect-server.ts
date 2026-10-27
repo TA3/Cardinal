@@ -1,6 +1,6 @@
-import { detectSelfHosted } from "@/lib/sources/transport"
+import { selfHostedServer } from "@/lib/sources/transport"
 import { useAppStore } from "@/lib/store/app-store"
-import { useRelayStore } from "@/lib/store/relay-store"
+import { useServerStore } from "@/lib/store/server-store"
 
 /**
  * Asks this page's own server whether it is a self-hosted `cardinal` server.
@@ -8,8 +8,8 @@ import { useRelayStore } from "@/lib/store/relay-store"
  * default to proxy mode.
  */
 export async function detectServer() {
-  const server = await detectSelfHosted(AbortSignal.timeout(5_000))
-  useRelayStore.getState().setServer(server)
+  const server = await selfHostedServer()
+  useServerStore.getState().setServer(server)
   if (!server) return
   const app = useAppStore.getState()
   if (!app.settings.baseUrl.trim() && app.settings.mode === "direct") app.updateSettings({ mode: "proxy" })

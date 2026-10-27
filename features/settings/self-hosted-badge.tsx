@@ -1,11 +1,11 @@
 import { HardDrivesIcon } from "@phosphor-icons/react"
 
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { useRelayStore } from "@/lib/store/relay-store"
+import { useServerStore } from "@/lib/store/server-store"
 
 /** Marks a page served by a self-hosted `cardinal` server. */
 export function SelfHostedBadge() {
-  const server = useRelayStore((state) => state.server)
+  const server = useServerStore((state) => state.server)
   if (!server) return null
   return (
     <Tooltip>

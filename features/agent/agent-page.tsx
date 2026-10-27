@@ -33,7 +33,7 @@ import { useConnection, useRuleCounts } from "@/hooks/use-cardinality"
 import { endAgentSession, startAgentSession, takeOverAgentSession } from "@/hooks/use-agent-bridge"
 import { toolDefinitions, toolNames } from "@/lib/agent/tools"
 import { useAppStore, type AgentActivity, type AgentLinkStatus } from "@/lib/store/app-store"
-import { useRelayStore } from "@/lib/store/relay-store"
+import { useServerStore } from "@/lib/store/server-store"
 import { cn } from "@/lib/utils"
 
 const STATUS: Record<AgentLinkStatus, { label: string; tone: "live" | "idle" | "down" }> = {
@@ -389,7 +389,7 @@ function SelfHostedAgent() {
       framed
       icon={RobotIcon}
       title="Agent sessions need the hosted app"
-      description="This Cardinal server is self-hosted, and agent sessions run on the hosted app. Open cardinal.ta3.dev, run this server as its relay (Settings → Relay) so it still reaches your private backends, and start the agent there."
+      description="This Cardinal server runs on your machine, and agent sessions run on the hosted app at cardinal.ta3.dev. Start the agent there to use it with backends it can reach."
     >
       <Button asChild>
         <a href="https://cardinal.ta3.dev/agent" target="_blank" rel="noopener">
@@ -403,7 +403,7 @@ function SelfHostedAgent() {
 
 export function AgentPage() {
   const session = useAppStore((state) => state.agentSession)
-  const selfHosted = useRelayStore((state) => state.server !== null)
+  const selfHosted = useServerStore((state) => state.server !== null)
   const counts = useRuleCounts()
   return (
     <Page>

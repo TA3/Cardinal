@@ -1,7 +1,6 @@
 # syntax=docker/dockerfile:1
 
-# Self-hosted Cardinal: the app and its proxy in one binary, which also works
-# as a relay for the hosted app (see README → Self-host).
+# Self-hosted Cardinal: the app and its proxy in one binary.
 #
 #   docker build -t cardinal .
 #   docker run -p 9181:9181 cardinal
@@ -15,7 +14,7 @@ COPY . .
 ARG TARGETARCH
 ARG VERSION=""
 RUN bun run build \
-  && CARDINAL_VERSION="$VERSION" bun relay/build.ts "bun-linux-$([ "$TARGETARCH" = arm64 ] && echo arm64 || echo x64)" --outfile /out/cardinal
+  && CARDINAL_VERSION="$VERSION" bun server/build.ts "bun-linux-$([ "$TARGETARCH" = arm64 ] && echo arm64 || echo x64)" --outfile /out/cardinal
 
 # glibc and libstdc++, no shell, runs as uid 65532.
 FROM gcr.io/distroless/cc-debian12:nonroot
@@ -29,7 +28,7 @@ ENTRYPOINT ["/cardinal"]
 
 ARG VERSION=""
 LABEL org.opencontainers.image.title="Cardinal" \
-  org.opencontainers.image.description="Find and cut cardinality in Prometheus and Loki. Self-hosted app and relay." \
+  org.opencontainers.image.description="Find and cut cardinality in Prometheus and Loki. Self-hosted app and proxy." \
   org.opencontainers.image.source="https://github.com/TA3/cardinal" \
   org.opencontainers.image.url="https://cardinal.ta3.dev" \
   org.opencontainers.image.version="${VERSION}"

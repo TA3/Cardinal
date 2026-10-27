@@ -1,7 +1,7 @@
 import { isPrivateHost, PROXY_ERROR_HEADER, PROXY_PREFIX, PROXY_TARGET_HEADER } from "@/lib/sources/proxy-constants"
 
 // The forwarding half of Cardinal's proxy, shared by the hosted Worker
-// (worker/proxy.ts) and the self-hosted server (relay/). Callers authenticate
+// (worker/proxy.ts) and the self-hosted server (server/). Callers authenticate
 // the request first; this checks the target and path and forwards it. Only
 // read-style observability APIs, the Adaptive Metrics and Adaptive Logs APIs
 // and Grafana's dashboard create endpoint are reachable. Nothing is stored.

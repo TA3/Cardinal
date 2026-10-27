@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
-import { TransportModeField } from "@/features/relay/transport-mode-field"
+import { TransportModeField } from "@/features/settings/route-field"
 import { explainGrafanaError } from "@/features/usage/grafana-section"
 import { grafanaKey } from "@/features/usage/grafana-store"
 import { datasourceProxyUrl, listDatasources, type DatasourceType, type GrafanaDatasource } from "@/lib/sources/grafana"

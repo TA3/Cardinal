@@ -3,7 +3,7 @@
 .wrangler
 node_modules
 dist
-relay/dist
+server/dist
 .dev.vars*
 .env*
 *.log
