@@ -17,8 +17,11 @@ export interface Snapshot extends Omit<SnapshotResponse, "labelCount"> {
   seriesByMetricJob?: Record<string, Record<string, number>>
   /** Host (and port) of the backend the snapshot came from. Absent on older snapshots. */
   host?: string
-  /** "query": one `count by (job, __name__)`; "per-job": fallback after that hit a query limit. */
-  method?: "query" | "per-job"
+  /**
+   * "query": one `count by (job, __name__)`; "per-job": fallback after that hit
+   * a query limit; "import": that query's result, pasted by the user.
+   */
+  method?: "query" | "per-job" | "import"
   /** Per-job snapshots only: jobs left out because every way of counting them failed. */
   skippedJobs?: string[]
   /** Per-job snapshots only: jobs counted with Mimir's cardinality API, which lists at most 500 metrics each. */

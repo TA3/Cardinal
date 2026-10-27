@@ -201,7 +201,7 @@ export function summarizeEvidence(evidence: UsageEvidence, label?: string, now =
     unchecked.push(
       scan
         ? "Ad-hoc queries weren't checked: Cardinal only sees them through a Grafana Cloud connection."
-        : "Dashboards and ad-hoc queries weren't checked: scan your Grafana in Settings, or use a Grafana Cloud connection."
+        : "Dashboards and ad-hoc queries weren't checked: scan your Grafana or upload dashboard exports in Settings, or use a Grafana Cloud connection."
     )
   } else if (!cloud) {
     unchecked.push(

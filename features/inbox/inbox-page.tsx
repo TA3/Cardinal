@@ -1,5 +1,5 @@
 import * as React from "react"
-import { PlugsConnectedIcon } from "@phosphor-icons/react"
+import { ClipboardTextIcon, PlugsConnectedIcon } from "@phosphor-icons/react"
 import { Link, useNavigate } from "react-router"
 import { toast } from "sonner"
 
@@ -16,12 +16,13 @@ import { SetupChecklist } from "@/features/inbox/setup-checklist"
 import { logSavingsRows, useLogOpportunities } from "@/features/logs/top-savings"
 import { useProposeLogRule } from "@/features/logs/volume-propose"
 import { metricSavingsRows, useMetricOpportunities, useProposeOpportunity } from "@/features/overview/top-savings"
+import { ImportSnapshotDialog } from "@/features/settings/import-snapshot-dialog"
 import { formatDelta } from "@/lib/cardinality/dashboard-helpers"
 import { formatBytes } from "@/lib/core/bytes"
 import { orderForReview, RISK_LABEL, RISK_ORDER, type Assessment, type RiskLevel } from "@/lib/core/decide/risk"
 import type { LogsSnapshot } from "@/lib/core/logs/types"
 import type { Snapshot } from "@/lib/core/snapshot"
-import { useAppStore } from "@/lib/store/app-store"
+import { selectHasLogs, useAppStore } from "@/lib/store/app-store"
 
 // Savings: every cut Cardinal found, metrics and logs on one page, safest
 // first. Each signal keeps its own unit (series, bytes/day); "Propose N safe"
@@ -154,7 +155,10 @@ function Connect() {
     <Frame>
       <FrameHeader icon={PlugsConnectedIcon} title="Connect your data" meta="One step with Grafana" />
       <FrameWell className="flex flex-col gap-3 text-sm text-muted-foreground">
-        <p>Point Cardinal at your Grafana and it finds the Prometheus and Loki data sources itself. Queries run from this tab; nothing is stored.</p>
+        <p>
+          Point Cardinal at your Grafana and it finds the Prometheus and Loki data sources itself. Queries run from this tab; nothing is stored.
+          Rather not share credentials? Paste the result of one query instead.
+        </p>
         <ol className="grid gap-2 sm:grid-cols-3">
           {HOW_IT_WORKS.map((step, index) => (
             <li key={step.title} className="flex gap-2 rounded-xl border border-well-border bg-background/40 px-3 py-2">
@@ -177,6 +181,14 @@ function Connect() {
           <Button asChild variant="ghost">
             <Link to={paths.logs}>Loki directly</Link>
           </Button>
+          <ImportSnapshotDialog
+            trigger={
+              <Button type="button" variant="ghost">
+                <ClipboardTextIcon data-icon="inline-start" />
+                Without credentials
+              </Button>
+            }
+          />
         </div>
       </FrameWell>
     </Frame>
@@ -221,7 +233,7 @@ const EMPTY_COUNTS: Record<RiskLevel, number> = { safe: 0, review: 0, risky: 0 }
 export function InboxPage() {
   const snapshot = useAppStore((state) => state.snapshot)
   const logsSnapshot = useAppStore((state) => state.logsSnapshot)
-  const hasLogs = useAppStore((state) => Boolean(state.logsSettings.baseUrl.trim()))
+  const hasLogs = useAppStore(selectHasLogs)
   const logs = hasLogs ? logsSnapshot : null
   const [metricCounts, setMetricCounts] = React.useState(EMPTY_COUNTS)
   const [logCounts, setLogCounts] = React.useState(EMPTY_COUNTS)

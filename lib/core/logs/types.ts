@@ -130,6 +130,8 @@ export interface LogsSnapshot {
   groupCount?: number
   /** Some labels' value lists hit the cap, so their `distinctValues` is a lower bound. */
   labelsTruncated?: boolean
+  /** Built from pasted query results (lib/core/logs/import.ts), not a live Loki. */
+  imported?: boolean
 }
 
 /** A running logs snapshot's progress; `total` is 0 while unknown. */

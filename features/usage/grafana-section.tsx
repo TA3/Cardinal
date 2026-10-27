@@ -5,6 +5,7 @@ import {
   InfoIcon,
   MagnifyingGlassIcon,
   SquaresFourIcon,
+  UploadSimpleIcon,
   WarningCircleIcon,
   XIcon,
 } from "@phosphor-icons/react"
@@ -14,14 +15,26 @@ import { StatFrame } from "@/components/frame"
 import { InfoTip } from "@/components/info-tip"
 import { LiveDot } from "@/components/motion"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Progress } from "@/components/ui/progress"
-import { cancelGrafanaScan, grafanaConnection, startGrafanaScan, useGrafanaStore } from "@/features/usage/grafana-store"
+import { cancelGrafanaScan, grafanaConnection, importUsageFiles, startGrafanaScan, useGrafanaStore } from "@/features/usage/grafana-store"
 import { useNow } from "@/features/usage/use-dashboard-usage"
 import { formatAge, hostOf, type GrafanaUsageIndex } from "@/lib/core/grafana-usage"
-import { CorsError, HttpError, RelayError, type TransportMode } from "@/lib/sources/transport"
+import { proxyConsentProblem, type ConnectionProblem } from "@/features/settings/connection-check"
+import { ProblemLine } from "@/features/settings/problem-line"
+import { CorsError, HttpError, ProxyConsentError, type TransportMode } from "@/lib/sources/transport"
 import { useAppStore } from "@/lib/store/app-store"
 
 export const GRAFANA_TIMEOUT_MS = 15_000
@@ -29,11 +42,10 @@ export const GRAFANA_TIMEOUT_MS = 15_000
 /** What went wrong with a Grafana request, in terms of what to change. */
 export function explainGrafanaError(error: unknown, mode: TransportMode) {
   if (error instanceof CorsError) {
-    return "Grafana blocks browser requests (no CORS headers by default): use Auto or Proxy for a public Grafana, Relay for one on your network."
+    return "Grafana blocks browser requests (no CORS headers by default): use Auto or Proxy for a public Grafana, or run Cardinal on your machine for one on your network."
   }
-  if (error instanceof RelayError) return error.message
   if (error instanceof HttpError && error.proxyFailure === "private") {
-    return "The hosted proxy can't reach private hosts: use Relay, or Direct if Grafana allows this origin (CORS)."
+    return "The hosted proxy can't reach private hosts: run Cardinal on your machine, or use Direct if Grafana allows this origin (CORS)."
   }
   if (error instanceof HttpError && error.proxyFailure && error.proxyFailure !== "token") return error.message
   if (error instanceof HttpError && (error.status === 401 || error.status === 403)) {
@@ -46,6 +58,12 @@ export function explainGrafanaError(error: unknown, mode: TransportMode) {
     return `Grafana didn't answer within ${GRAFANA_TIMEOUT_MS / 1000} s${mode === "direct" ? "" : " through the proxy"}.`
   }
   return error instanceof Error ? error.message : String(error)
+}
+
+/** A failed Grafana request as a problem line; a proxy the user hasn't allowed gets the consent actions. */
+export function grafanaProblem(error: unknown, mode: TransportMode, title: string): ConnectionProblem {
+  if (error instanceof ProxyConsentError) return proxyConsentProblem(error.target)
+  return { kind: "other", title, detail: explainGrafanaError(error, mode) }
 }
 
 function ScanProgressLine() {
@@ -132,9 +150,30 @@ export function GrafanaUsagePanel() {
   const [problem, setProblem] = React.useState<string | null>(null)
   const now = useNow()
   const connection = grafanaConnection(settings)
+  const fileInput = React.useRef<HTMLInputElement>(null)
+  const [confirmReplace, setConfirmReplace] = React.useState(false)
+  const [consent, setConsent] = React.useState<ConnectionProblem | null>(null)
+  // Uploads replace the index; a full scan is worth a second thought.
+  const pickFiles = () => (index?.source === "scan" ? setConfirmReplace(true) : fileInput.current?.click())
+
+  async function upload(files: File[]) {
+    if (!files.length) return
+    setProblem(null)
+    try {
+      const result = await importUsageFiles(files)
+      toast.success(`Read ${files.length.toLocaleString()} ${files.length === 1 ? "file" : "files"}`, {
+        description: `${result.stats.dashboards.toLocaleString()} dashboards and ${result.stats.queries.toLocaleString()} queries reference ${result.stats.metrics.toLocaleString()} metrics${
+          result.problems.length ? `; ${result.problems.length} couldn't be read` : ""
+        }.`,
+      })
+    } catch (error) {
+      setProblem(error instanceof Error ? error.message : String(error))
+    }
+  }
 
   async function scan() {
     setProblem(null)
+    setConsent(null)
     try {
       const result = await startGrafanaScan()
       toast.success(`Scanned ${result.stats.dashboards.toLocaleString()} dashboards`, {
@@ -144,6 +183,11 @@ export function GrafanaUsagePanel() {
       })
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return
+      if (error instanceof ProxyConsentError) {
+        setConsent(proxyConsentProblem(error.target))
+        useGrafanaStore.setState({ scanError: null })
+        return
+      }
       setProblem(explainGrafanaError(error, settings.mode))
     }
   }
@@ -159,35 +203,72 @@ export function GrafanaUsagePanel() {
             Dashboard and alert usage
             <InfoTip label="What does the scan do?">
               Reads every dashboard and Grafana-managed alert rule, read-only, to show which panels use a metric and which labels they filter or
-              group by. Kept in this browser until you re-scan.
+              group by. Kept in this browser until you re-scan. No Grafana token? Upload dashboard JSON (Export → Export for sharing
+              externally, or your dashboards-as-code repo), alert rule exports or Prometheus rule files instead; they are read in this browser.
             </InfoTip>
             {index ? (
               <Badge variant="outline" className="border-brand/30 text-brand-ink">
                 <LiveDot className="size-1.5" pulse={false} />
-                Scanned {scannedAgo}
+                {index.source === "files" ? "Uploaded" : "Scanned"} {scannedAgo}
               </Badge>
             ) : null}
           </p>
         </div>
-        {scanning ? (
-          <Button type="button" variant="outline" onClick={cancelGrafanaScan}>
-            <XIcon data-icon="inline-start" />
-            Cancel scan
+        <div className="flex flex-wrap gap-2">
+          <input
+            ref={fileInput}
+            type="file"
+            multiple
+            accept=".json,.yaml,.yml,application/json"
+            className="sr-only"
+            tabIndex={-1}
+            aria-hidden
+            onChange={(event) => {
+              const files = Array.from(event.target.files ?? [])
+              event.target.value = ""
+              void upload(files)
+            }}
+          />
+          <Button type="button" variant="ghost" disabled={scanning} onClick={pickFiles}>
+            <UploadSimpleIcon data-icon="inline-start" />
+            Upload files
           </Button>
-        ) : (
-          <Button type="button" variant="outline" disabled={!connection} onClick={() => void scan()}>
-            {index ? <ArrowClockwiseIcon data-icon="inline-start" /> : <MagnifyingGlassIcon data-icon="inline-start" />}
-            {index ? "Re-scan dashboards" : "Scan dashboards"}
-          </Button>
-        )}
+          {scanning ? (
+            <Button type="button" variant="outline" onClick={cancelGrafanaScan}>
+              <XIcon data-icon="inline-start" />
+              Cancel scan
+            </Button>
+          ) : (
+            <Button type="button" variant="outline" disabled={!connection} onClick={() => void scan()}>
+              {index && index.source !== "files" ? <ArrowClockwiseIcon data-icon="inline-start" /> : <MagnifyingGlassIcon data-icon="inline-start" />}
+              {index && index.source !== "files" ? "Re-scan dashboards" : "Scan dashboards"}
+            </Button>
+          )}
+        </div>
       </div>
       {problem || scanError ? (
         <Alert variant="destructive" role="alert">
           <WarningCircleIcon />
-          <AlertTitle>{scanError && !problem ? "The last scan failed" : "Grafana couldn't be read"}</AlertTitle>
+          <AlertTitle>{scanError && !problem ? "The last scan failed" : "Usage couldn't be read"}</AlertTitle>
           <AlertDescription>{problem ?? scanError}</AlertDescription>
         </Alert>
       ) : null}
+      {consent ? <ProblemLine problem={consent} onRetry={() => void scan()} /> : null}
+      <AlertDialog open={confirmReplace} onOpenChange={setConfirmReplace}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Replace the Grafana scan?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Uploaded files replace the scan of {index ? hostOf(index.baseUrl) : "Grafana"}, so pick every dashboard and rule file you want
+              checked at once. You can scan again later.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => fileInput.current?.click()}>Choose files</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <ScanProgressLine />
       {index ? (
         <>

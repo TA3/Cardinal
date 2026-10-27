@@ -5,7 +5,7 @@ import { dashboardEvidenceFor, useGrafanaIndex } from "@/features/usage/use-dash
 import { connectionKey, useAdaptiveRecommendations, useConnection, useIsGrafanaCloud } from "@/hooks/use-cardinality"
 import type { AdaptiveRecommendation } from "@/lib/core/compile/adaptive-metrics"
 import type { Rule } from "@/lib/core/rules"
-import { summarizeEvidence, type CloudUsage, type EvidenceSummary, type UsageEvidence } from "@/lib/core/usage-gate"
+import { summarizeEvidence, type CloudUsage, type EvidenceSummary, type RuleReference, type UsageEvidence } from "@/lib/core/usage-gate"
 import { fetchRuleUsage } from "@/lib/sources/prometheus"
 
 // Where metrics are used: Prometheus alerting/recording rules (any backend with
@@ -44,20 +44,32 @@ export function useUsageEvidence(metrics: string[], enabled = true) {
 
   const byMetric = React.useMemo(() => {
     const result: Record<string, UsageEvidence> = {}
+    // Uploaded rule files stand in for the rules API when there is no live connection.
+    const fileRules = !connection && grafana.index?.rulesIncluded
     for (const metric of sorted) {
+      const dashboards = dashboardEvidenceFor(grafana.index, metric)
+      const uploaded: RuleReference[] | null = fileRules
+        ? (dashboards?.usages ?? []).flatMap((usage) => (usage.rule ? [usage.rule] : []))
+        : null
       result[metric] = {
-        rules: rules.error ? null : (rules.data?.[metric] ?? []),
-        rulesError: rules.error ? errorText(rules.error) : undefined,
+        // Without a live connection (a pasted snapshot) the rules weren't checked, which is not the same as none using it,
+        // unless rule files were uploaded: then their usages are in the dashboard evidence and "no rules" is checked.
+        rules: uploaded ?? (rules.error || !connection ? null : (rules.data?.[metric] ?? [])),
+        rulesError: rules.error
+          ? errorText(rules.error)
+          : connection || fileRules
+            ? undefined
+            : "no live connection; upload your rule files to include them",
         cloud,
         cloudUsage: cloud ? cloudUsageFor(recs.data, metric) : null,
         cloudError: cloud && recs.error ? errorText(recs.error) : undefined,
-        dashboards: dashboardEvidenceFor(grafana.index, metric),
+        dashboards,
       }
     }
     return result
-  }, [sorted, rules.data, rules.error, cloud, recs.data, recs.error, grafana.index])
+  }, [sorted, rules.data, rules.error, connection, cloud, recs.data, recs.error, grafana.index])
 
-  const isPending = (enabled && sorted.length > 0 && rules.isPending && !rules.error) || (cloud && recs.isPending) || grafana.loading
+  const isPending = (rules.isLoading && !rules.error) || (cloud && recs.isPending) || grafana.loading
   return { byMetric, isPending }
 }
 

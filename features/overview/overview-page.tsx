@@ -3,6 +3,7 @@ import {
   ArrowClockwiseIcon,
   BriefcaseIcon,
   ChartLineIcon,
+  ClipboardTextIcon,
   CubeIcon,
   FunnelIcon,
   MagnifyingGlassIcon,
@@ -32,9 +33,11 @@ import { SinceLastFrame } from "@/features/overview/since-last-frame"
 import { TopSavings } from "@/features/overview/top-savings"
 import { takeNextPath } from "@/app/continue-after-connect"
 import { ConnectGrafanaCard } from "@/features/grafana/connect-card"
+import { ImportSnapshotDialog } from "@/features/settings/import-snapshot-dialog"
 import { ConnectionForm } from "@/features/settings/connection-form"
 import {
   isAuthError,
+  useConnection,
   useMetricsTarget,
   useRefreshSnapshot,
   useRuleCounts,
@@ -102,6 +105,15 @@ function Welcome() {
           <Reveal>
             <ConnectGrafanaCard />
           </Reveal>
+          <Reveal>
+            <Frame>
+              <FrameHeader title="No credentials" meta="Paste one query result" />
+              <FrameWell className="flex flex-col items-start gap-3 text-sm text-muted-foreground">
+                Run one query where you already have access and paste the result. Nothing leaves this browser.
+                <ImportSnapshotDialog />
+              </FrameWell>
+            </Frame>
+          </Reveal>
           {steps.map((step) => (
             <Reveal key={step.title}>
               <Frame>
@@ -118,6 +130,7 @@ function Welcome() {
 
 function HistoryFrame({ range, totalNow }: { range: HistoryRange; totalNow: number }) {
   const { data, isPending, error } = useSeriesHistory(range)
+  const live = Boolean(useConnection())
   const savings = useSavings()
   const ratio = totalNow > 0 ? 1 - savings.savedSeries / totalNow : 1
 
@@ -168,7 +181,11 @@ function HistoryFrame({ range, totalNow }: { range: HistoryRange; totalNow: numb
         </div>
       </div>
       <FrameWell className="px-2 py-2">
-        {isPending ? (
+        {!live ? (
+          <div className="flex h-80 items-center justify-center text-center text-sm text-muted-foreground">
+            History needs a live connection; a pasted snapshot is one point in time.
+          </div>
+        ) : isPending ? (
           <div className="flex h-80 items-center justify-center gap-2 text-sm text-muted-foreground">
             <Spinner />
             Loading history…
@@ -268,13 +285,16 @@ function RulesFrame({ totalSeries }: { totalSeries: number }) {
 
 function LabelsFrame() {
   const { data, isPending, error } = useTsdbStatus()
+  const live = Boolean(useConnection())
   // __name__ counts metrics, which the Metrics card already covers.
   const labels = data?.labelValueCountByLabelName?.filter((item) => item.name !== "__name__") ?? []
   return (
     <Frame className="h-full">
       <FrameHeader icon={TagIcon} title="Labels" meta="by distinct values" />
       <FrameWell>
-        {isPending ? (
+        {!live ? (
+          <p className="py-2 text-sm text-muted-foreground">Label stats need a live connection.</p>
+        ) : isPending ? (
           <div className="flex flex-col gap-2 py-1">
             {Array.from({ length: 5 }, (_, index) => (
               <Skeleton key={index} className="h-5" />
@@ -408,6 +428,7 @@ function SnapshotStatus({ refreshing }: { refreshing: boolean }) {
 
 function Dashboard({ snapshot }: { snapshot: Snapshot }) {
   const refresh = useRefreshSnapshot()
+  const live = Boolean(useConnection())
   const [range, setRange] = React.useState<HistoryRange>("7d")
   const topJob = React.useMemo(
     () => snapshot.jobs.reduce<Snapshot["jobs"][number] | undefined>((best, job) => (!best || job.seriesCount > best.seriesCount ? job : best), undefined),
@@ -429,11 +450,22 @@ function Dashboard({ snapshot }: { snapshot: Snapshot }) {
         actions={
           <>
             <SegmentedControl aria-label="History range" value={range} onValueChange={setRange} options={RANGE_OPTIONS} />
-            <Button variant="inverse" onClick={refresh.refresh} disabled={refresh.isPending}>
-              {refresh.isPending ? <Spinner data-icon="inline-start" /> : <ArrowClockwiseIcon data-icon="inline-start" />}
-              {refresh.isPending ? "Refreshing" : "Refresh"}
-              <Kbd className="ml-0.5 bg-background/15 text-background">R</Kbd>
-            </Button>
+            {live ? (
+              <Button variant="inverse" onClick={refresh.refresh} disabled={refresh.isPending}>
+                {refresh.isPending ? <Spinner data-icon="inline-start" /> : <ArrowClockwiseIcon data-icon="inline-start" />}
+                {refresh.isPending ? "Refreshing" : "Refresh"}
+                <Kbd className="ml-0.5 bg-background/15 text-background">R</Kbd>
+              </Button>
+            ) : (
+              <ImportSnapshotDialog
+                trigger={
+                  <Button variant="inverse">
+                    <ClipboardTextIcon data-icon="inline-start" />
+                    Paste a newer result
+                  </Button>
+                }
+              />
+            )}
           </>
         }
       />

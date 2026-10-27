@@ -38,7 +38,8 @@ const clamp = (value: number) => Math.max(0, Math.min(1, value))
 /** What was checked for a metric: Prometheus rules, a Grafana scan, Grafana Cloud usage. */
 function coverage(evidence: UsageEvidence | undefined) {
   const rules = Boolean(evidence && evidence.rules !== null)
-  const dashboards = Boolean(evidence?.dashboards)
+  // An upload of rule files alone holds no dashboards: that checked nothing about dashboards.
+  const dashboards = Boolean(evidence?.dashboards?.dashboardsScanned)
   const cloud = Boolean(evidence?.cloudUsage)
   return {
     rules,
@@ -74,6 +75,11 @@ export function assessMetric(
     level = "review"
     missing = "dashboards"
     why.push("Not in alert or recording rules; dashboards not checked")
+  } else if (!seen.rules && !seen.cloud) {
+    // Uploaded dashboards with a pasted snapshot, or a rules API that failed: an alert could still read it.
+    level = "review"
+    missing = "usage"
+    why.push("Not on any checked dashboard; alert and recording rules not checked")
   } else {
     level = "safe"
     why.push(item.label ? `Nothing groups or filters by ${item.label}` : "No rule, dashboard or query uses it")

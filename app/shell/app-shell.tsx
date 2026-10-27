@@ -12,6 +12,7 @@ import { ignoreShortcut, isSearchShortcut, navChords } from "@/app/shell/hotkeys
 import { ReportDialog } from "@/app/shell/report-dialog"
 import { ShellActionsContext, type ShellActions } from "@/app/shell/shell-actions"
 import { ShortcutsDialog } from "@/app/shell/shortcuts-dialog"
+import { OfflineBanner } from "@/app/shell/offline-banner"
 import { TokenBanner } from "@/app/shell/token-banner"
 import { TopBar } from "@/app/shell/top-bar"
 import { Kbd } from "@/components/ui/kbd"
@@ -175,6 +176,7 @@ export function AppShell() {
           <TopBar searchOpen={searchOpen} onSearchOpenChange={setSearchOpen} />
           <main className="mx-auto w-full max-w-6xl flex-1 px-4 pt-32 pb-16 sm:px-6">
             <TokenBanner />
+            <OfflineBanner />
             <AnimatedOutlet />
           </main>
           <Footer />

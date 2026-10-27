@@ -30,6 +30,8 @@ export interface DashboardUsage {
   flow: LabelFlow
   /** The first query that referenced the metric, shortened. */
   expr: string
+  /** Rules from an uploaded Prometheus rule file only: which kind, so they also count as the rules check. */
+  rule?: { group: string; name: string; type: "alerting" | "recording" }
 }
 
 export interface ScanStats {
@@ -66,6 +68,10 @@ export interface GrafanaUsageIndex {
   problems: ScanProblem[]
   /** Why Grafana-managed alert rules couldn't be read, when they couldn't. */
   alertsError?: string
+  /** "files": built from uploaded exports instead of a scan; links work only when a Grafana URL was set. */
+  source?: "scan" | "files"
+  /** Uploads only: Prometheus rule files were among them, so their usages count as the rules check. */
+  rulesIncluded?: boolean
 }
 
 export interface LibraryPanelRef {
@@ -170,7 +176,7 @@ export function looksLikeLogQL(expr: string) {
 
 // --- the index builder -----------------------------------------------------
 
-interface QueryContext {
+export interface QueryContext {
   kind: DashboardUsage["kind"]
   dashboard?: DashboardRef
   title: string
@@ -205,7 +211,7 @@ export class UsageIndexBuilder {
 
   constructor(readonly baseUrl: string) {}
 
-  private addRef(context: QueryContext, ref: MetricRef, expr: string) {
+  private addRef(context: QueryContext & { rule?: DashboardUsage["rule"] }, ref: MetricRef, expr: string) {
     const bucket = ref.metric !== undefined ? this.metrics : this.patterns
     const key = ref.metric ?? ref.pattern!
     const usages = bucket.get(key) ?? new Map<string, DashboardUsage>()
@@ -227,11 +233,12 @@ export class UsageIndexBuilder {
       labels,
       flow: ref.flow,
       expr: expr.length > EXPR_LENGTH ? `${expr.slice(0, EXPR_LENGTH - 1)}…` : expr,
+      ...(context.rule ? { rule: context.rule } : {}),
     })
   }
 
   /** Reads one PromQL query into the index. */
-  addQuery(context: QueryContext, expr: string, legend?: string, extra?: (ref: MetricRef) => void) {
+  addQuery(context: QueryContext & { rule?: DashboardUsage["rule"] }, expr: string, legend?: string, extra?: (ref: MetricRef) => void) {
     const trimmed = expr.trim()
     if (!trimmed) return
     this.stats.queries += 1
@@ -381,6 +388,12 @@ export class UsageIndexBuilder {
         this.addQuery(context, expr, asString(model.legendFormat))
       }
     }
+  }
+
+  /** A Prometheus alerting or recording rule from a rule file (no Grafana link). */
+  addRuleExpr(group: string, name: string, expr: string, type: "alerting" | "recording") {
+    if (type === "alerting") this.stats.alerts += 1
+    this.addQuery({ kind: "alert", title: `${group} / ${name}`, url: "", rule: { group, name, type } }, expr)
   }
 
   setAlertsError(message: string) {

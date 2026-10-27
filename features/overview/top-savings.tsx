@@ -141,7 +141,7 @@ function useChurnDrivers() {
   })
   return {
     rows: pairs.map((row, index) => ({ row, driver: drivers[index]?.data?.driver })),
-    pending: drivers.some((query) => query.isPending),
+    pending: drivers.some((query) => query.isLoading),
   }
 }
 
@@ -171,7 +171,7 @@ export function useMetricOpportunities(snapshot: Snapshot) {
   const items = React.useMemo(() => {
     const all: MetricOpportunity[] = []
     if (!usage.isPending) {
-      const dashboardsChecked = Object.values(usage.byMetric).some((evidence) => Boolean(evidence?.dashboards))
+      const dashboardsChecked = Object.values(usage.byMetric).some((evidence) => Boolean(evidence?.dashboards?.dashboardsScanned))
       all.push(...unusedMetricOpportunities(big, used, { dashboardsChecked }))
     }
     for (const finding of idLike.data ?? []) {
@@ -191,7 +191,8 @@ export function useMetricOpportunities(snapshot: Snapshot) {
   }, [usage.isPending, usage.byMetric, big, used, idLike.data, histograms.data, churn.rows, rules, decisions])
 
   const impacts = React.useMemo(() => new Map((idLike.data ?? []).map((finding) => [`${finding.metric}\u0000${finding.label}`, finding.impact])), [idLike.data])
-  const loading = usage.isPending || (idMetrics.length > 0 && idLike.isPending) || histograms.isPending || churn.pending
+  // isLoading, not isPending: without a live connection these queries never run, and nothing is loading.
+  const loading = usage.isPending || (idMetrics.length > 0 && idLike.isLoading) || histograms.isLoading || churn.pending
   return { items, loading, impacts }
 }
 
@@ -267,7 +268,13 @@ export function metricSavingsRows(
       </>
     ),
     detail: item.job ? `job ${jobLabel(item.job)}` : undefined,
-    to: metricPath(item.metric),
+    // Bucket and churn cuts come from Explore's Histograms and Churn views: link to that evidence.
+    to:
+      item.reason === "buckets"
+        ? `${paths.histograms}?family=${encodeURIComponent(histogramFamily(item.metric).base)}`
+        : item.reason === "churn"
+          ? paths.churn
+          : metricPath(item.metric),
     saving: `${item.estimate ? "~" : ""}${formatDelta(-item.savedSeries)}`,
     cost: format(item.savedSeries) ?? undefined,
     state: item.state,

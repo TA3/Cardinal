@@ -10,7 +10,8 @@ import {
   StackIcon,
   TagIcon,
   TrendUpIcon,
-  WarningIcon } from "@phosphor-icons/react"
+  WarningIcon,
+  ClipboardTextIcon } from "@phosphor-icons/react"
 import { Link, useNavigate } from "react-router"
 
 import { logGroupPath, logLabelPath, paths } from "@/app/paths"
@@ -32,9 +33,11 @@ import { stepLabel } from "@/features/logs/volume-parts"
 import { takeNextPath } from "@/app/continue-after-connect"
 import { ConnectGrafanaCard } from "@/features/grafana/connect-card"
 import { ConnectionForm } from "@/features/settings/connection-form"
+import { ImportLogsDialog } from "@/features/logs/import-logs-dialog"
 import {
   authErrorText,
   isAuthError,
+  useConnection,
   useLogRuleSavings,
   useLogsSnapshotAge,
   useLogsSnapshotProgress,
@@ -45,7 +48,7 @@ import { formatNumber } from "@/lib/cardinality/dashboard-helpers"
 import { BYTES_NOTE, formatBytes, formatBytesDelta, toGB } from "@/lib/core/bytes"
 import { bytesPerDay, diffLogsSnapshots, groupNoun, largestGroup, LOGS_RANGE_LABEL, LOGS_RANGES, type LogsGroupChange } from "@/lib/core/logs/snapshot"
 import type { LogsRange, LogsSnapshot } from "@/lib/core/logs/types"
-import { useAppStore } from "@/lib/store/app-store"
+import { selectHasLogs, useAppStore } from "@/lib/store/app-store"
 import { cn } from "@/lib/utils"
 
 // The logs overview mirrors the metrics one: stat tiles, a volume chart,
@@ -103,6 +106,15 @@ function Welcome() {
           <Reveal>
             <ConnectGrafanaCard />
           </Reveal>
+          <Reveal>
+            <Frame>
+              <FrameHeader title="No credentials" meta="Paste one query result" />
+              <FrameWell className="flex flex-col items-start gap-3 text-sm text-muted-foreground">
+                Run one LogQL query where you already have access and paste the result. Nothing leaves this browser.
+                <ImportLogsDialog />
+              </FrameWell>
+            </Frame>
+          </Reveal>
           {steps.map((step) => (
             <Reveal key={step.title}>
               <Frame>
@@ -119,6 +131,7 @@ function Welcome() {
 
 function VolumeFrame({ range, snapshot }: { range: LogsRange; snapshot: LogsSnapshot }) {
   const { data, isPending, error } = useLogsVolumeHistory(range)
+  const live = Boolean(useConnection("logs"))
   const savings = useLogRuleSavings()
   // Rule impacts are measured over the snapshot's range, so the ratio is too.
   const ratio = snapshot.totals.bytes > 0 ? Math.max(0, 1 - savings.savedBytes / snapshot.totals.bytes) : 1
@@ -171,7 +184,11 @@ function VolumeFrame({ range, snapshot }: { range: LogsRange; snapshot: LogsSnap
         </div>
       </div>
       <FrameWell className="px-2 py-2">
-        {isPending ? (
+        {!live ? (
+          <div className="flex h-80 items-center justify-center text-center text-sm text-muted-foreground">
+            Volume over time needs a live connection; a pasted snapshot is one total per service.
+          </div>
+        ) : isPending ? (
           <div className="flex h-80 items-center justify-center gap-2 text-sm text-muted-foreground">
             <Spinner />
             Loading volume…
@@ -475,6 +492,7 @@ function SnapshotStatus({ refreshing, snapshot }: { refreshing: boolean; snapsho
 
 function Dashboard({ snapshot }: { snapshot: LogsSnapshot }) {
   const refresh = useRefreshLogsSnapshot()
+  const live = Boolean(useConnection("logs"))
   const range = useAppStore((state) => state.logsSettings.range)
   const { price, cost } = useBytesCost()
   const perDay = bytesPerDay(snapshot)
@@ -495,6 +513,16 @@ function Dashboard({ snapshot }: { snapshot: LogsSnapshot }) {
         }
         description={<SnapshotStatus refreshing={refresh.isPending} snapshot={snapshot} />}
         actions={
+          !live ? (
+            <ImportLogsDialog
+              trigger={
+                <Button variant="inverse">
+                  <ClipboardTextIcon data-icon="inline-start" />
+                  Paste a newer result
+                </Button>
+              }
+            />
+          ) : (
           <>
             <SegmentedControl
               aria-label="Snapshot range"
@@ -510,6 +538,7 @@ function Dashboard({ snapshot }: { snapshot: LogsSnapshot }) {
               <Kbd className="ml-0.5 bg-background/15 text-background">R</Kbd>
             </Button>
           </>
+          )
         }
       />
 
@@ -632,7 +661,7 @@ function Dashboard({ snapshot }: { snapshot: LogsSnapshot }) {
 
 export function LogsOverviewPage() {
   const snapshot = useAppStore((state) => state.logsSnapshot)
-  const hasSource = useAppStore((state) => Boolean(state.logsSettings.baseUrl.trim()))
+  const hasSource = useAppStore(selectHasLogs)
   // A snapshot from a connection that was since removed doesn't show.
   return snapshot && hasSource ? <Dashboard snapshot={snapshot} /> : <Welcome />
 }

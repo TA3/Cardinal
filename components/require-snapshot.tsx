@@ -9,7 +9,7 @@ import { EmptyState } from "@/components/empty-state"
 import { Button } from "@/components/ui/button"
 import type { LogsSnapshot } from "@/lib/core/logs/types"
 import type { Snapshot } from "@/lib/core/snapshot"
-import { useAppStore } from "@/lib/store/app-store"
+import { selectHasLogs, useAppStore } from "@/lib/store/app-store"
 
 /** Deep links (e.g. from the exported Grafana dashboard) land here without data: connect, then continue to this page. */
 function ConnectActions({ to, label }: { to: string; label: string }) {
@@ -53,7 +53,7 @@ export function RequireSnapshot({ children }: { children: (snapshot: Snapshot) =
 /** The logs twin: children with the logs snapshot, or a prompt to connect Loki or take a snapshot. */
 export function RequireLogsSnapshot({ children }: { children: (snapshot: LogsSnapshot) => React.ReactNode }) {
   const snapshot = useAppStore((state) => state.logsSnapshot)
-  const hasSource = useAppStore((state) => Boolean(state.logsSettings.baseUrl.trim()))
+  const hasSource = useAppStore(selectHasLogs)
   if (snapshot && hasSource) return children(snapshot)
   return (
     <EmptyState

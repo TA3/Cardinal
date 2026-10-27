@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
 import { useGrafanaIndex } from "@/features/usage/use-dashboard-usage"
 import { useIsGrafanaCloud } from "@/hooks/use-cardinality"
 import { cn } from "@/lib/utils"
-import { useAppStore } from "@/lib/store/app-store"
+import { selectHasLogs, useAppStore } from "@/lib/store/app-store"
 
 // Onboarding on the Savings page, once a data source is connected: the few
 // steps that make the ratings and numbers trustworthy, each one click away.
@@ -25,7 +25,7 @@ interface Step {
 }
 
 function useSetupSteps(): Step[] {
-  const connected = useAppStore((state) => Boolean(state.snapshot || (state.logsSnapshot && state.logsSettings.baseUrl.trim())))
+  const connected = useAppStore((state) => Boolean(state.snapshot || (state.logsSnapshot && selectHasLogs(state))))
   const priced = useAppStore((state) => readPricePer1k(state.settings) !== undefined || readPricePerGB(state.settings) !== undefined)
   const reviewed = useAppStore(
     (state) =>
@@ -45,10 +45,10 @@ function useSetupSteps(): Step[] {
     {
       id: "usage",
       title: "Check dashboard usage",
-      why: "Scan your Grafana so cuts nothing uses can be rated safe.",
+      why: "Scan Grafana or upload dashboard exports so cuts nothing uses can be rated safe.",
       done: cloud || Boolean(index),
       to: `${paths.settings}#grafana`,
-      action: "Scan Grafana",
+      action: "Add usage",
     },
     {
       id: "price",

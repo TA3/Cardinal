@@ -39,6 +39,19 @@ describe("assessMetric", () => {
     expect(risk.missing).toBe("dashboards")
   })
 
+  it("asks for review when dashboards were checked but rules weren't (a pasted snapshot)", () => {
+    const risk = assessMetric(dropMetric, evidence({ rules: null, dashboards: scan() }))
+    expect(risk.level).toBe("review")
+    expect(risk.why[0]).toMatch(/rules not checked/)
+    expect(risk.missing).toBe("usage")
+  })
+
+  it("doesn't count an upload of rule files alone as checking dashboards", () => {
+    const risk = assessMetric(dropMetric, evidence({ dashboards: { ...scan(), dashboardsScanned: 0 } }))
+    expect(risk.level).toBe("review")
+    expect(risk.missing).toBe("dashboards")
+  })
+
   it("asks for review when usage couldn't be read at all", () => {
     expect(assessMetric(dropMetric, undefined).level).toBe("review")
     expect(assessMetric(dropMetric, undefined).confidence).toBe(0)

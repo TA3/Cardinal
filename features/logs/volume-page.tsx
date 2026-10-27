@@ -43,7 +43,7 @@ import { groupLink } from "@/features/logs/streams-shared"
 import { useVerifiedGrowth, useVolumeBreakdown, useVolumeSeries } from "@/features/logs/volume-data"
 import { formatTickFor, SERIES_COLOR_VARS, SERIES_COLORS, stepLabel } from "@/features/logs/volume-parts"
 import { useProposeLogRule } from "@/features/logs/volume-propose"
-import { authErrorText, isAuthError } from "@/hooks/use-cardinality"
+import { authErrorText, isAuthError, useConnection } from "@/hooks/use-cardinality"
 import { formatNumber } from "@/lib/cardinality/dashboard-helpers"
 import { BYTES_NOTE, formatBytes, formatBytesDelta, toGB } from "@/lib/core/bytes"
 import { groupNoun, LOGS_RANGE_LABEL, LOGS_RANGES } from "@/lib/core/logs/snapshot"
@@ -233,6 +233,7 @@ function VolumeTable({ rows, by, groupLabel, range, colors }: { rows: VolumeRow[
 
 function VolumeChart({ by, range }: { by: string; range: LogsRange }) {
   const { data, isPending, error } = useVolumeSeries(by, range)
+  const live = Boolean(useConnection("logs"))
   const { points, series } = React.useMemo(() => {
     const keys = data?.keys ?? []
     const chartSeries: ChartSeries[] = keys.map((key, index) => ({ key, label: valueLabel(key), color: SERIES_COLORS[index] }))
@@ -265,7 +266,9 @@ function VolumeChart({ by, range }: { by: string; range: LogsRange }) {
         ) : null}
       </div>
       <FrameWell className="px-2 py-2">
-        {isPending ? (
+        {!live ? (
+          <div className="flex h-72 items-center justify-center text-center text-sm text-muted-foreground">Volume over time needs a live connection.</div>
+        ) : isPending ? (
           <div className="flex h-72 items-center justify-center gap-2 text-sm text-muted-foreground">
             <Spinner />
             Loading volume…
