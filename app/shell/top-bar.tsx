@@ -36,10 +36,11 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Kbd, KbdGroup } from "@/components/ui/kbd"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { SelfHostedBadge } from "@/features/relay/self-hosted-badge"
+import { SelfHostedBadge } from "@/features/settings/self-hosted-badge"
 import { useConnection, useNeedsTokenFor, useRuleCounts, useSavings } from "@/hooks/use-cardinality"
 import { useSignal, useSwitchSignal } from "@/hooks/use-signal"
 import { SIGNALS, SIGNAL_LABEL, signalHome } from "@/lib/core/signals"
+import { useAppStore } from "@/lib/store/app-store"
 import { cn } from "@/lib/utils"
 
 /** Stacked backdrop blurs that fade out downwards, so content dissolves under the bar. */
@@ -126,7 +127,8 @@ function ConnectionPill() {
   const signal = useSignal()
   const connection = useConnection(signal)
   const locked = useNeedsTokenFor(signal)
-  const empty = signal === "logs" ? "No logs source" : "No data source"
+  const pasted = useAppStore((state) => (signal === "logs" ? Boolean(state.logsSnapshot?.imported) : state.snapshot?.method === "import"))
+  const empty = pasted ? "Pasted snapshot" : signal === "logs" ? "No logs source" : "No data source"
   const host = React.useMemo(() => {
     if (!connection) return null
     try {
@@ -164,9 +166,11 @@ function ConnectionPill() {
           ? locked
             ? `${host}: token needed. Open settings to enter it.`
             : `${host}: connected. ${signal === "logs" ? "Logs source" : "Data source"} settings`
-          : signal === "logs"
-            ? "Connect a Loki logs source"
-            : "Connect a data source"}
+          : pasted
+            ? "A pasted query result, kept in this browser. Connect for live queries."
+            : signal === "logs"
+              ? "Connect a Loki logs source"
+              : "Connect a data source"}
       </TooltipContent>
     </Tooltip>
   )

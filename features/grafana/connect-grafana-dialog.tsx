@@ -28,13 +28,13 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 import { hostOf } from "@/features/grafana/via-grafana"
-import { privateHostHint, RouteField } from "@/features/relay/transport-mode-field"
+import { privateHostHint, RouteField } from "@/features/settings/route-field"
 import { routeLabel, withAutoMode } from "@/features/settings/auto-mode"
 import { ProblemLine } from "@/features/settings/problem-line"
-import { diagnose, TEST_TIMEOUT_MS } from "@/features/settings/connection-check"
+import { diagnose, TEST_TIMEOUT_MS, type ConnectionProblem } from "@/features/settings/connection-check"
 import { SnapshotProgressLine } from "@/features/settings/connection-form"
 import { startGrafanaScan } from "@/features/usage/grafana-store"
-import { explainGrafanaError, GRAFANA_TIMEOUT_MS } from "@/features/usage/grafana-section"
+import { explainGrafanaError, GRAFANA_TIMEOUT_MS, grafanaProblem } from "@/features/usage/grafana-section"
 import {
   activeLink,
   connectGrafana,
@@ -50,7 +50,7 @@ import type { TransportMode } from "@/lib/sources/transport"
 import { fetchLogsSnapshot, testLokiConnection } from "@/lib/sources/loki"
 import { fetchSnapshot, testConnection } from "@/lib/sources/prometheus"
 import { currentConnection, useAppStore, type ConnectionSettings } from "@/lib/store/app-store"
-import { useSelfHosted } from "@/lib/store/relay-store"
+import { useSelfHosted } from "@/lib/store/server-store"
 
 // Connect Grafana: one Grafana URL and token, then a Prometheus and a Loki data
 // source (or neither) connected through Grafana's data source proxy, an
@@ -90,7 +90,7 @@ interface ChoiceDraft {
 type ApplyStatus =
   | { state: "testing" | "snapshot"; name: string }
   | { state: "done"; name: string; detail: string }
-  | { state: "error"; name: string; title: string; detail: string; help?: "relay" }
+  | { state: "error"; name: string; title: string; detail: string; help?: ConnectionProblem["help"] }
 
 function draftFor(signal: Signal, detection: GrafanaDetection, current: ConnectionSettings, link: ReturnType<typeof activeLink>): ChoiceDraft {
   const cloud = link?.via === "cloud"
@@ -260,10 +260,15 @@ function SignalPicker({
   )
 }
 
-function ApplyLine({ signal, status }: { signal: Signal; status: ApplyStatus }) {
+function ApplyLine({ signal, status, onRetry }: { signal: Signal; status: ApplyStatus; onRetry?: () => void }) {
   const title = COPY[signal].title
   if (status.state === "error") {
-    return <ProblemLine problem={{ kind: "other", title: `${title} (${status.name}): ${status.title}`, detail: status.detail, help: status.help }} />
+    return (
+      <ProblemLine
+        problem={{ kind: "other", title: `${title} (${status.name}): ${status.title}`, detail: status.detail, help: status.help }}
+        onRetry={onRetry}
+      />
+    )
   }
   if (status.state === "done") {
     return (
@@ -284,11 +289,14 @@ function ApplyLine({ signal, status }: { signal: Signal; status: ApplyStatus }) 
   )
 }
 
-function listError(error: unknown, mode: TransportMode, token: string) {
-  const text = explainGrafanaError(error, mode)
-  return /HTTP 403/.test(text) && token.trim()
-    ? `${text} Listing data sources needs the datasources:read permission; if the Viewer role lacks it on your Grafana, grant the Data sources Reader role or use an Editor token.`
-    : text
+function listError(error: unknown, mode: TransportMode, token: string): ConnectionProblem {
+  const problem = grafanaProblem(error, mode, "Couldn't list data sources")
+  return /HTTP 403/.test(problem.detail) && token.trim()
+    ? {
+        ...problem,
+        detail: `${problem.detail} Listing data sources needs the datasources:read permission; if the Viewer role lacks it on your Grafana, grant the Data sources Reader role or use an Editor token.`,
+      }
+    : problem
 }
 
 function ConnectFlow({ onDone }: { onDone: () => void }) {
@@ -303,7 +311,7 @@ function ConnectFlow({ onDone }: { onDone: () => void }) {
   const [manual, setManual] = React.useState(Boolean(saved.modeManual))
   const selfHosted = useSelfHosted()
   const [remember, setRemember] = React.useState(saved.rememberToken)
-  const [listing, setListing] = React.useState<{ status: "idle" | "loading" | "done"; latencyMs?: number; error?: string }>({ status: "idle" })
+  const [listing, setListing] = React.useState<{ status: "idle" | "loading" | "done"; latencyMs?: number; error?: ConnectionProblem }>({ status: "idle" })
   const [detection, setDetection] = React.useState<GrafanaDetection | null>(null)
   const [drafts, setDrafts] = React.useState<Record<Signal, ChoiceDraft> | null>(null)
   const [scan, setScan] = React.useState(true)
@@ -561,7 +569,7 @@ function ConnectFlow({ onDone }: { onDone: () => void }) {
                 </span>
               ) : null}
             </div>
-            {listing.error ? <ProblemLine problem={{ kind: "other", title: "Couldn't list data sources", detail: listing.error }} /> : null}
+            {listing.error ? <ProblemLine problem={listing.error} onRetry={() => void list()} /> : null}
           </FieldGroup>
         </form>
 
@@ -610,7 +618,7 @@ function ConnectFlow({ onDone }: { onDone: () => void }) {
         ) : null}
         {(["metrics", "logs"] as const).map((signal) => {
           const status = statuses[signal]
-          return status ? <ApplyLine key={signal} signal={signal} status={status} /> : null
+          return status ? <ApplyLine key={signal} signal={signal} status={status} onRetry={() => void apply()} /> : null
         })}
       </div>
       <DialogFooter className="m-0 rounded-b-xl">

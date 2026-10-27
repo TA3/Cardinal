@@ -1,9 +1,17 @@
 import { testLokiConnection } from "@/lib/sources/loki"
 import { isQueryLimitError, testConnection } from "@/lib/sources/prometheus"
 import { isPrivateHost } from "@/lib/sources/proxy-constants"
-import { CorsError, HttpError, isGrafanaCloudHost, probeReachable, ProxyTokenError, RelayError, supportsLocalNetworkAccess } from "@/lib/sources/transport"
+import {
+  CorsError,
+  HttpError,
+  isGrafanaCloudHost,
+  probeReachable,
+  ProxyConsentError,
+  ProxyTokenError,
+  supportsLocalNetworkAccess,
+} from "@/lib/sources/transport"
 import type { ConnectionSettings } from "@/lib/store/app-store"
-import { useRelayStore } from "@/lib/store/relay-store"
+import { useServerStore } from "@/lib/store/server-store"
 
 // Turns a failed connection test or snapshot into something the user can act
 // on: what went wrong, the likely cause and, where there is one, a fix.
@@ -18,12 +26,7 @@ export type ProblemKind =
   | "timeout"
   | "limit"
   | "private-proxy"
-  | "relay-config"
-  | "relay-mixed-content"
-  | "relay-permission"
-  | "relay-origin"
-  | "relay-token"
-  | "relay-unreachable"
+  | "proxy-consent"
   | "config"
   | "other"
 
@@ -35,8 +38,11 @@ export interface ConnectionProblem {
   snippet?: string
   /** A settings change that likely fixes it. */
   fix?: { label: string; patch: Partial<ConnectionSettings> }
-  /** The way out is somewhere else to connect from: a relay, or Cardinal self-hosted on that network. */
-  help?: "relay"
+  /**
+   * "local": the way out is running Cardinal on that network (the binary or Docker).
+   * "proxy-consent": the hosted proxy would work, but the user hasn't allowed it.
+   */
+  help?: "local" | "proxy-consent"
 }
 
 export const TEST_TIMEOUT_MS = 10_000
@@ -81,59 +87,26 @@ async function statusViaProxy(baseUrl: string, api: BackendApi): Promise<number 
 /** Which API the connection is for: Prometheus (metrics) or Loki (logs). */
 export type BackendApi = "prometheus" | "loki"
 
-/** What went wrong reaching the relay itself (Relay mode), before any backend was asked. */
-export function relayProblem(error: RelayError): ConnectionProblem {
-  const origin = globalThis.location?.origin ?? "http://localhost:5173"
-  const relayHost = hostOf(error.relayUrl)
-  switch (error.kind) {
-    case "not-configured":
-    case "invalid-url":
-      return { kind: "relay-config", title: "Set up the relay first", detail: `${error.message} Settings → Relay takes the relay's URL and the token it printed.`, help: "relay" }
-    case "mixed-content":
-      return {
-        kind: "relay-mixed-content",
-        title: "The browser blocks a plain-http relay from this HTTPS page",
-        detail: `${relayHost} isn't this machine, so the browser treats http:// to it as mixed content. Run the relay on this machine and use http://localhost:9181, or put the relay behind HTTPS (a reverse proxy or a real certificate).`,
-      }
-    case "permission":
-      return {
-        kind: "relay-permission",
-        title: "Local network access is blocked for this site",
-        detail:
-          "The browser asks before a website may reach your network or this machine, and the answer was no. Open the site settings (the icon left of the address bar), allow Local network access, then test again.",
-      }
-    case "origin":
-      return {
-        kind: "relay-origin",
-        title: `The relay doesn't allow ${origin}`,
-        detail: "The relay answered but refused this page's origin. Restart it with this origin allowed:",
-        snippet: `cardinal --origin ${origin}\n# or: docker run -p 9181:9181 -e CARDINAL_ORIGINS=${origin} ghcr.io/ta3/cardinal`,
-      }
-    case "token":
-      return {
-        kind: "relay-token",
-        title: "The relay refused the token",
-        detail: "Copy the relay token the server printed at startup into Settings → Relay. A token generated at startup changes on every restart; set CARDINAL_RELAY_TOKEN to keep one.",
-      }
-    case "unreachable":
-      return {
-        kind: "relay-unreachable",
-        title: `Can't reach the relay at ${relayHost}`,
-        detail:
-          "Check that the relay is running and the URL and port are right. If the browser asked whether this site may access your local network, allow it and test again.",
-      }
-    case "not-cardinal":
-      return { kind: "relay-config", title: `${relayHost} isn't a Cardinal relay`, detail: error.message }
+/** Only the hosted proxy reaches this backend, and the user hasn't allowed it yet. */
+export function proxyConsentProblem(target: string): ConnectionProblem {
+  const host = hostOf(target)
+  return {
+    kind: "proxy-consent",
+    title: isGrafanaCloudHost(target)
+      ? `Grafana Cloud blocks browser requests, so ${host} is only reachable through Cardinal's proxy`
+      : `${host} blocks browser requests, so it is only reachable through Cardinal's proxy`,
+    detail:
+      "The proxy forwards each request, with your token, from Cardinal's servers. Nothing is stored or logged, but it does pass through. To keep everything on your machine, run Cardinal locally instead.",
+    help: "proxy-consent",
   }
 }
 
 export async function diagnose(error: unknown, draft: ConnectionSettings, api: BackendApi = "prometheus"): Promise<ConnectionProblem> {
   const host = hostOf(draft.baseUrl)
   const origin = globalThis.location?.origin ?? "http://localhost:5173"
-  const { server, relay } = useRelayStore.getState()
-  const relaySet = Boolean(relay.url.trim())
+  const { server } = useServerStore.getState()
 
-  if (error instanceof RelayError) return relayProblem(error)
+  if (error instanceof ProxyConsentError) return proxyConsentProblem(error.target)
 
   if (isTimeout(error)) {
     return {
@@ -155,7 +128,8 @@ export async function diagnose(error: unknown, draft: ConnectionSettings, api: B
       return {
         kind: "mixed-content",
         title: "This browser blocks http:// on your network from an https page",
-        detail: "Use Chrome 142 or later (it asks to allow local network access), run a relay, or self-host Cardinal.",
+        detail: "Use Chrome 142 or later (it asks to allow local network access), or run Cardinal on your machine.",
+        help: "local",
       }
     }
     if (target && globalThis.location?.protocol === "https:" && target.protocol === "http:" && !privateHost) {
@@ -186,12 +160,11 @@ export async function diagnose(error: unknown, draft: ConnectionSettings, api: B
     if (privateHost) {
       return {
         kind: "cors",
-        title: `${host} is private: connect through a relay or self-hosted Cardinal`,
-        help: "relay",
+        title: `${host} is private: run Cardinal on your network, or allow this origin`,
+        help: "local",
         detail:
-          "Either route requests through a Cardinal relay on your network (no CORS needed), or allow this origin on the backend: for Prometheus, start it with this flag; for Mimir, Thanos or a reverse proxy, send Access-Control-Allow-Origin for this origin and allow the Authorization and X-Scope-OrgID headers on OPTIONS preflights.",
+          "Either run Cardinal on your machine (it needs no CORS), or allow this origin on the backend: for Prometheus, start it with this flag; for Mimir, Thanos or a reverse proxy, send Access-Control-Allow-Origin for this origin and allow the Authorization and X-Scope-OrgID headers on OPTIONS preflights.",
         snippet: corsFlag(origin),
-        fix: relaySet ? { label: "Use the relay", patch: { mode: "relay" } } : undefined,
       }
     }
     const status = await statusViaProxy(draft.baseUrl, api)
@@ -237,14 +210,12 @@ export async function diagnose(error: unknown, draft: ConnectionSettings, api: B
       case "private":
         return {
           kind: "private-proxy",
-          title: `${host} is private: connect through a relay or self-hosted Cardinal`,
-          help: "relay",
-          detail: `${host} is on a private network. Route requests through a Cardinal relay on that network (Settings → Relay), or call it directly and allow this origin on the backend (for Prometheus, the flag below).`,
+          title: `${host} is private: run Cardinal on your network, or call it directly`,
+          help: "local",
+          detail: `${host} is on a private network, which Cardinal's hosted proxy can't reach. Run Cardinal on your machine, or call it directly and allow this origin on the backend (for Prometheus, the flag below).`,
           snippet: corsFlag(origin),
-          fix: relaySet ? { label: "Use the relay", patch: { mode: "relay" } } : { label: "Use direct mode", patch: { mode: "direct" } },
+          fix: { label: "Use direct mode", patch: { mode: "direct" } },
         }
-      case "relay-token":
-        return relayProblem(new RelayError("token", relay.url))
       case "host":
         return {
           kind: "other",
@@ -269,10 +240,9 @@ export async function diagnose(error: unknown, draft: ConnectionSettings, api: B
         kind: "auth",
         title: error.status === 401 ? "Credentials rejected (HTTP 401)" : "Not allowed (HTTP 403)",
         detail: error.message.replace(/^Authentication failed \(HTTP \d+\)\. /, ""),
-        fix:
-          draft.authMode === "none" && isGrafanaCloudHost(draft.baseUrl)
-            ? { label: "Use Grafana Cloud auth", patch: { authMode: "grafana-cloud", mode: "proxy" } }
-            : undefined,
+        ...(draft.authMode === "none" && isGrafanaCloudHost(draft.baseUrl)
+          ? { detail: "Grafana Cloud needs credentials: enter the stack's instance ID and an access policy token." }
+          : {}),
       }
     }
     if (error.status === 404 && api === "loki") {

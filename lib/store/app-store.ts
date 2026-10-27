@@ -25,7 +25,7 @@ import {
   type RuleStatus,
 } from "@/lib/core/rules"
 import type { SnapshotProgress } from "@/lib/sources/prometheus"
-import { inferAuthMode, type AuthMode, type Connection, type TransportMode } from "@/lib/sources/transport"
+import { configureProxyConsent, inferAuthMode, type AuthMode, type Connection, type TransportMode } from "@/lib/sources/transport"
 import type { Snapshot } from "@/lib/core/snapshot"
 import { DEFAULT_ATTRIBUTION, migrateTeamsToAttribution, type AttributionSettings } from "@/lib/core/attribution"
 import { createOwner, type Owner } from "@/lib/core/owner-rules"
@@ -180,6 +180,9 @@ interface AppState {
   agentPaused: boolean
   /** When false, get_label_values refuses to share label values with the agent. */
   agentShareLabelValues: boolean
+  /** The user allowed the hosted Cardinal proxy, which sees tokens and queries in transit. Persisted. */
+  proxyConsent: boolean
+  setProxyConsent: (allowed: boolean) => void
   /** Propose cuts rated safe as soon as they are found (they still wait in Rules for review). Persisted. */
   autopilot: boolean
   setAutopilot: (autopilot: boolean) => void
@@ -331,6 +334,24 @@ function previousLogsFor(
 export const PERSIST_KEY = "cardinal.state.v2"
 /** Before v8 the Grafana connection had its own store (the usage scan's). */
 const LEGACY_GRAFANA_KEY = "cardinal.grafana.v1"
+
+const PROXY_CONSENT_INFERRED_KEY = "cardinal.proxyConsent.inferred"
+
+function proxyConsentInferred() {
+  try {
+    return localStorage.getItem(PROXY_CONSENT_INFERRED_KEY) === "1"
+  } catch {
+    return false
+  }
+}
+
+function markProxyConsentInferred() {
+  try {
+    localStorage.setItem(PROXY_CONSENT_INFERRED_KEY, "1")
+  } catch {
+    // private mode: inferring again next time is harmless
+  }
+}
 
 function bareUrl(url: string) {
   return url.trim().replace(/\/+$/, "")
@@ -554,6 +575,7 @@ type PersistedState = Partial<
     | "relabelMode"
     | "tokenExpected"
     | "agentShareLabelValues"
+    | "proxyConsent"
     | "autopilot"
     | "setupDismissed"
     | "attribution"
@@ -608,7 +630,8 @@ export const useAppStore = create<AppState>()(
       agentStatus: "idle",
       agentActivity: [],
       agentPaused: false,
-      agentShareLabelValues: true,
+      agentShareLabelValues: false,
+      proxyConsent: false,
       autopilot: false,
       setupDismissed: false,
       snapshotProgress: null,
@@ -654,7 +677,8 @@ export const useAppStore = create<AppState>()(
           tokenExpected: false,
           authError: false,
           snapshotProgress: null,
-          agentShareLabelValues: true,
+          agentShareLabelValues: false,
+          proxyConsent: false,
           autopilot: false,
           setupDismissed: false,
           attribution: DEFAULT_ATTRIBUTION,
@@ -742,6 +766,7 @@ export const useAppStore = create<AppState>()(
       setAgentPaused: (agentPaused) => set({ agentPaused }),
       setAutopilot: (autopilot) => set({ autopilot }),
       setSetupDismissed: (setupDismissed) => set({ setupDismissed }),
+      setProxyConsent: (proxyConsent) => set({ proxyConsent }),
       setAgentShareLabelValues: (agentShareLabelValues) => set({ agentShareLabelValues }),
       setSnapshotProgress: (snapshotProgress) => set({ snapshotProgress }),
 
@@ -911,7 +936,7 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: PERSIST_KEY,
-      version: 9,
+      version: 11,
       storage: createJSONStorage(() => safeLocalStorage),
       partialize: (state): PersistedState => ({
         settings: state.settings.rememberToken ? state.settings : { ...state.settings, token: "" },
@@ -922,6 +947,7 @@ export const useAppStore = create<AppState>()(
         relabelMode: state.relabelMode,
         tokenExpected: state.tokenExpected,
         agentShareLabelValues: state.agentShareLabelValues,
+        proxyConsent: state.proxyConsent,
         autopilot: state.autopilot,
         setupDismissed: state.setupDismissed,
         attribution: state.attribution,
@@ -1006,19 +1032,49 @@ export const useAppStore = create<AppState>()(
         const grafanaSettings = version < 8 ? (rest.grafanaSettings ?? loadLegacyGrafana() ?? undefined) : rest.grafanaSettings
         if (version < 8) safeLocalStorage.removeItem(LEGACY_GRAFANA_KEY)
         // v9 made merging label drops a choice (onMerge): Adaptive Metrics proposals were always aggregations.
+        // v10 asks before using the hosted proxy: a connection that already worked through it counts as allowed.
+        // Inferred once per browser, so a tab still on the old version can't grant it again after a revoke.
+        // v10 also stops sharing label values with agents until the user turns it on.
+        let proxyConsent = rest.proxyConsent
+        if (version < 10 && proxyConsent === undefined && !proxyConsentInferred()) {
+          const viaProxy = (connection: { mode?: TransportMode; baseUrl?: string } | undefined) =>
+            connection?.mode === "proxy" && Boolean(connection.baseUrl?.trim())
+          proxyConsent =
+            (viaProxy(settings) && Boolean(persisted.snapshot)) ||
+            (viaProxy(persisted.logsSettings) && Boolean(persisted.logsSnapshot)) ||
+            (viaProxy(grafanaSettings) && Boolean(rest.grafanaLinks && Object.keys(rest.grafanaLinks).length))
+          markProxyConsentInferred()
+        }
+        // v11 removed Relay mode: those connections go back to the automatic route.
+        const withoutRelay = <T extends { mode?: string; modeManual?: boolean }>(connection: T | undefined): T | undefined =>
+          connection && (connection.mode as string) === "relay" ? { ...connection, mode: "direct", modeManual: false } : connection
         return {
           ...rest,
-          settings,
+          settings: withoutRelay(settings),
+          ...(rest.logsSettings ? { logsSettings: withoutRelay(rest.logsSettings) } : {}),
           snapshot: migrateSnapshot(persisted.snapshot),
           rules: migrateRules(persisted.rules, version),
           ...(logRules ? { logRules } : {}),
           ...(attribution ? { attribution } : {}),
-          ...(grafanaSettings ? { grafanaSettings } : {}),
+          ...(grafanaSettings ? { grafanaSettings: withoutRelay(grafanaSettings) } : {}),
+          ...(proxyConsent !== undefined ? { proxyConsent } : {}),
+          ...(version < 10 ? { agentShareLabelValues: false } : {}),
         }
       },
     }
   )
 )
+
+/** Logs data to show: a logs connection, or a snapshot pasted without one. */
+export function selectHasLogs(state: Pick<AppState, "logsSettings" | "logsSnapshot">) {
+  return Boolean(state.logsSettings.baseUrl.trim() || state.logsSnapshot?.imported)
+}
+
+// The transport refuses the hosted proxy until the user allows it.
+configureProxyConsent(useAppStore.getState().proxyConsent)
+useAppStore.subscribe((state, previous) => {
+  if (state.proxyConsent !== previous.proxyConsent) configureProxyConsent(state.proxyConsent)
+})
 
 // Another tab changed the saved state: pick it up instead of overwriting it later.
 if (typeof window !== "undefined") {

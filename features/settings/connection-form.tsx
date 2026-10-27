@@ -4,35 +4,24 @@ import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
 import { InfoTip } from "@/components/info-tip"
-import { SegmentedControl } from "@/components/segmented-control"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
-import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
+import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Progress } from "@/components/ui/progress"
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 import { diagnose, TEST_TIMEOUT_MS, type ConnectionProblem } from "@/features/settings/connection-check"
 import { PickFromGrafana, type PickedDatasource } from "@/features/settings/pick-from-grafana"
-import { privateHostHint, RouteField } from "@/features/relay/transport-mode-field"
+import { privateHostHint, RouteField } from "@/features/settings/route-field"
 import { routeLabel, withAutoMode } from "@/features/settings/auto-mode"
 import { ProblemLine } from "@/features/settings/problem-line"
 import type { Signal } from "@/lib/core/signals"
 import { fetchLogsSnapshot, testLokiConnection, type LokiCheck } from "@/lib/sources/loki"
 import { fetchSnapshot, testConnection, type ConnectionCheck } from "@/lib/sources/prometheus"
-import { isGrafanaCloudHost, type AuthMode } from "@/lib/sources/transport"
+import { inferAuthMode, isGrafanaCloudHost, type AuthMode } from "@/lib/sources/transport"
 import { currentConnection, useAppStore, type ConnectionSettings } from "@/lib/store/app-store"
-import { useSelfHosted } from "@/lib/store/relay-store"
-
-export function authOptions(signal: Signal): Array<{ value: AuthMode; label: string }> {
-  return [
-    { value: "none", label: "None" },
-    { value: "basic", label: "Basic" },
-    { value: "bearer", label: "Bearer" },
-    { value: "grafana-cloud", label: "Grafana Cloud" },
-    { value: "mimir", label: signal === "logs" ? "Tenant" : "Mimir tenant" },
-  ]
-}
+import { useSelfHosted } from "@/lib/store/server-store"
 
 /** Per-signal wording of the connection form. */
 const COPY = {
@@ -40,17 +29,13 @@ const COPY = {
     urlLabel: "Prometheus URL",
     placeholder: "https://prometheus-prod-01-eu-west-0.grafana.net/api/prom",
     urlHelp: "Any Prometheus-compatible query API: Prometheus, Mimir, Thanos or Grafana Cloud.",
-    noneHelp: "No credentials: an open Prometheus, or one protected by your network or a login in front of it.",
-    basicHelp: "HTTP Basic auth, as set in Prometheus' web config or a reverse proxy.",
-    cloudHelp: "Basic auth with the stack's instance ID and an access policy token (Stack → Prometheus → Details).",
+    cloudHelp: "The instance ID and an access policy token, from Stack → Prometheus → Details.",
   },
   logs: {
     urlLabel: "Loki URL",
     placeholder: "https://logs-prod-012.grafana.net",
     urlHelp: "The Loki root (it serves /loki/api/v1), Grafana Cloud Logs, or a Grafana data source proxy URL.",
-    noneHelp: "No credentials: an open Loki, or one protected by your network, or an anonymous Grafana data source proxy.",
-    basicHelp: "HTTP Basic auth, as set on a gateway or reverse proxy in front of Loki.",
-    cloudHelp: "Basic auth with the stack's Loki user ID and an access policy token (Stack → Loki → Details).",
+    cloudHelp: "The Loki user ID and an access policy token, from Stack → Loki → Details.",
   },
 } as const
 
@@ -160,9 +145,13 @@ export function ConnectionForm({
   const [phase, setPhase] = React.useState<"idle" | "testing" | "analyzing">("idle")
   const [problem, setProblem] = React.useState<ConnectionProblem | null>(null)
   const [check, setCheck] = React.useState<Check | null>(null)
-  const [advanced, setAdvanced] = React.useState(Boolean(saved.modeManual))
+  const [advanced, setAdvanced] = React.useState(Boolean(saved.modeManual || saved.tenant?.trim()))
+  // How credentials are sent follows from the fields filled in (inferAuthMode), so the form never asks.
   const set = (patch: Partial<ConnectionSettings>) => {
-    setDraft((current) => ({ ...current, ...patch }))
+    setDraft((current) => {
+      const next = { ...current, ...patch }
+      return "baseUrl" in patch || "instanceId" in patch || "token" in patch || "tenant" in patch ? { ...next, authMode: inferAuthMode(next) } : next
+    })
     setCheck(null)
   }
 
@@ -197,7 +186,9 @@ export function ConnectionForm({
     return settings
   }
 
+  const lastRun = React.useRef(false)
   async function run(analyze: boolean) {
+    lastRun.current = analyze
     const api = signal === "logs" ? "loki" : "prometheus"
     setProblem(null)
     setCheck(null)
@@ -265,18 +256,14 @@ export function ConnectionForm({
     toast.success(`Picked ${name}`, { description: "Test the connection, then save." })
   }
 
-  const usesUser = draft.authMode === "basic" || draft.authMode === "grafana-cloud" || draft.authMode === "mimir"
-  const usesToken = draft.authMode !== "none"
-  const authHelp =
-    draft.authMode === "none"
-      ? copy.noneHelp
-      : draft.authMode === "basic"
-        ? copy.basicHelp
-        : draft.authMode === "bearer"
-          ? "Sent as Authorization: Bearer <token>."
-          : draft.authMode === "grafana-cloud"
-            ? copy.cloudHelp
-            : "Sends the tenant as X-Scope-OrgID. With a username the password goes as Basic auth; with only a token, as Bearer."
+  const cloudAuth = cloud && draft.authMode !== "mimir"
+  const authSummary: Record<AuthMode, string> = {
+    none: "Nothing is sent. Leave both empty for an open backend, or one behind your network.",
+    basic: "Sent as HTTP Basic auth.",
+    bearer: "Sent as Authorization: Bearer <token>.",
+    "grafana-cloud": copy.cloudHelp,
+    mimir: "The tenant goes as X-Scope-OrgID; a username sends Basic auth, a lone token Bearer.",
+  }
   const hint =
     manual === "direct" && cloud
       ? "Grafana Cloud blocks browser requests: use Auto or Proxy."
@@ -307,60 +294,27 @@ export function ConnectionForm({
             placeholder={copy.placeholder}
             value={draft.baseUrl}
             autoComplete="url"
-            onChange={(event) => {
-              const baseUrl = event.target.value
-              // Pasting a Grafana Cloud URL picks its auth mode.
-              const becameCloud = isGrafanaCloudHost(baseUrl) && !isGrafanaCloudHost(draft.baseUrl)
-              set(
-                becameCloud
-                  ? { baseUrl, authMode: draft.authMode === "none" || draft.authMode === "basic" ? "grafana-cloud" : draft.authMode }
-                  : { baseUrl }
-              )
-            }}
+            onChange={(event) => set({ baseUrl: event.target.value })}
           />
         </Field>
 
         <Field>
-          <FieldLabel id={id("auth-mode-label")} className="gap-1">
-            Authentication
-            <InfoTip label="About this auth mode">{authHelp}</InfoTip>
-          </FieldLabel>
-          <div className="min-w-0">
-            <SegmentedControl aria-label="Authentication" value={draft.authMode} onValueChange={(authMode) => set({ authMode })} options={authOptions(signal)} />
-          </div>
-        </Field>
-
-        {draft.authMode === "mimir" ? (
-          <Field>
-            <FieldLabel htmlFor={id("tenant")}>Tenant ID (X-Scope-OrgID)</FieldLabel>
-            <Input id={id("tenant")} placeholder="e.g. team-a" value={draft.tenant} onChange={(event) => set({ tenant: event.target.value })} />
-          </Field>
-        ) : null}
-
-        {usesToken ? (
-          <div className={usesUser ? "grid gap-4 sm:grid-cols-2" : "grid gap-4"}>
-            {usesUser ? (
-              <Field>
-                <FieldLabel htmlFor={id("instance-id")}>{draft.authMode === "grafana-cloud" ? "Instance ID" : "Username"}</FieldLabel>
-                <Input
-                  id={id("instance-id")}
-                  inputMode={draft.authMode === "grafana-cloud" ? "numeric" : undefined}
-                  placeholder={draft.authMode === "grafana-cloud" ? "123456" : draft.authMode === "mimir" ? "Optional" : "Username"}
-                  value={draft.instanceId}
-                  onChange={(event) => set({ instanceId: event.target.value })}
-                />
-              </Field>
-            ) : null}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field>
+              <FieldLabel htmlFor={id("instance-id")}>{cloudAuth ? (signal === "logs" ? "User ID" : "Instance ID") : "Username"}</FieldLabel>
+              <Input
+                id={id("instance-id")}
+                inputMode={cloudAuth ? "numeric" : undefined}
+                placeholder={cloudAuth ? "123456" : "Optional"}
+                autoComplete="off"
+                value={draft.instanceId}
+                onChange={(event) => set({ instanceId: event.target.value })}
+              />
+            </Field>
             <Field>
               <FieldLabel htmlFor={id("token")} className="gap-1">
-                {draft.authMode === "basic"
-                  ? "Password"
-                  : draft.authMode === "grafana-cloud"
-                    ? "Access policy token"
-                    : draft.authMode === "mimir"
-                      ? "Password or token"
-                      : "Token"}
-                {draft.authMode === "grafana-cloud" ? (
+                {cloudAuth ? "Access policy token" : "Password or token"}
+                {cloudAuth ? (
                   <InfoTip label="Scopes the token needs">
                     <ul className="flex flex-col gap-1">
                       {(signal === "logs" ? GRAFANA_LOGS_SCOPES : GRAFANA_SCOPES).map((item) => (
@@ -375,15 +329,16 @@ export function ConnectionForm({
               </FieldLabel>
               <PasswordInput
                 id={id("token")}
-                placeholder={draft.authMode === "grafana-cloud" ? "glc_…" : draft.authMode === "mimir" ? "Optional" : undefined}
+                placeholder={cloudAuth ? "glc_…" : "Optional"}
                 value={draft.token}
                 onChange={(event) => set({ token: event.target.value })}
               />
             </Field>
           </div>
-        ) : null}
+          <FieldDescription>{authSummary[draft.authMode]}</FieldDescription>
+        </Field>
 
-        {usesToken ? (
+        {draft.token.trim() || draft.instanceId.trim() ? (
           <Field orientation="horizontal">
             <FieldLabel htmlFor={id("remember")} className="font-normal" title="Off keeps the token in memory until you close the tab.">
               Remember token on this device
@@ -398,7 +353,16 @@ export function ConnectionForm({
             Advanced
             {manual ? <span className="font-normal">· {manual === "proxy" && selfHosted ? "this server" : manual}</span> : null}
           </CollapsibleTrigger>
-          <CollapsibleContent className="pt-3">
+          <CollapsibleContent className="flex flex-col gap-4 pt-3">
+            <Field>
+              <FieldLabel htmlFor={id("tenant")} className="gap-1">
+                Tenant
+                <InfoTip label="When is this needed?">
+                  Multi-tenant Mimir, Cortex or Loki: the tenant ID, sent as X-Scope-OrgID. Leave it empty otherwise.
+                </InfoTip>
+              </FieldLabel>
+              <Input id={id("tenant")} placeholder="Optional, e.g. team-a" value={draft.tenant} onChange={(event) => set({ tenant: event.target.value })} />
+            </Field>
             <RouteField
               id={id("mode")}
               value={manual ?? "auto"}
@@ -415,7 +379,7 @@ export function ConnectionForm({
           </p>
         ) : null}
 
-        {problem ? <ProblemLine problem={problem} onFix={applyFix} /> : null}
+        {problem ? <ProblemLine problem={problem} onFix={applyFix} onRetry={() => void run(lastRun.current)} /> : null}
         {check && !problem ? <CheckResult result={check} route={routeLabel(draft.mode, selfHosted)} /> : null}
         {phase === "analyzing" ? <SnapshotProgressLine signal={signal} /> : null}
 

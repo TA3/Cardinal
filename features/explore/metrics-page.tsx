@@ -17,6 +17,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 import type { DropScope } from "@/features/explore/drop-scope"
 import { MetricsTable } from "@/features/explore/metrics-table"
+import { ExploreViews } from "@/features/explore/explore-views"
 import { connectionKey, useConnection } from "@/hooks/use-cardinality"
 import { formatNumber } from "@/lib/cardinality/dashboard-helpers"
 import { jobFromParam, jobLabel, jobToParam } from "@/lib/core/jobs"
@@ -99,6 +100,7 @@ function MetricsExplorer({ snapshot }: { snapshot: Snapshot }) {
   return (
     <Page>
       <PageHeader
+        eyebrow={<ExploreViews />}
         title="Metrics"
         description={`${formatNumber(snapshot.metricCount)} metrics, sorted by active series. Open one to see which labels drive its cardinality.`}
       />

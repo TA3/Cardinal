@@ -43,6 +43,7 @@ import {
 import { HistogramDetail } from "@/features/histograms/histogram-detail"
 import { useHistogramAnalysis } from "@/features/histograms/use-histograms"
 import { Term } from "@/features/rules/term"
+import { ExploreViews } from "@/features/explore/explore-views"
 import { formatDelta, formatNumber } from "@/lib/cardinality/dashboard-helpers"
 import {
   nativeSavings,
@@ -302,6 +303,7 @@ function HistogramsView({ snapshot }: { snapshot: Snapshot }) {
   return (
     <Page>
       <PageHeader
+        eyebrow={<ExploreViews />}
         title="Histograms"
         status={
           data ? `${formatNumber(families.length)} classic families` : undefined

@@ -1,8 +1,5 @@
 import * as React from "react"
 import {
-  ArrowsClockwiseIcon,
-  BriefcaseIcon,
-  ChartBarHorizontalIcon,
   ChartBarIcon,
   FingerprintIcon,
   HardDrivesIcon,
@@ -35,16 +32,15 @@ interface Tab {
   icon: Icon
   /** Active only on this exact path (a signal's overview). */
   exact?: boolean
+  /** Other sections this tab stands for (Explore's Jobs, Churn and Histograms views). */
+  also?: string[]
 }
 
 // What you look at, per signal; then what you do about it, shared by every signal.
 const SIGNAL_TABS: Record<Signal, Tab[]> = {
   metrics: [
     { to: paths.overview, label: "Overview", icon: ChartBarIcon, exact: true },
-    { to: paths.explore, label: "Explore", icon: ListBulletsIcon },
-    { to: paths.jobs, label: "Jobs", icon: BriefcaseIcon },
-    { to: paths.churn, label: "Churn", icon: ArrowsClockwiseIcon },
-    { to: paths.histograms, label: "Histograms", icon: ChartBarHorizontalIcon },
+    { to: paths.explore, label: "Explore", icon: ListBulletsIcon, also: [paths.jobs, paths.churn, paths.histograms] },
   ],
   logs: [
     { to: paths.logs, label: "Overview", icon: ChartBarIcon, exact: true },
@@ -65,7 +61,8 @@ const SHARED_TABS: Tab[] = [
 ]
 
 function isActive(pathname: string, tab: Tab) {
-  return tab.exact ? pathname === tab.to : pathname === tab.to || pathname.startsWith(`${tab.to}/`)
+  if (tab.exact) return pathname === tab.to
+  return [tab.to, ...(tab.also ?? [])].some((to) => pathname === to || pathname.startsWith(`${to}/`))
 }
 
 function TabBadge({ tab, active }: { tab: Tab; active: boolean }) {

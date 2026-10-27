@@ -3,6 +3,7 @@ import {
   BrowserIcon,
   CaretDownIcon,
   CaretRightIcon,
+  ClipboardTextIcon,
   CloudIcon,
   CurrencyDollarIcon,
   GearSixIcon,
@@ -45,10 +46,10 @@ import { DataSourceCard } from "@/features/settings/data-source-card"
 import { LogsPriceField } from "@/features/settings/logs-connection-section"
 import { AttributionSection } from "@/features/attribution/attribution-settings"
 import { GrafanaSection } from "@/features/grafana/grafana-section"
-import { RelaySection } from "@/features/relay/relay-section"
 import { RuleDestinationSection } from "@/features/rules/destination"
 import { endAgentSession } from "@/hooks/use-agent-bridge"
 import { useAppStore } from "@/lib/store/app-store"
+import { useSelfHosted } from "@/lib/store/server-store"
 
 /** Grafana Cloud Pro list price for metrics, per 1,000 active series per month (first volume tier). */
 const GRAFANA_CLOUD_PRICE = 6.5
@@ -74,6 +75,11 @@ const PRIVACY_FACTS = [
     text: "Kept only in this browser: in local storage with “Remember token” on, otherwise in memory until the tab closes.",
   },
   {
+    icon: ClipboardTextIcon,
+    title: "No credentials",
+    text: "Paste one query result under Metrics and upload dashboard or rule files under Grafana. They are read in this browser; nothing else is asked for.",
+  },
+  {
     icon: BrowserIcon,
     title: "Direct mode",
     text: "The browser calls your backend itself. Cardinal's servers never see the requests or the token.",
@@ -81,29 +87,45 @@ const PRIVACY_FACTS = [
   {
     icon: CloudIcon,
     title: "Proxy mode",
-    text: "Requests, with the token, pass through the Cardinal Worker to reach backends without CORS. They are forwarded, never stored or logged.",
+    text: "Only once you allow it: requests, with the token, pass through the Cardinal Worker to reach backends without CORS, such as Grafana Cloud. They are forwarded, never stored or logged.",
   },
   {
     icon: NetworkIcon,
-    title: "Relay mode",
-    text: "Requests go from this browser to your own Cardinal server, which forwards them to backends on its network. Cardinal's servers never see them.",
+    title: "Run it on your machine",
+    text: "The cardinal binary or Docker image serves the app and its proxy from your machine, so backends on your network work and Cardinal's servers never see a request.",
   },
   {
     icon: RobotIcon,
     title: "Agent sessions",
-    text: "Tool calls run in this tab, so the agent never gets your token. Their results (metric, job and label names, series counts and, if allowed, label values) go to the agent and the LLM behind it.",
+    text: "Tool calls run in this tab, so the agent never gets your token. Their results (metric, job and label names, series counts and, once you allow it, label values) go to the agent and the LLM behind it.",
   },
 ]
 
 function PrivacySection() {
   const share = useAppStore((state) => state.agentShareLabelValues)
   const setShare = useAppStore((state) => state.setAgentShareLabelValues)
+  const proxyConsent = useAppStore((state) => state.proxyConsent)
+  const setProxyConsent = useAppStore((state) => state.setProxyConsent)
+  const selfHosted = useSelfHosted()
   return (
     <Card id="privacy" className="scroll-mt-32">
       <CardHeader>
         <SectionTitle icon={ShieldCheckIcon}>Privacy</SectionTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
+        {selfHosted ? null : (
+          <Field orientation="horizontal">
+            <FieldLabel htmlFor="proxy-consent" className="gap-1">
+              Allow Cardinal's proxy
+              <InfoTip label="What does this change?">
+                Grafana Cloud and other backends without CORS can only be reached from this page through Cardinal's servers, which forward
+                each request with your token. Off: those requests are never sent. To keep everything on your machine, run Cardinal locally
+                or upload exported files instead.
+              </InfoTip>
+            </FieldLabel>
+            <Switch id="proxy-consent" checked={proxyConsent} onCheckedChange={setProxyConsent} />
+          </Field>
+        )}
         <Field orientation="horizontal">
           <FieldLabel htmlFor="share-label-values" className="gap-1">
             Share label values with agents
@@ -304,7 +326,7 @@ function ResetSection() {
 }
 
 /** Sections under Advanced; a link to one of them opens it. */
-const ADVANCED_IDS = ["relay", "attribution", "privacy", "appearance", "reset"]
+const ADVANCED_IDS = ["attribution", "appearance", "reset"]
 
 function AdvancedSection({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   return (
@@ -312,13 +334,11 @@ function AdvancedSection({ open, onOpenChange }: { open: boolean; onOpenChange: 
       <CollapsibleTrigger className="group/advanced flex w-full items-center gap-2 rounded-2xl border border-well-border bg-well px-4 py-3 text-left outline-none transition-colors [corner-shape:squircle] hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50">
         <GearSixIcon className="size-4 text-muted-foreground" />
         <span className="text-sm font-medium">Advanced</span>
-        <span className="min-w-0 truncate text-xs text-muted-foreground">Relay · Attribution · Privacy · Appearance · Reset</span>
+        <span className="min-w-0 truncate text-xs text-muted-foreground">Attribution · Appearance · Reset</span>
         <CaretDownIcon className="ml-auto size-4 shrink-0 text-muted-foreground transition-transform group-data-[state=closed]/advanced:-rotate-90 motion-reduce:transition-none" />
       </CollapsibleTrigger>
       <CollapsibleContent className="flex flex-col gap-4">
-        <RelaySection />
         <AttributionSection />
-        <PrivacySection />
         <AppearanceSection />
         <ResetSection />
       </CollapsibleContent>
@@ -339,7 +359,7 @@ export function SettingsPage() {
     setLastKey(key)
     if (ADVANCED_IDS.includes(target)) setAdvanced(true)
   }
-  // Deep links (#relay, #pricing, …): scroll once the section is rendered.
+  // Deep links (#pricing, #attribution, …): scroll once the section is rendered.
   React.useEffect(() => {
     if (!target) return
     const frame = requestAnimationFrame(() => document.getElementById(target)?.scrollIntoView({ block: "start" }))
@@ -353,6 +373,7 @@ export function SettingsPage() {
       <GrafanaSection />
       <DataSourceCard signal="metrics" />
       <DataSourceCard signal="logs" />
+      <PrivacySection />
       <SectionHeading>Savings</SectionHeading>
       <PricingSection />
       <RuleDestinationSection />

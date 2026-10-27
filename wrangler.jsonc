@@ -35,5 +35,9 @@
   // Set it with `wrangler secret put PROXY_SECRET` in production and as
   // PROXY_SECRET=<random string> in .dev.vars locally. Without it each isolate
   // uses a random key, so tokens break across isolates and clients re-fetch.
-  "observability": { "enabled": true }
+  // Invocation logs record each request's URL and headers, which for /api/proxy
+  // means PromQL, label values and the backend's Authorization header, and for
+  // /mcp/:token the agent token. Keep them off; only exceptions and explicit
+  // console output (there is none in the request path) are kept.
+  "observability": { "enabled": true, "logs": { "invocation_logs": false } }
 }

@@ -21,20 +21,23 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { hostOf, useGrafanaLink } from "@/features/grafana/via-grafana"
-import { routeLabel } from "@/features/settings/auto-mode"
+import { routeLabel, routePrivacy } from "@/features/settings/auto-mode"
 import { ConnectionForm } from "@/features/settings/connection-form"
+import { ImportLogsDialog } from "@/features/logs/import-logs-dialog"
+import { ImportSnapshotDialog } from "@/features/settings/import-snapshot-dialog"
 import { useBackendProfile, useNeedsTokenFor } from "@/hooks/use-cardinality"
 import { BACKEND_NAMES } from "@/lib/core/backend-profile"
 import type { Signal } from "@/lib/core/signals"
 import { hasAdaptiveLogs } from "@/lib/sources/adaptive-logs"
 import { currentConnection, useAppStore } from "@/lib/store/app-store"
-import { useSelfHosted } from "@/lib/store/relay-store"
+import { useSelfHosted } from "@/lib/store/server-store"
 import { cn } from "@/lib/utils"
 
-type Status = "connected" | "token" | "error" | "none"
+type Status = "connected" | "imported" | "token" | "error" | "none"
 
 const STATUS: Record<Status, { label: string; className: string }> = {
   connected: { label: "Connected", className: "border-brand/30 text-brand-ink" },
+  imported: { label: "Pasted snapshot", className: "border-brand/30 text-brand-ink" },
   token: { label: "Token needed", className: "border-amber-500/40 text-amber-700 dark:text-amber-400" },
   error: { label: "Credentials rejected", className: "border-destructive/40 text-destructive" },
   none: { label: "Not connected", className: "text-muted-foreground" },
@@ -58,8 +61,8 @@ function useBackendName(signal: Signal) {
   return connection && hasAdaptiveLogs(connection) ? "Grafana Cloud Logs" : "Loki"
 }
 
-function Fact({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <span className={cn("inline-flex min-w-0 items-center rounded-full border border-well-border bg-background/60 px-2 py-0.5 text-xs text-muted-foreground", className)}>{children}</span>
+function Fact({ children, className, title }: { children: React.ReactNode; className?: string; title?: string }) {
+  return <span title={title} className={cn("inline-flex min-w-0 items-center rounded-full border border-well-border bg-background/60 px-2 py-0.5 text-xs text-muted-foreground", className)}>{children}</span>
 }
 
 function DisconnectButton({ signal, name }: { signal: Signal; name: string }) {
@@ -119,7 +122,8 @@ export function DataSourceCard({ signal }: { signal: Signal }) {
   const { hash } = useLocation()
   const [editing, setEditing] = React.useState(hash === `#${cardId}`)
 
-  const status: Status = !connected ? "none" : authError ? "error" : locked ? "token" : "connected"
+  const imported = useAppStore((state) => (signal === "logs" ? Boolean(state.logsSnapshot?.imported) : state.snapshot?.method === "import"))
+  const status: Status = !connected ? (imported ? "imported" : "none") : authError ? "error" : locked ? "token" : "connected"
   const Icon = signal === "logs" ? ScrollIcon : ChartBarIcon
   const route = link ? null : routeLabel(settings.mode, selfHosted)
   const showForm = editing || status === "token"
@@ -144,7 +148,7 @@ export function DataSourceCard({ signal }: { signal: Signal }) {
               </span>
               <Fact>{backend}</Fact>
               {link ? <Fact className="text-brand-ink">via Grafana · {link.name}</Fact> : null}
-              {route ? <Fact>{route}</Fact> : null}
+              {route ? <Fact title={routePrivacy(settings.mode, selfHosted)}>{route}</Fact> : null}
             </div>
             <div className="flex shrink-0 flex-wrap gap-1.5">
               {link ? (
@@ -165,9 +169,14 @@ export function DataSourceCard({ signal }: { signal: Signal }) {
         ) : !showForm ? (
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-sm text-muted-foreground">
-              {signal === "logs" ? "Loki, or Grafana Cloud Logs." : "Prometheus, Mimir or Grafana Cloud Metrics."}
+              {imported
+                ? "A pasted query result, kept in this browser. Connect for drilldowns and impact checks."
+                : signal === "logs"
+                  ? "Loki, or Grafana Cloud Logs."
+                  : "Prometheus, Mimir or Grafana Cloud Metrics."}
             </p>
             <div className="flex shrink-0 flex-wrap gap-1.5">
+              {signal === "metrics" ? <ImportSnapshotDialog /> : <ImportLogsDialog />}
               <Button type="button" variant="outline" size="sm" onClick={openGrafanaConnect}>
                 <PlugsConnectedIcon data-icon="inline-start" />
                 Via Grafana

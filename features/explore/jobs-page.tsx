@@ -13,6 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { CURSOR_ROW_CLASS, useRowCursor } from "@/components/use-row-cursor"
 import { OwnerBadge } from "@/features/attribution/owner-badge"
 import { useJobOwners } from "@/features/attribution/use-attribution"
+import { ExploreViews } from "@/features/explore/explore-views"
 import { formatNumber } from "@/lib/cardinality/dashboard-helpers"
 import { jobLabel } from "@/lib/core/jobs"
 import type { Snapshot } from "@/lib/core/snapshot"
@@ -36,7 +37,7 @@ function JobsList({ snapshot }: { snapshot: Snapshot }) {
   if (snapshot.jobs.length === 0) {
     return (
       <Page>
-        <PageHeader title="Jobs" description="Scrape jobs by the active series they produce." />
+        <PageHeader eyebrow={<ExploreViews />} title="Jobs" description="Scrape jobs by the active series they produce." />
         <EmptyState
           framed
           icon={BriefcaseIcon}
@@ -49,7 +50,7 @@ function JobsList({ snapshot }: { snapshot: Snapshot }) {
 
   return (
     <Page>
-      <PageHeader title="Jobs" description="Scrape jobs by the active series they produce. A job is usually one exporter or service." />
+      <PageHeader eyebrow={<ExploreViews />} title="Jobs" description="Scrape jobs by the active series they produce. A job is usually one exporter or service." />
       <InputGroup className="sm:max-w-sm">
         <InputGroupInput placeholder="Filter jobs…" aria-label="Filter jobs" value={query} onChange={(event) => setQuery(event.target.value)} />
         <InputGroupAddon>

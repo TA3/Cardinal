@@ -4,8 +4,10 @@
   <p><strong>Find and cut cardinality in Prometheus and Loki.</strong></p>
   <p>
     <a href="https://cardinal.ta3.dev">Open the app</a> ·
+    <a href="#privacy">Privacy</a> ·
+    <a href="#run-it-on-your-machine">Run it on your machine</a> ·
     <a href="#self-host">Self-host</a> ·
-    <a href="#run-it-yourself">Run it yourself</a> ·
+    <a href="#develop">Develop</a> ·
     <a href="#connect-an-agent">Connect an agent</a>
   </p>
 </div>
@@ -27,9 +29,30 @@ streams and volume. Pick what to drop, check nothing depends on it, and export t
 - **Attribution:** split series, volume and cost by team, namespace or any label
 - **Agents:** an MCP endpoint lets Claude or any MCP client analyse your data and propose rules for you to review
 
-Queries run in your browser. Backends without CORS go through a stateless proxy; nothing is stored.
+## Privacy
 
-## Run it yourself
+Pick how much you share; each option works on its own.
+
+| Option | You give Cardinal | Cardinal's servers see |
+| --- | --- | --- |
+| **No credentials** | One query result you paste, and dashboard or rule files you upload | Nothing |
+| **[Run it on your machine](#run-it-on-your-machine)** | Credentials, kept on your machine | Nothing |
+| **Direct** | Credentials, kept in your browser | Nothing: the browser calls your backend, which must allow CORS |
+| **Cardinal's proxy** | Credentials, kept in your browser | Each request and its token in transit, never stored or logged |
+
+Grafana Cloud doesn't allow browser requests, so from cardinal.ta3.dev it needs the proxy. Cardinal asks before
+using it; you can turn it off in **Settings → Privacy**.
+
+**No credentials.** Run `count by (job, __name__) ({__name__=~".+"})` as an instant query wherever you already
+have access (Grafana Explore, `curl`, `promtool`) and paste the result under **Settings → Metrics → Paste a result**.
+For dashboard usage, upload dashboard JSON, alert rule exports or Prometheus rule files under **Settings → Grafana**.
+For logs, run `sum by (service_name) (bytes_over_time({service_name=~".+"}[24h]))` (and optionally the matching stream
+count) and paste it under **Settings → Logs → Paste a result**. Drilldowns, history, labels, patterns and impact checks
+need a live connection; volume, savings, rules and exports work.
+
+Agents get metric, job and label names and series counts. Label values are only shared once you turn that on.
+
+## Develop
 
 Cardinal is a Vite app and one Cloudflare Worker.
 
@@ -49,6 +72,19 @@ openssl rand -hex 32 | bunx wrangler secret put PROXY_SECRET
 Locally, put it in `.dev.vars` together with `PUBLIC_HOSTNAMES=localhost,127.0.0.1`. Set `PUBLIC_HOSTNAMES` and
 `routes` in `wrangler.jsonc` to your own domain.
 
+## Run it on your machine
+
+The `cardinal` binary is the whole app plus its proxy. It listens on `127.0.0.1` only, and your browser talks to
+it instead of a Cardinal server.
+
+```bash
+curl -fsSL https://github.com/TA3/cardinal/releases/latest/download/install.sh | sh
+cardinal          # then open http://localhost:9181
+```
+
+The script checks the binary against the release's `SHA256SUMS`. You can also download it from the
+[releases page](https://github.com/TA3/cardinal/releases) yourself (Linux, macOS, Windows), or use Docker below.
+
 ## Self-host
 
 The container serves the app and a proxy that, unlike the hosted one, reaches private and loopback hosts, so
@@ -58,20 +94,8 @@ Prometheus, Loki and Grafana on your network work without CORS.
 docker run -p 9181:9181 ghcr.io/ta3/cardinal
 ```
 
-Limit what it may reach with `--allow-hosts`. Agent sessions stay on the hosted app. Anyone who can open the server can use its proxy, so keep it on a trusted network or
-behind auth.
-
-**Relay mode.** Keep using [cardinal.ta3.dev](https://cardinal.ta3.dev) and let the same server reach your network:
-
-1. Start it: `docker run -p 127.0.0.1:9181:9181 ghcr.io/ta3/cardinal`. It prints a relay token; set
-   `CARDINAL_RELAY_TOKEN` to keep one across restarts.
-2. In **Settings → Relay**, enter `http://localhost:9181` and the token, then Test. Chrome asks to allow local network
-   access; allow it.
-3. Choose **Relay** on a metrics, logs or Grafana connection.
-
-Only `https://cardinal.ta3.dev` and origins added with `--origin` can use the relay, and only with the token. A relay on
-another machine needs HTTPS (a reverse proxy or a real certificate): browsers block plain-http private addresses from
-an https page.
+Limit what it may reach with `--allow-hosts`. Only the app it serves can use its proxy, but anyone who can open
+that app can, so keep it on a trusted network or behind auth. Agent sessions need the hosted app.
 
 ## Connect an agent
 
@@ -115,7 +139,7 @@ lib/core/     pure logic: PromQL, LogQL, rules, compilers, parsers
 lib/sources/  Prometheus, Loki, Grafana and Adaptive Telemetry clients
 lib/agent/    MCP tools and the tab-side executor
 worker/       worker entry, proxy, sessions, MCP server
-relay/        self-hosted server and relay (Bun), shares lib/proxy with the worker
+server/       self-hosted server and binaries (Bun), shares lib/proxy with the worker
 ```
 
 </details>

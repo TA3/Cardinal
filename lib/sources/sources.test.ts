@@ -19,8 +19,10 @@ interface Progress {
   phase: string
 }
 interface Transport {
+  send(connection: Connection, request: { path: string }): Promise<Response>
+  configureProxyConsent(allowed: boolean): void
   authHeaders(connection: Connection): Record<string, string>
-  inferAuthMode(fields: { baseUrl: string; instanceId?: string; token?: string; tokenExpected?: boolean }): AuthMode
+  inferAuthMode(fields: { baseUrl: string; instanceId?: string; token?: string; tenant?: string; tokenExpected?: boolean }): AuthMode
 }
 interface Prometheus {
   fetchSnapshot(connection: Connection, topN: number, options?: { onStep?: (progress: Progress) => void }): Promise<Snapshot>
@@ -32,7 +34,57 @@ const loadPrometheus = async () => (await import(/* @vite-ignore */ prometheusPa
 
 const base = { baseUrl: "https://prom.example", mode: "direct" as const }
 
+describe("proxy consent", () => {
+  it("sends nothing through the hosted proxy until the user allows it", async () => {
+    const { send, configureProxyConsent } = await loadTransport()
+    const urls: string[] = []
+    const original = globalThis.fetch
+    globalThis.fetch = (async (url: unknown) => {
+      urls.push(String(url))
+      if (String(url).includes("/api/proxy-token")) return Response.json({ token: "t", expiresAt: "2999-01-01T00:00:00Z" })
+      // The hosted app has no self-hosted server info.
+      if (!String(url).includes("/api/proxy/")) return new Response("not found", { status: 404 })
+      return Response.json({ status: "success" })
+    }) as typeof fetch
+    try {
+      const connection = { baseUrl: "https://prometheus-prod-01-eu-west-0.grafana.net/api/prom", mode: "proxy" as const, token: "secret" }
+      await expect(send(connection, { path: "/api/v1/labels" })).rejects.toMatchObject({ name: "ProxyConsentError" })
+      expect(urls.some((url) => url.includes("/api/proxy/"))).toBe(false)
+
+      configureProxyConsent(true)
+      const response = await send(connection, { path: "/api/v1/labels" })
+      expect(response.ok).toBe(true)
+      expect(urls.some((url) => url.includes("/api/proxy/api/v1/labels"))).toBe(true)
+    } finally {
+      configureProxyConsent(false)
+      globalThis.fetch = original
+    }
+  })
+
+  it("never needs consent in direct mode", async () => {
+    const { send } = await loadTransport()
+    const original = globalThis.fetch
+    globalThis.fetch = (async () => Response.json({ status: "success" })) as typeof fetch
+    try {
+      expect((await send(base, { path: "/api/v1/labels" })).ok).toBe(true)
+    } finally {
+      globalThis.fetch = original
+    }
+  })
+})
+
 describe("auth modes", () => {
+  it("infers how credentials are sent from the fields filled in", async () => {
+    const { inferAuthMode } = await loadTransport()
+    expect(inferAuthMode({ baseUrl: "https://prom.example" })).toBe("none")
+    expect(inferAuthMode({ baseUrl: "https://prom.example", token: "t" })).toBe("bearer")
+    expect(inferAuthMode({ baseUrl: "https://prom.example", instanceId: "u", token: "p" })).toBe("basic")
+    expect(inferAuthMode({ baseUrl: "https://prometheus-prod-01-eu-west-0.grafana.net/api/prom", instanceId: "123", token: "glc" })).toBe("grafana-cloud")
+    // A Grafana Cloud stack URL with a service account token (Grafana's data source proxy) stays Bearer.
+    expect(inferAuthMode({ baseUrl: "https://mystack.grafana.net", token: "glsa" })).toBe("bearer")
+    expect(inferAuthMode({ baseUrl: "https://mimir.example", tenant: "team-a", token: "t" })).toBe("mimir")
+  })
+
   it("sends a lone token as Bearer instead of dropping it", async () => {
     const { authHeaders } = await loadTransport()
     expect(authHeaders({ ...base, auth: "bearer", token: "t0k" })).toEqual({ Authorization: "Bearer t0k" })

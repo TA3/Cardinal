@@ -28,6 +28,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { formatChurnPercent, formatCreationRate, formatRatio } from "@/features/churn/format"
 import { useChurn, useLabelDrivers } from "@/features/churn/use-churn"
+import { ExploreViews } from "@/features/explore/explore-views"
 import { isAuthError } from "@/hooks/use-cardinality"
 import { formatNumber } from "@/lib/cardinality/dashboard-helpers"
 import {
@@ -309,6 +310,7 @@ function Churn() {
   return (
     <Page>
       <PageHeader
+        eyebrow={<ExploreViews />}
         title="Churn"
         status={
           summary ? (

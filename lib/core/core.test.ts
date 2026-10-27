@@ -246,6 +246,9 @@ describe("adaptive metrics merge (2)", () => {
 
   it("derives the API host and omits an empty If-Match", async () => {
     const { adaptiveMetricsBaseUrl, saveAggregationRules } = await loadSources()
+    const transportPath = "@/lib/sources/transport"
+    const transport = (await import(/* @vite-ignore */ transportPath)) as { configureProxyConsent(allowed: boolean): void }
+    transport.configureProxyConsent(true)
     expect(adaptiveMetricsBaseUrl("https://prometheus-prod-01-eu-west-0.grafana.net/api/prom")).toBe(
       "https://prometheus-prod-01-eu-west-0.grafana.net"
     )
@@ -264,6 +267,7 @@ describe("adaptive metrics merge (2)", () => {
       await saveAggregationRules(connection, [], "abc")
     } finally {
       globalThis.fetch = original
+      transport.configureProxyConsent(false)
     }
     expect("If-Match" in calls[0]).toBe(false)
     expect(calls[1]["If-Match"]).toBe("abc")
@@ -1170,22 +1174,17 @@ describe("logs destinations", () => {
 
 describe("auto transport mode", () => {
   it("tries direct first, then the proxy for public hosts", async () => {
-    const { autoModes, needsRelay } = await import("@/lib/core/transport-plan")
-    const base = { privateHost: false, cloudHost: false, selfHosted: false, relaySet: false }
+    const { autoModes } = await import("@/lib/core/transport-plan")
+    const base = { privateHost: false, cloudHost: false, selfHosted: false }
     expect(autoModes(base)).toEqual(["direct", "proxy"])
     expect(autoModes({ ...base, cloudHost: true })).toEqual(["proxy"])
-    // The hosted proxy can't reach private hosts: a relay or this server can.
+    // The hosted proxy can't reach private hosts: a self-hosted server can.
     expect(autoModes({ ...base, privateHost: true })).toEqual(["direct"])
-    expect(autoModes({ ...base, privateHost: true, relaySet: true })).toEqual(["direct", "relay"])
     expect(autoModes({ ...base, privateHost: true, selfHosted: true })).toEqual(["direct", "proxy"])
     // Plain http from an https page: public hosts skip straight to the proxy.
     expect(autoModes({ ...base, mixedContent: true })).toEqual(["proxy"])
     // Private hosts go direct only where the browser can ask for local network access.
     expect(autoModes({ ...base, privateHost: true, mixedContent: true, localNetworkAccess: true })).toEqual(["direct"])
     expect(autoModes({ ...base, privateHost: true, mixedContent: true })).toEqual([])
-    expect(autoModes({ ...base, privateHost: true, mixedContent: true, relaySet: true })).toEqual(["relay"])
-    expect(needsRelay({ ...base, privateHost: true })).toBe(true)
-    expect(needsRelay({ ...base, privateHost: true, relaySet: true })).toBe(false)
-    expect(needsRelay(base)).toBe(false)
   })
 })

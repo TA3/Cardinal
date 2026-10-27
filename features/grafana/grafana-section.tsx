@@ -23,14 +23,15 @@ import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 import { hostOf } from "@/features/grafana/via-grafana"
-import { privateHostHint, RouteField } from "@/features/relay/transport-mode-field"
+import { privateHostHint, RouteField } from "@/features/settings/route-field"
 import { routeLabel, withAutoMode } from "@/features/settings/auto-mode"
 import { ProblemLine } from "@/features/settings/problem-line"
 import { grafanaConnection } from "@/features/usage/grafana-store"
-import { explainGrafanaError, GRAFANA_TIMEOUT_MS, GrafanaUsagePanel } from "@/features/usage/grafana-section"
+import type { ConnectionProblem } from "@/features/settings/connection-check"
+import { GRAFANA_TIMEOUT_MS, grafanaProblem, GrafanaUsagePanel } from "@/features/usage/grafana-section"
 import { testGrafana, type GrafanaCheck } from "@/lib/sources/grafana"
 import { useAppStore } from "@/lib/store/app-store"
-import { useSelfHosted } from "@/lib/store/relay-store"
+import { useSelfHosted } from "@/lib/store/server-store"
 import { cn } from "@/lib/utils"
 
 const SERVICE_ACCOUNT_DOCS = "https://grafana.com/docs/grafana/latest/administration/service-accounts/"
@@ -56,7 +57,7 @@ export function GrafanaSection() {
   const { hash } = useLocation()
   const [testing, setTesting] = React.useState(false)
   const [check, setCheck] = React.useState<GrafanaCheck | null>(null)
-  const [problem, setProblem] = React.useState<string | null>(null)
+  const [problem, setProblem] = React.useState<ConnectionProblem | null>(null)
   const connection = grafanaConnection(settings)
   const used = Boolean(connection) || linked
   const [open, setOpen] = React.useState(used || hash === "#grafana")
@@ -87,7 +88,7 @@ export function GrafanaSection() {
       if (result.ok) {
         if (result.mode !== settings.mode) update({ mode: result.mode })
         setCheck(result.value)
-      } else setProblem(explainGrafanaError(result.error, result.mode))
+      } else setProblem(grafanaProblem(result.error, result.mode, "Grafana couldn't be read"))
     } finally {
       setTesting(false)
     }
@@ -183,7 +184,7 @@ export function GrafanaSection() {
                   {privateHint ?? "Direct needs Grafana to allow this origin (CORS), e.g. in a reverse proxy."}
                 </p>
               ) : null}
-              {problem ? <ProblemLine problem={{ kind: "other", title: "Grafana couldn't be read", detail: problem }} /> : null}
+              {problem ? <ProblemLine problem={problem} onRetry={() => void test()} /> : null}
               {check ? (
                 <p className="flex items-center gap-1.5 text-sm text-brand-ink" role="status">
                   <CheckCircleIcon className="size-4" weight="fill" />
