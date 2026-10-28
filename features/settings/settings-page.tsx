@@ -11,12 +11,10 @@ import {
   LightningIcon,
   LockKeyIcon,
   NetworkIcon,
-  PaletteIcon,
   RobotIcon,
   ShieldCheckIcon,
   TrashIcon,
 } from "@phosphor-icons/react"
-import { useTheme } from "next-themes"
 import { useLocation, useNavigate } from "react-router"
 import { toast } from "sonner"
 
@@ -24,7 +22,6 @@ import { paths } from "@/app/paths"
 import { formatCost } from "@/components/cost-text"
 import { InfoTip } from "@/components/info-tip"
 import { Page, PageHeader } from "@/components/page"
-import { SegmentedControl } from "@/components/segmented-control"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -39,7 +36,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
-import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
+import { Field, FieldDescription, FieldLabel, FieldSeparator } from "@/components/ui/field"
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from "@/components/ui/input-group"
 import { Switch } from "@/components/ui/switch"
 import { DataSourceCard } from "@/features/settings/data-source-card"
@@ -159,28 +156,10 @@ function PrivacySection() {
   )
 }
 
-function AutopilotSection() {
+/** Prices turn counts into cost; autopilot sits with them since both shape what Savings proposes. */
+function PricingSection() {
   const autopilot = useAppStore((state) => state.autopilot)
   const setAutopilot = useAppStore((state) => state.setAutopilot)
-  return (
-    <Card id="autopilot" className="scroll-mt-32">
-      <CardHeader>
-        <SectionTitle icon={LightningIcon}>Autopilot</SectionTitle>
-      </CardHeader>
-      <CardContent>
-        <Field orientation="horizontal">
-          <FieldLabel htmlFor="autopilot" className="flex-col items-start gap-0.5">
-            Propose safe cuts automatically
-            <FieldDescription>Cuts rated safe go straight to Rules as proposals. Nothing is applied until you accept it.</FieldDescription>
-          </FieldLabel>
-          <Switch id="autopilot" checked={autopilot} onCheckedChange={setAutopilot} />
-        </Field>
-      </CardContent>
-    </Card>
-  )
-}
-
-function PricingSection() {
   const price = useAppStore((state) => state.settings.pricePer1kSeries)
   const totalSeries = useAppStore((state) => state.snapshot?.totalSeries)
   const updateSettings = useAppStore((state) => state.updateSettings)
@@ -210,7 +189,7 @@ function PricingSection() {
   return (
     <Card id="pricing" className="scroll-mt-32">
       <CardHeader>
-        <SectionTitle icon={CurrencyDollarIcon}>Pricing</SectionTitle>
+        <SectionTitle icon={CurrencyDollarIcon}>Pricing and autopilot</SectionTitle>
         <CardAction>
           <InfoTip label="What is pricing for?">Turns series counts and logs bytes into cost across Cardinal. Leave empty to hide costs.</InfoTip>
         </CardAction>
@@ -251,31 +230,16 @@ function PricingSection() {
           ) : null}
         </Field>
         <LogsPriceField />
-      </CardContent>
-    </Card>
-  )
-}
-
-function AppearanceSection() {
-  const { theme, setTheme } = useTheme()
-  return (
-    <Card id="appearance" className="scroll-mt-32">
-      <CardHeader>
-        <SectionTitle icon={PaletteIcon}>Appearance</SectionTitle>
-      </CardHeader>
-      <CardContent>
-        <Field orientation="horizontal">
-          <FieldLabel title="Also toggled with the D key">Theme</FieldLabel>
-          <SegmentedControl
-            aria-label="Theme"
-            value={theme ?? "system"}
-            onValueChange={setTheme}
-            options={[
-              { value: "light", label: "Light" },
-              { value: "dark", label: "Dark" },
-              { value: "system", label: "System" },
-            ]}
-          />
+        <FieldSeparator />
+        <Field id="autopilot" orientation="horizontal" className="scroll-mt-32">
+          <FieldLabel htmlFor="autopilot-switch" className="flex-col items-start gap-0.5">
+            <span className="flex items-center gap-1.5">
+              <LightningIcon className="size-4 text-muted-foreground" />
+              Propose safe cuts automatically
+            </span>
+            <FieldDescription>Cuts rated safe go straight to Rules as proposals. Nothing is applied until you accept it.</FieldDescription>
+          </FieldLabel>
+          <Switch id="autopilot-switch" checked={autopilot} onCheckedChange={setAutopilot} />
         </Field>
       </CardContent>
     </Card>
@@ -326,20 +290,24 @@ function ResetSection() {
 }
 
 /** Sections under Advanced; a link to one of them opens it. */
-const ADVANCED_IDS = ["attribution", "appearance", "reset"]
+const ADVANCED_IDS = ["attribution", "reset"]
 
 function AdvancedSection({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  // One tray: the header and the sections it opens share a frame, so they read as one group.
   return (
-    <Collapsible open={open} onOpenChange={onOpenChange} className="flex flex-col gap-4">
-      <CollapsibleTrigger className="group/advanced flex w-full items-center gap-2 rounded-2xl border border-well-border bg-well px-4 py-3 text-left outline-none transition-colors [corner-shape:squircle] hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50">
+    <Collapsible
+      open={open}
+      onOpenChange={onOpenChange}
+      className="rounded-[1.25rem] border border-well-border bg-well [corner-shape:squircle]"
+    >
+      <CollapsibleTrigger className="group/advanced flex w-full items-center gap-2 rounded-[1.25rem] px-4 py-3 text-left outline-none transition-colors [corner-shape:squircle] hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring/50">
         <GearSixIcon className="size-4 text-muted-foreground" />
         <span className="text-sm font-medium">Advanced</span>
-        <span className="min-w-0 truncate text-xs text-muted-foreground">Attribution · Appearance · Reset</span>
+        <span className="min-w-0 truncate text-xs text-muted-foreground">Attribution · Reset</span>
         <CaretDownIcon className="ml-auto size-4 shrink-0 text-muted-foreground transition-transform group-data-[state=closed]/advanced:-rotate-90 motion-reduce:transition-none" />
       </CollapsibleTrigger>
-      <CollapsibleContent className="flex flex-col gap-4">
+      <CollapsibleContent className="flex flex-col gap-3 px-2 pb-2">
         <AttributionSection />
-        <AppearanceSection />
         <ResetSection />
       </CollapsibleContent>
     </Collapsible>
@@ -377,7 +345,6 @@ export function SettingsPage() {
       <SectionHeading>Savings</SectionHeading>
       <PricingSection />
       <RuleDestinationSection />
-      <AutopilotSection />
       <AdvancedSection open={advanced} onOpenChange={setAdvanced} />
     </Page>
   )

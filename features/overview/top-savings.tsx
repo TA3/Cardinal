@@ -1,22 +1,21 @@
 import * as React from "react"
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Link, useNavigate } from "react-router"
+import { useNavigate } from "react-router"
 import { toast } from "sonner"
 
 import { metricPath, paths, rulesPath } from "@/app/paths"
-import { useCost } from "@/components/cost-text"
-import { SavingsList, type SavingsRowProps } from "@/components/savings-list"
-import { Button } from "@/components/ui/button"
+import type { SavingsRowProps } from "@/components/savings-list"
+import { SavingsLine } from "@/components/savings-line"
 import { useChurn } from "@/features/churn/use-churn"
 import { useAutopilot } from "@/features/inbox/autopilot"
 import { useHistogramAnalysis } from "@/features/histograms/use-histograms"
 import { useUsageEvidence } from "@/features/rules/usage"
-import { cacheDrilldownFor, connectionKey, useConnection } from "@/hooks/use-cardinality"
+import { cacheDrilldownFor, connectionKey, useConnection, useRuleCounts } from "@/hooks/use-cardinality"
 import { formatDelta } from "@/lib/cardinality/dashboard-helpers"
 import { DEFAULT_CHURN_WINDOW, rankChurn } from "@/lib/core/churn"
 import { createLimiter } from "@/lib/core/concurrency"
 import { applyPreference, learnedPreference, metricRuleKeys } from "@/lib/core/decide/learn"
-import { assessMetric, orderForReview } from "@/lib/core/decide/risk"
+import { assessMetric } from "@/lib/core/decide/risk"
 import { histogramFamily } from "@/lib/core/families"
 import { quantileUsage } from "@/lib/core/histograms"
 import { detectIdLike } from "@/lib/core/id-like"
@@ -30,8 +29,7 @@ import {
   rankOpportunities,
   reasonLabel,
   unusedMetricOpportunities,
-  type MetricOpportunity,
-} from "@/lib/core/opportunities"
+  type MetricOpportunity } from "@/lib/core/opportunities"
 import { createRule, type Rule, type RuleImpact } from "@/lib/core/rules"
 import { snapshotImpact } from "@/lib/core/savings"
 import type { Snapshot } from "@/lib/core/snapshot"
@@ -193,7 +191,9 @@ export function useMetricOpportunities(snapshot: Snapshot) {
   const impacts = React.useMemo(() => new Map((idLike.data ?? []).map((finding) => [`${finding.metric}\u0000${finding.label}`, finding.impact])), [idLike.data])
   // isLoading, not isPending: without a live connection these queries never run, and nothing is loading.
   const loading = usage.isPending || (idMetrics.length > 0 && idLike.isLoading) || histograms.isLoading || churn.pending
-  return { items, loading, impacts }
+  // Nothing about usage was checked, so unused metrics can't be told apart: that, not "nothing to cut", is why the list is short.
+  const usageUnchecked = !usage.isPending && names.every((metric) => usedFrom(usage.byMetric[metric]) === undefined)
+  return { items, loading, impacts, usageUnchecked }
 }
 
 /** Creates the opportunity's rule as a proposal; bucket trims are refined with the observed distribution first. */
@@ -283,30 +283,22 @@ export function metricSavingsRows(
   }))
 }
 
-export function TopSavings({ snapshot, className }: { snapshot: Snapshot; className?: string }) {
-  const { items, loading, impacts } = useMetricOpportunities(snapshot)
+/** Overview's line about Savings: how many cuts, what they save, and the way there. */
+export function MetricsSavingsLine({ snapshot }: { snapshot: Snapshot }) {
+  const { items, loading, impacts, usageUnchecked } = useMetricOpportunities(snapshot)
   const propose = useProposeOpportunity(snapshot, impacts)
-  const { format } = useCost()
+  const counts = useRuleCounts()
   const open = items.filter((item) => item.state === "open")
   const total = open.reduce((sum, item) => sum + item.savedSeries, 0)
-  const rows = metricSavingsRows(orderForReview(items), propose, format)
   useAutopilot(items, loading, (item) => propose(item, { quiet: true }))
-
   return (
-    <SavingsList
-      className={className}
-      rows={rows}
+    <SavingsLine
       loading={loading}
-      total={total > 0 ? `up to ${formatDelta(-total)} series` : undefined}
-      empty={{
-        title: "Nothing obvious to cut",
-        description: "No unused big metrics, ID-like labels or heavy histograms found.",
-        action: (
-          <Button asChild variant="outline" size="sm">
-            <Link to={paths.explore}>Explore metrics</Link>
-          </Button>
-        ),
-      }}
+      open={open.length}
+      safe={open.filter((item) => item.risk.level === "safe").length}
+      total={total > 0 ? `${formatDelta(-total)} series` : null}
+      unchecked={usageUnchecked}
+      activeRules={counts.active}
     />
   )
 }

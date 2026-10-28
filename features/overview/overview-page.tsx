@@ -5,17 +5,14 @@ import {
   ChartLineIcon,
   ClipboardTextIcon,
   CubeIcon,
-  FunnelIcon,
-  MagnifyingGlassIcon,
   RobotIcon,
-  ShieldCheckIcon,
   SparkleIcon,
   TagIcon,
   WarningIcon } from "@phosphor-icons/react"
-import { Link, useNavigate } from "react-router"
+import { Link, useLocation, useNavigate } from "react-router"
 
 import { jobPath, metricPath, paths } from "@/app/paths"
-import { CostText, useCost } from "@/components/cost-text"
+import { CostText } from "@/components/cost-text"
 import { Frame, FrameHeader, FrameLink, FrameWell, StatFrame } from "@/components/frame"
 import { ExpandableList, ListRow } from "@/components/list-rows"
 import { InfoTip } from "@/components/info-tip"
@@ -30,17 +27,16 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { ChurnCard } from "@/features/churn/churn-card"
 import { SinceLastFrame } from "@/features/overview/since-last-frame"
-import { TopSavings } from "@/features/overview/top-savings"
+import { MetricsSavingsLine } from "@/features/overview/top-savings"
 import { takeNextPath } from "@/app/continue-after-connect"
-import { ConnectGrafanaCard } from "@/features/grafana/connect-card"
 import { ImportSnapshotDialog } from "@/features/settings/import-snapshot-dialog"
 import { ConnectionForm } from "@/features/settings/connection-form"
+import { ConnectChooser } from "@/features/settings/connect-chooser"
 import {
   isAuthError,
   useConnection,
   useMetricsTarget,
   useRefreshSnapshot,
-  useRuleCounts,
   useSavings,
   useSeriesHistory,
   useSnapshotAge,
@@ -81,48 +77,28 @@ function Welcome() {
     const next = takeNextPath("metrics")
     if (next) navigate(next)
   }
-  const steps = [
-    { icon: MagnifyingGlassIcon, title: "Find", text: "See which jobs, metrics and labels drive your series." },
-    { icon: FunnelIcon, title: "Cut", text: "Pick drops with exact savings, then export config." },
-    { icon: RobotIcon, title: "Delegate", text: "Let an AI agent over MCP propose rules." },
-  ]
+  const hasSource = useAppStore((state) => Boolean(state.settings.baseUrl.trim()))
+  // The URL form opens from the chooser, straight away when a URL is already set (e.g. a token is needed),
+  // or when another page's chooser sent the user here for it.
+  const { state } = useLocation()
+  const [showForm, setShowForm] = React.useState(hasSource || (state as { connect?: string } | null)?.connect === "url")
   return (
-    <Page>
-      <PageHeader
-        title="Connect a data source"
-        description="Any Prometheus-compatible API. Queries run from this tab; nothing is stored."
-      />
-      <Stagger className="grid gap-4 lg:grid-cols-[1fr_20rem]">
+    <Page className="max-w-4xl">
+      <PageHeader title={"Connect a data source"} description="Queries run from this tab; nothing is stored." />
+      <Stagger className="flex flex-col gap-4">
         <Reveal>
-          <Frame>
-            <FrameHeader title="Prometheus" meta="Prometheus, Mimir or Grafana Cloud Metrics" />
-            <FrameWell className="py-5">
-              <ConnectionForm onConnected={continueAfterConnect} />
-            </FrameWell>
-          </Frame>
+          <ConnectChooser signal="metrics" onUrl={() => setShowForm(true)} />
         </Reveal>
-        <div className="flex flex-col gap-4">
-          <Reveal>
-            <ConnectGrafanaCard />
-          </Reveal>
+        {showForm ? (
           <Reveal>
             <Frame>
-              <FrameHeader title="No credentials" meta="Paste one query result" />
-              <FrameWell className="flex flex-col items-start gap-3 text-sm text-muted-foreground">
-                Run one query where you already have access and paste the result. Nothing leaves this browser.
-                <ImportSnapshotDialog />
+              <FrameHeader title="Prometheus" meta="Prometheus, Mimir or Grafana Cloud Metrics" />
+              <FrameWell className="py-5">
+                <ConnectionForm onConnected={continueAfterConnect} />
               </FrameWell>
             </Frame>
           </Reveal>
-          {steps.map((step) => (
-            <Reveal key={step.title}>
-              <Frame>
-                <FrameHeader icon={step.icon} title={step.title} />
-                <FrameWell className="text-sm text-muted-foreground">{step.text}</FrameWell>
-              </Frame>
-            </Reveal>
-          ))}
-        </div>
+        ) : null}
       </Stagger>
     </Page>
   )
@@ -213,71 +189,6 @@ function HistoryFrame({ range, totalNow }: { range: HistoryRange; totalNow: numb
             />
           </FadeIn>
         )}
-      </FrameWell>
-    </Frame>
-  )
-}
-
-function RulesFrame({ totalSeries }: { totalSeries: number }) {
-  const rules = useAppStore((state) => state.rules)
-  const savings = useSavings()
-  const { price } = useCost()
-  const counts = useRuleCounts()
-  const active = rules.filter((rule) => rule.status === "active")
-  const saved = (kind: "drop_metric" | "drop_labels") =>
-    active.filter((rule) => rule.kind === kind).reduce((sum, rule) => sum + (rule.impact ? rule.impact.seriesBefore - rule.impact.seriesAfter : 0), 0)
-  const metricDrops = active.filter((rule) => rule.kind === "drop_metric")
-  const labelDrops = active.filter((rule) => rule.kind === "drop_labels")
-  const undecided = active.filter((rule) => rule.kind === "drop_labels" && rule.impact?.mergesSeries && !rule.onMerge).length
-
-  return (
-    <Frame className="h-full">
-      <FrameHeader icon={ShieldCheckIcon} title="Your plan" action={<FrameLink to={paths.rules}>Open</FrameLink>} />
-      <FrameWell className="flex flex-col gap-3">
-        <div className="flex items-baseline justify-between gap-3">
-          <span className="text-2xl font-medium tracking-tight tabular-nums">
-            {savings.isEstimate ? "~" : ""}
-            <AnimatedNumber value={savings.savedSeries} format={(value) => formatDelta(-value)} />
-          </span>
-          <span className="text-sm text-muted-foreground">
-            <SwapText value={`${savings.percent.toFixed(1)}% of ${formatNumber(totalSeries)}`} />
-          </span>
-        </div>
-        {price !== undefined ? (
-          savings.savedSeries > 0 ? <CostText series={savings.savedSeries} suffix="saved" className="-mt-2" /> : null
-        ) : (
-          <Link
-            to={paths.settings}
-            className="-mt-2 self-start rounded-sm text-xs text-muted-foreground underline-offset-2 outline-none hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring/50"
-          >
-            Set price to see cost
-          </Link>
-        )}
-        <div className="flex flex-col gap-1.5 text-sm">
-          <div className="flex justify-between gap-3">
-            <span className="text-muted-foreground">
-              Metric drops <span className="text-muted-foreground/60">· {metricDrops.length}</span>
-            </span>
-            <span className="tabular-nums">{formatDelta(-saved("drop_metric"))}</span>
-          </div>
-          <div className="flex justify-between gap-3">
-            <span className="text-muted-foreground">
-              Label drops <span className="text-muted-foreground/60">· {labelDrops.length}</span>
-            </span>
-            <span className="tabular-nums">{formatDelta(-saved("drop_labels"))}</span>
-          </div>
-          <div className="flex justify-between gap-3">
-            <span className="text-muted-foreground">
-              Proposed <span className="text-muted-foreground/60">· awaiting review</span>
-            </span>
-            <span className="tabular-nums">{counts.proposed}</span>
-          </div>
-        </div>
-        {undecided ? (
-          <Link to={paths.rules} className="self-start text-xs text-brand-ink hover:underline">
-            {undecided} label drop{undecided === 1 ? " merges" : "s merge"} series: choose how
-          </Link>
-        ) : null}
       </FrameWell>
     </Frame>
   )
@@ -472,14 +383,9 @@ function Dashboard({ snapshot }: { snapshot: Snapshot }) {
 
       {/* Where rules go is asked in Rules, when it matters (exporting); Overview stays about the data. */}
       <Stagger className="flex flex-col gap-4">
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-          <Reveal className="min-w-0">
-            <TopSavings snapshot={snapshot} />
-          </Reveal>
-          <Reveal>
-            <RulesFrame totalSeries={snapshot.totalSeries} />
-          </Reveal>
-        </div>
+        <Reveal>
+          <MetricsSavingsLine snapshot={snapshot} />
+        </Reveal>
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
           <Reveal>
             <StatFrame label="Active series" value={<AnimatedNumber value={snapshot.totalSeries} />} hint={<CostText series={snapshot.totalSeries} />} />

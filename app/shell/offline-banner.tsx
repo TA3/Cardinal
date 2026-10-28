@@ -7,10 +7,19 @@ import { Button } from "@/components/ui/button"
 import { useSignal } from "@/hooks/use-signal"
 import { useAppStore } from "@/lib/store/app-store"
 
+const DISMISSED_KEY = "cardinal.offlineBanner.dismissed"
+
+function wasDismissed() {
+  try {
+    return localStorage.getItem(DISMISSED_KEY) === "1"
+  } catch {
+    return false
+  }
+}
+
 /**
- * On pages of a signal viewing a pasted snapshot: says why live sections
- * (drilldowns, history, impact checks…) stay empty. Dismissed for the rest
- * of the tab.
+ * One short line on pages viewing a pasted snapshot; each live-only section
+ * says what it needs itself. Dismissed once, for good, in this browser.
  */
 export function OfflineBanner() {
   const signal = useSignal()
@@ -20,20 +29,31 @@ export function OfflineBanner() {
       ? Boolean(state.logsSnapshot?.imported) && !state.logsSettings.baseUrl.trim()
       : state.snapshot?.method === "import" && !state.settings.baseUrl.trim()
   )
-  const [dismissed, setDismissed] = React.useState(false)
+  const [dismissed, setDismissed] = React.useState(wasDismissed)
   if (dismissed || !pasted || pathname.startsWith(paths.settings)) return null
   return (
-    <div role="note" className="mb-6 flex items-center gap-2.5 rounded-2xl border border-well-border bg-well px-3 py-2 text-sm">
-      <ClipboardTextIcon className="size-4 shrink-0 text-muted-foreground" />
-      <p className="min-w-0 flex-1 text-muted-foreground">
-        Viewing a pasted snapshot, so sections that query live (
-        {signal === "logs" ? "labels, patterns, history, impact checks" : "drilldowns, churn, histograms, impact checks"}) stay empty.{" "}
+    <div role="note" className="mb-4 flex items-center gap-2 px-1 text-xs text-muted-foreground">
+      <ClipboardTextIcon className="size-3.5 shrink-0" />
+      <p className="min-w-0 flex-1">
+        Pasted snapshot: some sections need a live connection.{" "}
         <Link to={`${paths.settings}#${signal === "logs" ? "logs-connection" : "connection"}`} className="text-foreground underline underline-offset-2">
           Connect
-        </Link>{" "}
-        to fill them in.
+        </Link>
       </p>
-      <Button type="button" size="icon-xs" variant="ghost" aria-label="Dismiss" onClick={() => setDismissed(true)}>
+      <Button
+        type="button"
+        size="icon-xs"
+        variant="ghost"
+        aria-label="Dismiss"
+        onClick={() => {
+          setDismissed(true)
+          try {
+            localStorage.setItem(DISMISSED_KEY, "1")
+          } catch {
+            // storage blocked: hidden for this tab only
+          }
+        }}
+      >
         <XIcon />
       </Button>
     </div>

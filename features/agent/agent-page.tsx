@@ -52,6 +52,7 @@ function StatusDot({ status }: { status: AgentLinkStatus }) {
 
 function StartCard() {
   const connection = useConnection()
+  const pasted = useAppStore((state) => state.snapshot?.method === "import" || Boolean(state.logsSnapshot?.imported))
   const [pending, setPending] = React.useState(false)
   const facts = [
     { icon: LockKeyIcon, title: "Credentials stay here", text: "The agent's queries run in this tab. The agent and the Worker never see your token." },
@@ -84,6 +85,13 @@ function StartCard() {
             {pending ? <Spinner data-icon="inline-start" /> : <RobotIcon data-icon="inline-start" />}
             Start agent session
           </Button>
+        ) : pasted ? (
+          <div className="flex flex-col items-center gap-2">
+            <p className="text-xs text-muted-foreground">Agents run queries, so they need a live connection; a pasted snapshot can't answer them.</p>
+            <Button asChild variant="outline">
+              <Link to={`${paths.settings}#connection`}>Connect live</Link>
+            </Button>
+          </div>
         ) : (
           <Button asChild variant="outline">
             <Link to={paths.overview}>Connect a data source first</Link>

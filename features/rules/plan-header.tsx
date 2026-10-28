@@ -33,7 +33,7 @@ export function PlanHeader({
 }) {
   return (
     <Frame>
-      <FrameHeader icon={ChartLineDownIcon} title="Saves" meta={meta} />
+      <FrameHeader icon={ChartLineDownIcon} title="Savings" meta={meta} />
       <FrameWell className="flex flex-col gap-3 py-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex min-w-0 flex-col gap-0.5">

@@ -101,7 +101,7 @@ export function GrafanaSection() {
           <CardTitle className="flex items-center gap-2">
             <SquaresFourIcon className="size-4 text-muted-foreground" />
             Grafana
-            {!used ? <span className="text-xs font-normal text-muted-foreground">connects both and checks dashboard usage</span> : null}
+            {!used ? <span className="text-xs font-normal text-muted-foreground max-sm:hidden">connects both and checks dashboard usage</span> : null}
           </CardTitle>
           <CardAction className="flex items-center gap-2">
             {connection ? (

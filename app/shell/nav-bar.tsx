@@ -181,6 +181,29 @@ export function NavBar() {
     navRef.current?.querySelector("[aria-current=page]")?.scrollIntoView({ block: "nearest", inline: "center" })
   }, [pathname, signal])
 
+  // Fade whichever edge has more tabs past it, so a cut-off bar reads as scrollable.
+  const [edges, setEdges] = React.useState({ left: false, right: false })
+  React.useEffect(() => {
+    const nav = navRef.current
+    if (!nav) return
+    const update = () => {
+      const left = nav.scrollLeft > 1
+      const right = nav.scrollLeft + nav.clientWidth < nav.scrollWidth - 1
+      setEdges((current) => (current.left === left && current.right === right ? current : { left, right }))
+    }
+    update()
+    nav.addEventListener("scroll", update, { passive: true })
+    const observer = new ResizeObserver(update)
+    observer.observe(nav)
+    return () => {
+      nav.removeEventListener("scroll", update)
+      observer.disconnect()
+    }
+  }, [signal, attributionOn])
+  const fade = edges.left || edges.right
+    ? `linear-gradient(to right, ${edges.left ? "transparent, black 2rem" : "black"}, ${edges.right ? "black calc(100% - 2rem), transparent" : "black"})`
+    : undefined
+
   const renderTab = (tab: Tab) => (
     <NavTab
       key={tab.to}
@@ -194,7 +217,12 @@ export function NavBar() {
 
   return (
     <div className="relative mx-auto flex h-12 w-full max-w-6xl items-center px-4 sm:px-6">
-      <nav ref={navRef} aria-label="Main" className="min-w-0 flex-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <nav
+        ref={navRef}
+        aria-label="Main"
+        style={fade ? { maskImage: fade, WebkitMaskImage: fade } : undefined}
+        className="min-w-0 flex-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
         <LayoutGroup id="main-nav">
           <div
             className="isolate flex w-max items-center gap-0.5 rounded-full border border-frame-border bg-frame p-1 shadow-[0_1px_2px_rgba(0,0,0,0.06)]"

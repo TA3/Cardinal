@@ -3,19 +3,16 @@ import {
   ArrowClockwiseIcon,
   ChartLineIcon,
   ClockCounterClockwiseIcon,
-  FunnelIcon,
-  MagnifyingGlassIcon,
   RobotIcon,
-  ShieldCheckIcon,
   StackIcon,
   TagIcon,
   TrendUpIcon,
   WarningIcon,
   ClipboardTextIcon } from "@phosphor-icons/react"
-import { Link, useNavigate } from "react-router"
+import { Link, useLocation, useNavigate } from "react-router"
 
 import { logGroupPath, logLabelPath, paths } from "@/app/paths"
-import { CostText, formatCost, useBytesCost } from "@/components/cost-text"
+import { formatCost, useBytesCost } from "@/components/cost-text"
 import { EmptyState } from "@/components/empty-state"
 import { Frame, FrameHeader, FrameLink, FrameWell, StatFrame } from "@/components/frame"
 import { ExpandableList, ListRow } from "@/components/list-rows"
@@ -28,12 +25,12 @@ import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
 import { Progress } from "@/components/ui/progress"
 import { Spinner } from "@/components/ui/spinner"
-import { LogsTopSavings } from "@/features/logs/top-savings"
+import { LogsSavingsLine } from "@/features/logs/top-savings"
 import { stepLabel } from "@/features/logs/volume-parts"
 import { takeNextPath } from "@/app/continue-after-connect"
-import { ConnectGrafanaCard } from "@/features/grafana/connect-card"
 import { ConnectionForm } from "@/features/settings/connection-form"
 import { ImportLogsDialog } from "@/features/logs/import-logs-dialog"
+import { ConnectChooser } from "@/features/settings/connect-chooser"
 import {
   authErrorText,
   isAuthError,
@@ -42,8 +39,7 @@ import {
   useLogsSnapshotAge,
   useLogsSnapshotProgress,
   useLogsVolumeHistory,
-  useRefreshLogsSnapshot,
-} from "@/hooks/use-cardinality"
+  useRefreshLogsSnapshot } from "@/hooks/use-cardinality"
 import { formatNumber } from "@/lib/cardinality/dashboard-helpers"
 import { BYTES_NOTE, formatBytes, formatBytesDelta, toGB } from "@/lib/core/bytes"
 import { bytesPerDay, diffLogsSnapshots, groupNoun, largestGroup, LOGS_RANGE_LABEL, LOGS_RANGES, type LogsGroupChange } from "@/lib/core/logs/snapshot"
@@ -82,48 +78,27 @@ function Welcome() {
     if (next) navigate(next)
   }
   const hasSource = useAppStore((state) => Boolean(state.logsSettings.baseUrl.trim()))
-  const steps = [
-    { icon: MagnifyingGlassIcon, title: "Find", text: "See which services send the most bytes and which labels multiply streams." },
-    { icon: FunnelIcon, title: "Cut", text: "Drop noisy lines or move ID-like labels, then export collector config." },
-    { icon: RobotIcon, title: "Delegate", text: "Let an AI agent over MCP propose rules." },
-  ]
+  // The URL form opens from the chooser, straight away when a URL is already set (e.g. a token is needed),
+  // or when another page's chooser sent the user here for it.
+  const { state } = useLocation()
+  const [showForm, setShowForm] = React.useState(hasSource || (state as { connect?: string } | null)?.connect === "url")
   return (
-    <Page>
-      <PageHeader
-        title={hasSource ? "Take a logs snapshot" : "Connect a logs source"}
-        description="Stream and volume stats from Loki's index, never your log lines. Nothing is stored."
-      />
-      <Stagger className="grid gap-4 lg:grid-cols-[1fr_20rem]">
+    <Page className="max-w-4xl">
+      <PageHeader title={hasSource ? "Take a logs snapshot" : "Connect a logs source"} description="Stream and volume stats from Loki's index, never your log lines. Nothing is stored." />
+      <Stagger className="flex flex-col gap-4">
         <Reveal>
-          <Frame>
-            <FrameHeader title="Loki" meta="Grafana Cloud Logs, Loki, or a Grafana data source" />
-            <FrameWell className="py-5">
-              <ConnectionForm signal="logs" onConnected={continueAfterConnect} />
-            </FrameWell>
-          </Frame>
+          <ConnectChooser signal="logs" onUrl={() => setShowForm(true)} />
         </Reveal>
-        <div className="flex flex-col gap-4">
-          <Reveal>
-            <ConnectGrafanaCard />
-          </Reveal>
+        {showForm ? (
           <Reveal>
             <Frame>
-              <FrameHeader title="No credentials" meta="Paste one query result" />
-              <FrameWell className="flex flex-col items-start gap-3 text-sm text-muted-foreground">
-                Run one LogQL query where you already have access and paste the result. Nothing leaves this browser.
-                <ImportLogsDialog />
+              <FrameHeader title="Loki" meta="Grafana Cloud Logs, Loki, or a Grafana data source" />
+              <FrameWell className="py-5">
+                <ConnectionForm signal="logs" onConnected={continueAfterConnect} />
               </FrameWell>
             </Frame>
           </Reveal>
-          {steps.map((step) => (
-            <Reveal key={step.title}>
-              <Frame>
-                <FrameHeader icon={step.icon} title={step.title} />
-                <FrameWell className="text-sm text-muted-foreground">{step.text}</FrameWell>
-              </Frame>
-            </Reveal>
-          ))}
-        </div>
+        ) : null}
       </Stagger>
     </Page>
   )
@@ -219,55 +194,6 @@ function VolumeFrame({ range, snapshot }: { range: LogsRange; snapshot: LogsSnap
             />
           </FadeIn>
         )}
-      </FrameWell>
-    </Frame>
-  )
-}
-
-function RulesFrame({ snapshot }: { snapshot: LogsSnapshot }) {
-  const savings = useLogRuleSavings()
-  const { price } = useBytesCost()
-  const total = snapshot.totals.bytes
-  const percent = savings.percent
-  const savedPerDay = total > 0 ? (savings.savedBytes / total) * bytesPerDay(snapshot) : 0
-  return (
-    <Frame className="h-full">
-      <FrameHeader icon={ShieldCheckIcon} title="Your plan" action={<FrameLink to={paths.rules}>Open</FrameLink>} />
-      <FrameWell className="flex flex-col gap-3">
-        <div className="flex items-baseline justify-between gap-3">
-          <span className="text-2xl font-medium tracking-tight tabular-nums" title={BYTES_NOTE}>
-            {savings.isEstimate ? "~" : ""}
-            <AnimatedNumber value={savedPerDay} format={(value) => (value > 0 ? `−${formatBytes(value)}` : "0 B")} />
-            <span className="ml-1 text-sm font-normal text-muted-foreground">/day</span>
-          </span>
-          <span className="text-sm text-muted-foreground">
-            <SwapText value={`${percent.toFixed(1)}% of ingest`} />
-          </span>
-        </div>
-        {price !== undefined ? (
-          savedPerDay > 0 ? <CostText bytes={savedPerDay} per="day" suffix="saved" className="-mt-2" /> : null
-        ) : (
-          <Link
-            to={paths.settings}
-            className="-mt-2 self-start rounded-sm text-xs text-muted-foreground underline-offset-2 outline-none hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring/50"
-          >
-            Set price to see cost
-          </Link>
-        )}
-        <div className="flex flex-col gap-1.5 text-sm">
-          <div className="flex justify-between gap-3">
-            <span className="text-muted-foreground">
-              Active <span className="text-muted-foreground/60">· {savings.measured} measured</span>
-            </span>
-            <span className="tabular-nums">{savings.active}</span>
-          </div>
-          <div className="flex justify-between gap-3">
-            <span className="text-muted-foreground">
-              Proposed <span className="text-muted-foreground/60">· awaiting review</span>
-            </span>
-            <span className="tabular-nums">{savings.proposed}</span>
-          </div>
-        </div>
       </FrameWell>
     </Frame>
   )
@@ -543,14 +469,9 @@ function Dashboard({ snapshot }: { snapshot: LogsSnapshot }) {
       />
 
       <Stagger className="flex flex-col gap-4">
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-          <Reveal className="min-w-0">
-            <LogsTopSavings snapshot={snapshot} />
-          </Reveal>
-          <Reveal>
-            <RulesFrame snapshot={snapshot} />
-          </Reveal>
-        </div>
+        <Reveal>
+          <LogsSavingsLine snapshot={snapshot} />
+        </Reveal>
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
           <Reveal>
             <StatFrame

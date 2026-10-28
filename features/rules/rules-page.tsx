@@ -180,7 +180,7 @@ function MetricRulesPage() {
   return (
     <Page>
       <PageHeader
-        title="Your plan"
+        title="Rules"
         eyebrow={<SignalBadge signal="metrics" />}
         actions={
           view === "rules" ? (
@@ -220,7 +220,7 @@ function MetricRulesPage() {
             value={view}
             onValueChange={(value) => setParam("view", value === "rules" ? null : value)}
             options={[
-              { value: "rules", label: "Plan", count: rules.length || undefined },
+              { value: "rules", label: "Rules", count: rules.length || undefined },
               { value: "recommendations", label: "Recommendations" },
             ]}
           />
@@ -237,39 +237,42 @@ function MetricRulesPage() {
         <>
           <SharedRulesBanner />
           <RuleDestinationStep />
-          <PlanHeader
-            saving={<AnimatedNumber value={savings.savedSeries} format={(value) => formatDelta(-value)} />}
-            unit="series"
-            estimate={savings.isEstimate}
-            cost={cost}
-            percent={savings.percent}
-            meta={
-              <span title={age?.capturedAt.toLocaleString()} className={age?.stale ? "text-brand-ink" : undefined}>
-                for {METRICS_DESTINATIONS[exp.destination].label} · {exp.meta}
-              </span>
-            }
-            detail={
-              <>
-                {byStatus.active.length} active rule{byStatus.active.length === 1 ? "" : "s"} ·{" "}
-                <AnimatedNumber value={savings.percent} format={(value) => `${value.toFixed(1)}%`} /> of {formatNumber(totalSeries)}{" "}
-                <Term id="activeSeries">series</Term>
-              </>
-            }
-            actions={<MetricPlanActions exp={exp} onOutput={setOutput} />}
-          >
-            {exp.blocked.length ? (
-              <p className="text-xs text-brand-ink">
-                {exp.blocked.length === 1 ? "1 label drop needs a choice" : `${exp.blocked.length} label drops need a choice`}: pick below.
-              </p>
-            ) : null}
-            {age?.stale ? (
-              <Button size="xs" variant="outline" className="self-start" disabled={refreshing} onClick={refresh}>
-                <ArrowClockwiseIcon data-icon="inline-start" />
-                Refresh the {age.label.replace(" ago", "")}-old snapshot
-              </Button>
-            ) : null}
-          </PlanHeader>
-          <div className="grid gap-4 xl:grid-cols-[3fr_2fr]">
+          {/* Savings and export only mean something once there is a rule. */}
+          {rules.length ? (
+            <PlanHeader
+              saving={<AnimatedNumber value={savings.savedSeries} format={(value) => formatDelta(-value)} />}
+              unit="series"
+              estimate={savings.isEstimate}
+              cost={cost}
+              percent={savings.percent}
+              meta={
+                <span title={age?.capturedAt.toLocaleString()} className={age?.stale ? "text-brand-ink" : undefined}>
+                  for {METRICS_DESTINATIONS[exp.destination].label} · {exp.meta}
+                </span>
+              }
+              detail={
+                <>
+                  {byStatus.active.length} active rule{byStatus.active.length === 1 ? "" : "s"} ·{" "}
+                  <AnimatedNumber value={savings.percent} format={(value) => `${value.toFixed(1)}%`} /> of {formatNumber(totalSeries)}{" "}
+                  <Term id="activeSeries">series</Term>
+                </>
+              }
+              actions={<MetricPlanActions exp={exp} onOutput={setOutput} />}
+            >
+              {exp.blocked.length ? (
+                <p className="text-xs text-brand-ink">
+                  {exp.blocked.length === 1 ? "1 label drop needs a choice" : `${exp.blocked.length} label drops need a choice`}: pick below.
+                </p>
+              ) : null}
+              {age?.stale ? (
+                <Button size="xs" variant="outline" className="self-start" disabled={refreshing} onClick={refresh}>
+                  <ArrowClockwiseIcon data-icon="inline-start" />
+                  Refresh the {age.label.replace(" ago", "")}-old snapshot
+                </Button>
+              ) : null}
+            </PlanHeader>
+          ) : null}
+          <div className={rules.length ? "grid gap-4 xl:grid-cols-[3fr_2fr]" : "flex flex-col"}>
             <div className="flex min-w-0 flex-col gap-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <SegmentedControl
@@ -297,9 +300,11 @@ function MetricRulesPage() {
                 </CardContent>
               </Card>
             </div>
-            <div className="min-w-0">
-              <ExportCard exp={exp} onOutput={setOutput} />
-            </div>
+            {rules.length ? (
+              <div className="min-w-0">
+                <ExportCard exp={exp} onOutput={setOutput} />
+              </div>
+            ) : null}
           </div>
         </>
       )}

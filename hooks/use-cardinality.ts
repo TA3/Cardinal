@@ -208,10 +208,21 @@ export function useMetricDrilldown(metric: string | undefined, job?: string) {
 
 export function useSeriesByJob(metric: string | undefined) {
   const connection = useConnection()
+  // Without a live connection (a pasted snapshot) the snapshot's own per-job counts answer it.
+  const perJob = useAppStore((state) => (metric ? state.snapshot?.seriesByMetricJob?.[metric] : undefined))
+  const offline = React.useMemo(
+    () =>
+      perJob
+        ? Object.entries(perJob)
+            .map(([job, seriesCount]) => ({ job, seriesCount }))
+            .sort((a, b) => b.seriesCount - a.seriesCount)
+        : undefined,
+    [perJob]
+  )
   return useQuery({
     queryKey: ["series-by-job", connectionKey(connection), metric],
-    enabled: Boolean(connection && metric),
-    queryFn: ({ signal }) => fetchSeriesByJob(connection!, metric!, signal),
+    enabled: Boolean(metric && (connection || offline)),
+    queryFn: ({ signal }) => (connection ? fetchSeriesByJob(connection, metric!, signal) : Promise.resolve(offline ?? [])),
   })
 }
 

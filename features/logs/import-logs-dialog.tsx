@@ -52,7 +52,7 @@ function ResultField({ id, label, value, onChange, description }: { id: string; 
       </div>
       <Textarea
         id={id}
-        className="min-h-24 font-mono text-xs"
+        className="max-h-48 min-h-24 font-mono text-xs"
         placeholder={'{"status":"success","data":{"resultType":"vector","result":[…]}}'}
         value={value}
         onChange={(event) => onChange(event.target.value)}

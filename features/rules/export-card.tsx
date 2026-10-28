@@ -408,7 +408,7 @@ function ApplyToGrafanaCloud({ rules }: { rules: Rule[] }) {
     try {
       await saveAggregationRules(connection, review.result.rules, review.etag)
       log(`Applied ${review.result.changes.length} Adaptive Metrics rule changes`)
-      toast.success(`Applied ${review.result.changes.length} changes to Grafana Cloud`, { description: "You can revert this apply from Your plan." })
+      toast.success(`Applied ${review.result.changes.length} changes to Grafana Cloud`, { description: "You can revert this apply from Rules." })
       setReview(null)
     } catch (error) {
       storeAdaptiveBackup(connKey, before)

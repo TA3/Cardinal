@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { formatChurnPercent, formatRatio } from "@/features/churn/format"
 import { useChurn } from "@/features/churn/use-churn"
-import { isAuthError } from "@/hooks/use-cardinality"
+import { isAuthError, useConnection } from "@/hooks/use-cardinality"
 import { formatNumber } from "@/lib/cardinality/dashboard-helpers"
 import { DEFAULT_CHURN_WINDOW, rankChurn } from "@/lib/core/churn"
 import { jobLabel } from "@/lib/core/jobs"
@@ -26,12 +26,15 @@ export function ChurnCard() {
   const { data, error, isPending, isFetching } = useChurn(DEFAULT_CHURN_WINDOW, !heavy || requested)
   const top = React.useMemo(() => (data ? rankChurn(data.rows, 4) : []), [data])
   const idle = heavy && !requested && !data
+  const live = Boolean(useConnection())
 
   return (
     <Frame className="h-full">
       <FrameHeader icon={RepeatIcon} title="Churn" meta={`last ${DEFAULT_CHURN_WINDOW}`} action={<FrameLink to={paths.churn}>Open</FrameLink>} />
       <FrameWell className="flex flex-col gap-3">
-        {idle ? (
+        {!live ? (
+          <p className="py-2 text-sm text-muted-foreground">Churn needs a live connection: it compares series over the last hour.</p>
+        ) : idle ? (
           <div className="flex h-full flex-col gap-3 py-1 text-sm">
             <p className="text-muted-foreground">
               Series that came and went in the last hour. Grafana Cloud and Mimir bill for them; an instant count hides them.

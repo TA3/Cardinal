@@ -58,7 +58,7 @@ export function ImportSnapshotDialog({ trigger }: { trigger?: React.ReactNode })
           </Button>
         )}
       </DialogTrigger>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Use Cardinal without credentials</DialogTitle>
           <DialogDescription>
@@ -79,7 +79,7 @@ export function ImportSnapshotDialog({ trigger }: { trigger?: React.ReactNode })
             <FieldLabel htmlFor="snapshot-result">2. Paste the result</FieldLabel>
             <Textarea
               id="snapshot-result"
-              className="min-h-40 font-mono text-xs"
+              className="max-h-60 min-h-40 font-mono text-xs"
               placeholder={'{"status":"success","data":{"resultType":"vector","result":[…]}}'}
               value={text}
               onChange={(event) => {

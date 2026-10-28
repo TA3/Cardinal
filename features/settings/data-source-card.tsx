@@ -23,8 +23,7 @@ import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/componen
 import { hostOf, useGrafanaLink } from "@/features/grafana/via-grafana"
 import { routeLabel, routePrivacy } from "@/features/settings/auto-mode"
 import { ConnectionForm } from "@/features/settings/connection-form"
-import { ImportLogsDialog } from "@/features/logs/import-logs-dialog"
-import { ImportSnapshotDialog } from "@/features/settings/import-snapshot-dialog"
+import { ConnectChooser } from "@/features/settings/connect-chooser"
 import { useBackendProfile, useNeedsTokenFor } from "@/hooks/use-cardinality"
 import { BACKEND_NAMES } from "@/lib/core/backend-profile"
 import type { Signal } from "@/lib/core/signals"
@@ -121,6 +120,7 @@ export function DataSourceCard({ signal }: { signal: Signal }) {
   // An unconnected source shows one line until asked for its form (or deep-linked to it).
   const { hash } = useLocation()
   const [editing, setEditing] = React.useState(hash === `#${cardId}`)
+  const [choosing, setChoosing] = React.useState(false)
 
   const imported = useAppStore((state) => (signal === "logs" ? Boolean(state.logsSnapshot?.imported) : state.snapshot?.method === "import"))
   const status: Status = !connected ? (imported ? "imported" : "none") : authError ? "error" : locked ? "token" : "connected"
@@ -167,25 +167,23 @@ export function DataSourceCard({ signal }: { signal: Signal }) {
             </div>
           </div>
         ) : !showForm ? (
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm text-muted-foreground">
-              {imported
-                ? "A pasted query result, kept in this browser. Connect for drilldowns and impact checks."
-                : signal === "logs"
-                  ? "Loki, or Grafana Cloud Logs."
-                  : "Prometheus, Mimir or Grafana Cloud Metrics."}
-            </p>
-            <div className="flex shrink-0 flex-wrap gap-1.5">
-              {signal === "metrics" ? <ImportSnapshotDialog /> : <ImportLogsDialog />}
-              <Button type="button" variant="outline" size="sm" onClick={openGrafanaConnect}>
-                <PlugsConnectedIcon data-icon="inline-start" />
-                Via Grafana
-              </Button>
-              <Button type="button" variant="outline" size="sm" onClick={() => setEditing(true)}>
-                <PencilSimpleIcon data-icon="inline-start" />
-                Enter a URL
-              </Button>
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-muted-foreground">
+                {imported
+                  ? "A pasted query result, kept in this browser. Connect for drilldowns and impact checks."
+                  : signal === "logs"
+                    ? "Loki, or Grafana Cloud Logs."
+                    : "Prometheus, Mimir or Grafana Cloud Metrics."}
+              </p>
+              {!choosing ? (
+                <Button type="button" variant="outline" size="sm" className="self-start sm:self-auto" onClick={() => setChoosing(true)}>
+                  <PlugsConnectedIcon data-icon="inline-start" />
+                  Connect
+                </Button>
+              ) : null}
             </div>
+            {choosing ? <ConnectChooser signal={signal} onUrl={() => setEditing(true)} /> : null}
           </div>
         ) : null}
         {showForm ? (

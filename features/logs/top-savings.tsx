@@ -1,10 +1,8 @@
 import * as React from "react"
-import { Link } from "react-router"
 
-import { logGroupPath, logLabelPath, paths } from "@/app/paths"
-import { useBytesCost } from "@/components/cost-text"
-import { SavingsList, type SavingsRowProps } from "@/components/savings-list"
-import { Button } from "@/components/ui/button"
+import { logGroupPath, logLabelPath } from "@/app/paths"
+import type { SavingsRowProps } from "@/components/savings-list"
+import { SavingsLine } from "@/components/savings-line"
 import { useAutopilot } from "@/features/inbox/autopilot"
 import { useServicesPatterns } from "@/features/logs/patterns-data"
 import { patternTableRows } from "@/features/logs/pattern-table"
@@ -12,7 +10,7 @@ import { useProposeLogRule } from "@/features/logs/volume-propose"
 import { formatNumber } from "@/lib/cardinality/dashboard-helpers"
 import { formatBytes } from "@/lib/core/bytes"
 import { applyPreference, learnedPreference, logRuleKeys } from "@/lib/core/decide/learn"
-import { assessLog, orderForReview } from "@/lib/core/decide/risk"
+import { assessLog } from "@/lib/core/decide/risk"
 import { adviseLogLabel } from "@/lib/core/logs/label-advice"
 import { patternLineFilter, patternPreview } from "@/lib/core/logs/patterns"
 import { MAX_LABEL_VALUES } from "@/lib/core/logs/snapshot"
@@ -94,31 +92,21 @@ export function logSavingsRows(
   }))
 }
 
-export function LogsTopSavings({ snapshot, className }: { snapshot: LogsSnapshot; className?: string }) {
+/** Logs overview's line about Savings: how many cuts, what they save, and the way there. */
+export function LogsSavingsLine({ snapshot }: { snapshot: LogsSnapshot }) {
   const propose = useProposeLogRule()
-  const { format } = useBytesCost()
   const { items, loading } = useLogOpportunities(snapshot)
-
-  const open = items.filter((item) => item.state === "open" && item.savedBytesPerDay)
+  const activeRules = useAppStore((state) => state.logRules.filter((rule) => rule.status === "active").length)
+  const open = items.filter((item) => item.state === "open")
   const total = open.reduce((sum, item) => sum + (item.savedBytesPerDay ?? 0), 0)
-  const rows = logSavingsRows(orderForReview(items), propose, format)
   useAutopilot(items, loading, (item) => propose(item.rule, { quiet: true }))
-
   return (
-    <SavingsList
-      className={className}
-      rows={rows}
+    <SavingsLine
       loading={loading}
-      total={total > 0 ? `up to −${formatBytes(total)}/day` : undefined}
-      empty={{
-        title: "Nothing obvious to cut",
-        description: "No noisy patterns, debug lines or runaway labels in the top services.",
-        action: (
-          <Button asChild variant="outline" size="sm">
-            <Link to={paths.logVolume}>Open volume</Link>
-          </Button>
-        ),
-      }}
+      open={open.length}
+      safe={open.filter((item) => item.risk.level === "safe").length}
+      total={total > 0 ? `−${formatBytes(total)}/day` : null}
+      activeRules={activeRules}
     />
   )
 }

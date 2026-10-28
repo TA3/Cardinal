@@ -216,7 +216,7 @@ export function LogRulesPage() {
   return (
     <Page>
       <PageHeader
-        title="Your plan"
+        title="Rules"
         eyebrow={<SignalBadge signal="logs" />}
         actions={
           view === "rules" ? (
@@ -256,7 +256,7 @@ export function LogRulesPage() {
             value={view}
             onValueChange={(value) => setParam("view", value === "rules" ? null : value)}
             options={[
-              { value: "rules", label: "Plan", count: rules.length || undefined },
+              { value: "rules", label: "Rules", count: rules.length || undefined },
               { value: "recommendations", label: "Recommendations" },
             ]}
           />
@@ -272,8 +272,9 @@ export function LogRulesPage() {
       ) : (
         <>
           <SharedLogRulesBanner />
-          <LogPlanHeader rules={rules} actions={<LogPlanActions exp={exp} onFormat={setFormat} />} />
-          <div className="grid gap-4 xl:grid-cols-[3fr_2fr]">
+          {/* Savings and export only mean something once there is a rule. */}
+          {rules.length ? <LogPlanHeader rules={rules} actions={<LogPlanActions exp={exp} onFormat={setFormat} />} /> : null}
+          <div className={rules.length ? "grid gap-4 xl:grid-cols-[3fr_2fr]" : "flex flex-col"}>
             <div className="flex min-w-0 flex-col gap-4">
               <div className="flex flex-col gap-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -306,9 +307,11 @@ export function LogRulesPage() {
                 </Card>
               </div>
             </div>
-            <div className="min-w-0">
-              <LogExportCard exp={exp} onFormat={setFormat} />
-            </div>
+            {rules.length ? (
+              <div className="min-w-0">
+                <LogExportCard exp={exp} onFormat={setFormat} />
+              </div>
+            ) : null}
           </div>
         </>
       )}

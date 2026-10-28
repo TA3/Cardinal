@@ -1,10 +1,9 @@
 import * as React from "react"
-import { ClipboardTextIcon, PlugsConnectedIcon } from "@phosphor-icons/react"
+import { PlugsConnectedIcon } from "@phosphor-icons/react"
 import { Link, useNavigate } from "react-router"
 import { toast } from "sonner"
 
 import { paths, rulesPath } from "@/app/paths"
-import { useShellActions } from "@/app/shell/shell-actions"
 import { useBytesCost, useCost } from "@/components/cost-text"
 import { Frame, FrameHeader, FrameWell } from "@/components/frame"
 import { Reveal, Stagger } from "@/components/motion"
@@ -16,7 +15,7 @@ import { SetupChecklist } from "@/features/inbox/setup-checklist"
 import { logSavingsRows, useLogOpportunities } from "@/features/logs/top-savings"
 import { useProposeLogRule } from "@/features/logs/volume-propose"
 import { metricSavingsRows, useMetricOpportunities, useProposeOpportunity } from "@/features/overview/top-savings"
-import { ImportSnapshotDialog } from "@/features/settings/import-snapshot-dialog"
+import { ConnectChooser } from "@/features/settings/connect-chooser"
 import { formatDelta } from "@/lib/cardinality/dashboard-helpers"
 import { formatBytes } from "@/lib/core/bytes"
 import { orderForReview, RISK_LABEL, RISK_ORDER, type Assessment, type RiskLevel } from "@/lib/core/decide/risk"
@@ -61,7 +60,7 @@ function useBulkPropose() {
 }
 
 function MetricsSavings({ snapshot, onCounts }: { snapshot: Snapshot; onCounts: (counts: Record<RiskLevel, number>) => void }) {
-  const { items, loading, impacts } = useMetricOpportunities(snapshot)
+  const { items, loading, impacts, usageUnchecked } = useMetricOpportunities(snapshot)
   const propose = useProposeOpportunity(snapshot, impacts)
   const bulk = useBulkPropose()
   const { format } = useCost()
@@ -94,15 +93,27 @@ function MetricsSavings({ snapshot, onCounts }: { snapshot: Snapshot; onCounts: 
           count: safe.length,
           run: () => bulk(safe, (item) => propose(item, { quiet: true })),
         }}
-        empty={{
-          title: "Nothing obvious to cut",
-          description: "No unused big metrics, ID-like labels or heavy histograms found.",
-          action: (
-            <Button asChild variant="outline" size="sm">
-              <Link to={paths.explore}>Explore metrics</Link>
-            </Button>
-          ),
-        }}
+        empty={
+          usageUnchecked
+            ? {
+                title: "Check usage to find cuts",
+                description: "Cardinal only suggests dropping what nothing uses. Scan Grafana, or upload your dashboards and rule files.",
+                action: (
+                  <Button asChild size="sm">
+                    <Link to={`${paths.settings}#grafana`}>Add usage</Link>
+                  </Button>
+                ),
+              }
+            : {
+                title: "Nothing obvious to cut",
+                description: "No unused big metrics, ID-like labels or heavy histograms found.",
+                action: (
+                  <Button asChild variant="outline" size="sm">
+                    <Link to={paths.explore}>Explore metrics</Link>
+                  </Button>
+                ),
+              }
+        }
       />
     </div>
   )
@@ -132,10 +143,12 @@ function LogsSavings({ snapshot, onCounts }: { snapshot: LogsSnapshot; onCounts:
       }}
       empty={{
         title: "Nothing obvious to cut",
-        description: "No noisy patterns, debug lines or runaway labels in the top services.",
+        description: snapshot.imported
+          ? "Logs cuts come from repeated lines and labels, which need a live connection. You can still drop or sample a service from Streams."
+          : "No noisy patterns, debug lines or runaway labels in the top services.",
         action: (
           <Button asChild variant="outline" size="sm">
-            <Link to={paths.logVolume}>Open volume</Link>
+            {snapshot.imported ? <Link to={paths.logStreams}>Open streams</Link> : <Link to={paths.logVolume}>Open volume</Link>}
           </Button>
         ),
       }}
@@ -143,53 +156,13 @@ function LogsSavings({ snapshot, onCounts }: { snapshot: LogsSnapshot; onCounts:
   )
 }
 
-const HOW_IT_WORKS = [
-  { title: "Connect", text: "Grafana, Prometheus or Loki. No agent to install." },
-  { title: "Review cuts", text: "Each one is rated safe, review or risky, with why." },
-  { title: "Apply", text: "Export relabel or Alloy config, or apply on Grafana Cloud." },
-]
-
 function Connect() {
-  const { openGrafanaConnect } = useShellActions()
+  const navigate = useNavigate()
   return (
     <Frame>
-      <FrameHeader icon={PlugsConnectedIcon} title="Connect your data" meta="One step with Grafana" />
-      <FrameWell className="flex flex-col gap-3 text-sm text-muted-foreground">
-        <p>
-          Point Cardinal at your Grafana and it finds the Prometheus and Loki data sources itself. Queries run from this tab; nothing is stored.
-          Rather not share credentials? Paste the result of one query instead.
-        </p>
-        <ol className="grid gap-2 sm:grid-cols-3">
-          {HOW_IT_WORKS.map((step, index) => (
-            <li key={step.title} className="flex gap-2 rounded-xl border border-well-border bg-background/40 px-3 py-2">
-              <span className="font-mono text-xs text-brand-ink tabular-nums">{index + 1}</span>
-              <span className="flex flex-col gap-0.5">
-                <span className="font-medium text-foreground">{step.title}</span>
-                <span className="text-xs">{step.text}</span>
-              </span>
-            </li>
-          ))}
-        </ol>
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" onClick={openGrafanaConnect}>
-            <PlugsConnectedIcon data-icon="inline-start" />
-            Connect Grafana
-          </Button>
-          <Button asChild variant="outline">
-            <Link to={paths.overview}>Prometheus directly</Link>
-          </Button>
-          <Button asChild variant="ghost">
-            <Link to={paths.logs}>Loki directly</Link>
-          </Button>
-          <ImportSnapshotDialog
-            trigger={
-              <Button type="button" variant="ghost">
-                <ClipboardTextIcon data-icon="inline-start" />
-                Without credentials
-              </Button>
-            }
-          />
-        </div>
+      <FrameHeader icon={PlugsConnectedIcon} title="Connect your data" meta="Queries run from this tab; nothing is stored" />
+      <FrameWell>
+        <ConnectChooser signal="metrics" onUrl={() => navigate(paths.overview, { state: { connect: "url" } })} />
       </FrameWell>
     </Frame>
   )
@@ -250,7 +223,7 @@ export function InboxPage() {
         status={<RiskSummary counts={counts} />}
         description={
           snapshot || logs
-            ? "Every cut Cardinal found, safest first. Safe means nothing that was checked uses it; hover a rating for why."
+            ? "Cuts ranked safest first. Hover a rating to see why."
             : "Find the metrics, labels and log lines you pay for but don't use, and cut them safely."
         }
       />

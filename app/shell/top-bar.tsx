@@ -215,14 +215,6 @@ export function TopBar({
           <div className={cn("flex items-center gap-1", covered)}>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon-sm" aria-label="Toggle theme" onClick={actions.toggleTheme}>
-                  {resolvedTheme === "dark" ? <SunIcon /> : <MoonIcon />}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">{resolvedTheme === "dark" ? "Light theme" : "Dark theme"}</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
                 <Button asChild variant={onSettings ? "inverse" : "ghost"} size="icon-sm">
                   <Link to={paths.settings} aria-label="Settings" aria-current={onSettings ? "page" : undefined}>
                     <GearIcon weight={onSettings ? "fill" : "regular"} />
@@ -247,7 +239,7 @@ export function TopBar({
                   </DropdownMenuTrigger>
                 </TooltipTrigger>
                 <TooltipContent side="bottom" align="end">
-                  Report, Grafana, glossary and shortcuts
+                  Report, Grafana, glossary, shortcuts and theme
                 </TooltipContent>
               </Tooltip>
               <DropdownMenuContent align="end" className="min-w-52">
@@ -275,6 +267,11 @@ export function TopBar({
                     <KeyboardIcon />
                     Keyboard shortcuts
                     <DropdownMenuShortcut>?</DropdownMenuShortcut>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={actions.toggleTheme}>
+                    {resolvedTheme === "dark" ? <SunIcon /> : <MoonIcon />}
+                    {resolvedTheme === "dark" ? "Light theme" : "Dark theme"}
+                    <DropdownMenuShortcut>D</DropdownMenuShortcut>
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />

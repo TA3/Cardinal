@@ -290,6 +290,7 @@ function LabelsCard({
   className?: string
 }) {
   const { data, isPending, error } = useMetricDrilldown(metric, job)
+  const live = Boolean(useConnection())
   const rules = useAppStore((state) => state.rules)
   const { selectedLabelsByMetric, dropMetrics } = React.useMemo(() => selectionView(rules, job), [rules, job])
   const selected = new Set(selectedLabelsByMetric[metric] ?? [])
@@ -312,6 +313,8 @@ function LabelsCard({
             <AlertTitle>Could not load labels</AlertTitle>
             <AlertDescription>{error.message}</AlertDescription>
           </Alert>
+        ) : !live ? (
+          <p className="py-2 text-sm text-muted-foreground">Label breakdowns need a live connection; a pasted snapshot only counts series per job.</p>
         ) : isPending ? (
           <div className="flex flex-col gap-2">
             {Array.from({ length: 6 }, (_, index) => (
