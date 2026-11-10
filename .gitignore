@@ -41,5 +41,6 @@ node_modules
 
 # cardinal server binaries
 /server/dist
+/server/npm
 .wrangler
 .dev.vars*

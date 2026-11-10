@@ -74,16 +74,24 @@ Locally, put it in `.dev.vars` together with `PUBLIC_HOSTNAMES=localhost,127.0.0
 
 ## Run it on your machine
 
-The `cardinal` binary is the whole app plus its proxy. It listens on `127.0.0.1` only, and your browser talks to
-it instead of a Cardinal server.
+Cardinal runs locally as the whole app plus its proxy. It listens on `127.0.0.1` only, and your browser talks to
+it instead of a Cardinal server, so backends on your network work without CORS.
+
+```bash
+npx @ta3/cardinal          # then open http://localhost:9181
+```
+
+That needs Node 20 or later. Without Node, install the single-file binary (the script checks it against the
+release's `SHA256SUMS`), download it from the [releases page](https://github.com/TA3/cardinal/releases)
+(Linux, macOS, Windows), or use Docker below:
 
 ```bash
 curl -fsSL https://github.com/TA3/cardinal/releases/latest/download/install.sh | sh
-cardinal          # then open http://localhost:9181
+cardinal
 ```
 
-The script checks the binary against the release's `SHA256SUMS`. You can also download it from the
-[releases page](https://github.com/TA3/cardinal/releases) yourself (Linux, macOS, Windows), or use Docker below.
+Already working on cardinal.ta3.dev? **Continue on your machine** (shown when you enter an address on your network)
+opens the local app with your URLs, rules and prices carried over. Tokens never are.
 
 ## Self-host
 

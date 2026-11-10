@@ -133,7 +133,8 @@ export async function forwardProxyRequest(request: Request, options: ForwardOpti
     response = await (options.fetch ?? fetch)(upstream, {
       method: request.method,
       headers,
-      body: request.method === "GET" ? undefined : request.body,
+      // Buffered rather than streamed: bodies are small (queries, rule lists), and Node's fetch refuses a stream without `duplex`.
+      body: request.method === "GET" || request.method === "HEAD" ? undefined : await request.arrayBuffer(),
       redirect: "manual",
       signal: AbortSignal.timeout(30_000),
     })

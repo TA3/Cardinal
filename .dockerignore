@@ -4,6 +4,7 @@
 node_modules
 dist
 server/dist
+server/npm
 .dev.vars*
 .env*
 *.log

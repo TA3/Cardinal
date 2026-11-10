@@ -7,5 +7,5 @@
     "types": ["bun"]
   },
   "include": ["server", "lib/proxy", "lib/sources/proxy-constants.ts", "worker/guard.ts", "package.json"],
-  "exclude": ["server/dist"]
+  "exclude": ["server/dist", "server/npm"]
 }
