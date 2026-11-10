@@ -15,6 +15,7 @@ import { diagnose, TEST_TIMEOUT_MS, type ConnectionProblem } from "@/features/se
 import { PickFromGrafana, type PickedDatasource } from "@/features/settings/pick-from-grafana"
 import { privateHostHint, RouteField } from "@/features/settings/route-field"
 import { routeLabel, withAutoMode } from "@/features/settings/auto-mode"
+import { LocalBackendNotice } from "@/features/settings/local-handoff"
 import { ProblemLine } from "@/features/settings/problem-line"
 import type { Signal } from "@/lib/core/signals"
 import { fetchLogsSnapshot, testLokiConnection, type LokiCheck } from "@/lib/sources/loki"
@@ -297,6 +298,8 @@ export function ConnectionForm({
             onChange={(event) => set({ baseUrl: event.target.value })}
           />
         </Field>
+
+        <LocalBackendNotice signal={signal} draft={{ baseUrl: draft.baseUrl, instanceId: draft.instanceId, tenant: draft.tenant }} />
 
         <Field>
           <div className="grid gap-4 sm:grid-cols-2">

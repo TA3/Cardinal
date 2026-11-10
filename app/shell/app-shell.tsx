@@ -12,6 +12,7 @@ import { ignoreShortcut, isSearchShortcut, navChords } from "@/app/shell/hotkeys
 import { ReportDialog } from "@/app/shell/report-dialog"
 import { ShellActionsContext, type ShellActions } from "@/app/shell/shell-actions"
 import { ShortcutsDialog } from "@/app/shell/shortcuts-dialog"
+import { HandoffDialog } from "@/app/shell/handoff-dialog"
 import { OfflineBanner } from "@/app/shell/offline-banner"
 import { TokenBanner } from "@/app/shell/token-banner"
 import { TopBar } from "@/app/shell/top-bar"
@@ -177,6 +178,7 @@ export function AppShell() {
           <main className="mx-auto w-full max-w-6xl flex-1 px-4 pt-32 pb-16 sm:px-6">
             <TokenBanner />
             <OfflineBanner />
+            <HandoffDialog />
             <AnimatedOutlet />
           </main>
           <Footer />

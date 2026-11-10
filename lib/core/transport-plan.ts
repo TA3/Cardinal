@@ -27,3 +27,31 @@ export function autoModes({ privateHost, cloudHost, selfHosted, mixedContent, lo
   return [...direct, "proxy"]
 }
 
+
+/**
+ * What the browser does when the hosted (https) page calls a backend on a
+ * private network, said before anyone hits an error:
+ * - "blocked": plain http with no way to ask for local network access (Safari, Firefox)
+ * - "local-network": the browser asks to reach the network once, and the backend must allow this origin (CORS)
+ * - "cors": https on the network; it works only if the backend allows this origin
+ * null when nothing special applies (a public host, an http page, or a self-hosted server whose proxy reaches it).
+ */
+export type LocalBackendAdvice = "blocked" | "local-network" | "cors" | null
+
+export function localBackendAdvice({
+  pageHttps,
+  privateHost,
+  plainHttp,
+  selfHosted,
+  localNetworkAccess,
+}: {
+  pageHttps: boolean
+  privateHost: boolean
+  plainHttp: boolean
+  selfHosted: boolean
+  localNetworkAccess: boolean
+}): LocalBackendAdvice {
+  if (!pageHttps || !privateHost || selfHosted) return null
+  if (localNetworkAccess) return "local-network"
+  return plainHttp ? "blocked" : "cors"
+}
