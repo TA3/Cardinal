@@ -12,7 +12,14 @@ export interface RuleFingerprint {
 }
 
 export function fingerprint(rule: Rule): RuleFingerprint {
-  const items = rule.kind === "drop_labels" ? rule.labels : rule.kind === "keep_buckets" ? rule.buckets : []
+  const items =
+    rule.kind === "drop_labels"
+      ? rule.labels
+      : rule.kind === "keep_buckets"
+        ? rule.buckets
+        : rule.kind === "group_values"
+          ? [...rule.groups.map((group) => `${group.name}=${group.regex}`), ...(rule.rest ? [`*=${rule.rest}`] : []), rule.aggregation]
+          : []
   return { key: ruleKey(rule), items: [...items] }
 }
 

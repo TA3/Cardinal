@@ -1,5 +1,6 @@
 import { jobLabel } from "@/lib/core/jobs"
 import { activeRules, isShadowed, sortUnique, type DropLabelsRule, type Rule } from "@/lib/core/rules"
+import type { Grouping } from "@/lib/core/value-groups"
 
 // Turns a RuleSet into a target-independent relabel plan that the Prometheus
 // and Alloy emitters render. A label drop that merges series follows the
@@ -64,6 +65,14 @@ export interface Aggregation {
   job?: string
   metric: string
   labels: string[]
+  /** Set for a value grouping: label values are rewritten, then merged series combined. */
+  grouping?: Grouping
+}
+
+/** A rule this target can't carry at all, and why. */
+export interface HeldRule {
+  rule: Rule
+  reason: string
 }
 
 /** A merging label drop the plan left out: no choice yet, or "aggregate" where the target can't. */
@@ -91,12 +100,15 @@ export interface RelabelPlan {
   sections: RelabelSection[]
   warnings: string[]
   blocked: BlockedRule[]
+  /** Rules left out because the target can't express them (they need no choice, only another target). */
+  held: HeldRule[]
   aggregations: Aggregation[]
 }
 
 export function planRelabel(rules: Rule[], options: RelabelOptions): RelabelPlan {
   const warnings: string[] = []
   const blocked: BlockedRule[] = []
+  const held: HeldRule[] = []
   const aggregations: Aggregation[] = []
   const active = activeRules(rules)
 
@@ -116,6 +128,19 @@ export function planRelabel(rules: Rule[], options: RelabelOptions): RelabelPlan
     }
     if (rule.kind === "keep_buckets") {
       extras.push({ kind: "keep_buckets", job: rule.selector.job, metric: rule.selector.metric, buckets: rule.buckets })
+      continue
+    }
+    if (rule.kind === "group_values") {
+      const { job, metric } = rule.selector
+      if (!options.aggregate) {
+        const reason = `Left out grouping ${rule.label} on ${metric}: merging grouped series needs an aggregation. Export for remote write (recording rules) instead.`
+        held.push({ rule, reason })
+        warnings.push(reason)
+        continue
+      }
+      const { label, groups, rest, aggregation } = rule
+      drops.push({ job, metric })
+      aggregations.push({ job, metric, labels: [], grouping: { label, groups, rest, aggregation } })
       continue
     }
     const { job, metric } = rule.selector
@@ -148,7 +173,7 @@ export function planRelabel(rules: Rule[], options: RelabelOptions): RelabelPlan
   aggregations.sort((a, b) => a.metric.localeCompare(b.metric) || compareJobs(a.job, b.job))
 
   if (options.mode === "combined") {
-    return { sections: [{ steps: buildSteps(drops, clears, extras) }], warnings, blocked, aggregations }
+    return { sections: [{ steps: buildSteps(drops, clears, extras) }], warnings, blocked, held, aggregations }
   }
 
   // split-by-job: one section per scrape job. Rules without a job are placed
@@ -184,7 +209,7 @@ export function planRelabel(rules: Rule[], options: RelabelOptions): RelabelPlan
     .sort(([a], [b]) => compareJobs(a, b))
     .map(([job, entry]) => ({ job, steps: buildSteps(entry.drops, entry.clears, entry.extras) }))
 
-  return { sections, warnings, blocked, aggregations }
+  return { sections, warnings, blocked, held, aggregations }
 }
 
 /** Orders undefined (every job) first, then "" (no job), then by name. */

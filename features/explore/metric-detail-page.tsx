@@ -1,5 +1,5 @@
 import * as React from "react"
-import { CaretDownIcon, CaretRightIcon, ChartBarIcon, FingerprintIcon, FunnelIcon, TagIcon, XIcon } from "@phosphor-icons/react"
+import { ChartBarIcon, FingerprintIcon, FunnelIcon, SlidersHorizontalIcon, TagIcon, XIcon } from "@phosphor-icons/react"
 import { useQuery } from "@tanstack/react-query"
 import { Link, useParams, useSearchParams } from "react-router"
 
@@ -24,6 +24,10 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { targetJob, type DropScope } from "@/features/explore/drop-scope"
 import { HistogramPanel } from "@/features/histograms/histogram-panel"
 import { DashboardEvidenceLinks, EvidenceList } from "@/features/rules/drop-gate"
+import { SegmentedControl } from "@/components/segmented-control"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { UnseenLabelsBanner } from "@/features/explore/aggregate-labels"
+import { GroupValuesForm } from "@/features/rules/group-values-form"
 import { BucketPicker, SeriesPatternForm, valuesPattern } from "@/features/rules/series-rule-forms"
 import { RuleMergeControl, useLabelDropImpact, useMergeDefaults } from "@/features/rules/merge-choice"
 import { useUsageEvidence } from "@/features/rules/usage"
@@ -115,6 +119,11 @@ function LabelValues({
   const { data, isPending, error } = useLabelValues(metric, label, true, job)
   const [pattern, setPattern] = React.useState("")
   const ruleJob = targetJob(job, scope)
+  const rules = useAppStore((state) => state.rules)
+  const grouped = rules.some(
+    (rule) => rule.kind === "group_values" && rule.status === "active" && rule.selector.metric === metric && rule.label === label && rule.selector.job === ruleJob
+  )
+  const [mode, setMode] = React.useState<"drop" | "group">(grouped ? "group" : "drop")
 
   if (label === "le" && histogramFamily(metric).part === "bucket") return <BucketPicker metric={metric} job={ruleJob} />
   if (isPending) {
@@ -139,8 +148,31 @@ function LabelValues({
       return next.length ? valuesPattern(next) : ""
     })
 
+  const modes = (
+    <SegmentedControl
+      size="sm"
+      className="self-start"
+      aria-label={`What to do with ${label} values`}
+      value={mode}
+      onValueChange={setMode}
+      options={[
+        { value: "drop", label: "Drop series", title: "Drop the series whose value matches a pattern" },
+        { value: "group", label: "Group values", title: "Fold many values into a few and merge their series" },
+      ]}
+    />
+  )
+  if (mode === "group") {
+    return (
+      <div className="flex flex-col gap-3 py-2">
+        {modes}
+        <GroupValuesForm metric={metric} label={label} job={ruleJob} values={data} seriesCount={seriesCount} />
+      </div>
+    )
+  }
+
   return (
-    <div className="py-2">
+    <div className="flex flex-col gap-3 py-2">
+      {modes}
       <div className="grid gap-x-6 gap-y-0.5 sm:grid-cols-2">
         {data.map((item) => (
           <button
@@ -228,13 +260,13 @@ function LabelRow({
         <TableCell>
           <button
             type="button"
+            aria-haspopup="dialog"
             aria-expanded={open}
-            aria-controls={`values-${index}`}
-            aria-label={`${open ? "Hide" : "Show"} top values of ${label}`}
+            aria-label={`Values of ${label} and what to do with them`}
             onClick={onToggle}
             className="flex size-6 items-center justify-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
           >
-            {open ? <CaretDownIcon /> : <CaretRightIcon />}
+            <SlidersHorizontalIcon />
           </button>
         </TableCell>
         <TableCell className="max-w-0 min-w-28 font-mono text-xs sm:min-w-40">
@@ -262,14 +294,6 @@ function LabelRow({
           <DropToggle metric={metric} label={label} job={job} scope={scope} size="responsive" reveal disabled={metricDropped} />
         </TableCell>
       </TableRow>
-      {open ? (
-        <TableRow id={`values-${index}`} className="hover:bg-transparent">
-          <TableCell />
-          <TableCell colSpan={5} className="max-w-0 whitespace-normal">
-            <LabelValues metric={metric} label={label} job={job} scope={scope} seriesCount={seriesCount} />
-          </TableCell>
-        </TableRow>
-      ) : null}
     </>
   )
 }
@@ -303,7 +327,7 @@ function LabelsCard({
           Labels
           <InfoTip label="About this table">
             Distinct values per label (its cardinality), largest first. Hover a label to measure how many series dropping it removes;
-            expand it to see its top values and drop only the series matching a pattern.
+            open it to see its top values, then drop the series matching a pattern or group the values.
           </InfoTip>
         </CardTitle>
       </CardHeader>
@@ -322,53 +346,109 @@ function LabelsCard({
             ))}
           </div>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-8" />
-                <TableHead>Label</TableHead>
-                <TableHead className="text-right">Values</TableHead>
-                <TableHead className="hidden text-right sm:table-cell">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span tabIndex={0} className="cursor-help underline decoration-dotted underline-offset-[3px]">
-                        −series if dropped
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent className="max-w-64">Measured on hover with count(count without (label) (…)).</TooltipContent>
-                  </Tooltip>
-                </TableHead>
-                <TableHead className="hidden w-36 md:table-cell">Relative</TableHead>
-                <TableHead className="w-12 text-right sm:w-28">
-                  <span className="sr-only sm:not-sr-only">Rule</span>
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {data.labels.map((label, index, labels) => (
-                <LabelRow
-                  key={label.label}
-                  metric={metric}
-                  label={label.label}
-                  cardinality={label.cardinality}
-                  index={index}
-                  maxCardinality={labels[0]?.cardinality ?? 1}
-                  seriesCount={data.seriesCount}
-                  job={job}
-                  scope={scope}
-                  open={expanded === label.label}
-                  // The largest labels are the likely ID suspects: check them without a hover.
-                  autoCheck={index < 4 && label.cardinality >= 20}
-                  selected={selected.has(label.label)}
-                  metricDropped={metricDropped}
-                  onToggle={() => onExpand(expanded === label.label ? null : label.label)}
-                />
-              ))}
-            </TableBody>
-          </Table>
+          <>
+            <UnseenLabelsBanner metric={metric} job={targetJob(job, scope)} labels={data.labels} />
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-8" />
+                  <TableHead>Label</TableHead>
+                  <TableHead className="text-right">Values</TableHead>
+                  <TableHead className="hidden text-right sm:table-cell">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span tabIndex={0} className="cursor-help underline decoration-dotted underline-offset-[3px]">
+                          −series if dropped
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-64">Measured on hover with count(count without (label) (…)).</TooltipContent>
+                    </Tooltip>
+                  </TableHead>
+                  <TableHead className="hidden w-36 md:table-cell">Relative</TableHead>
+                  <TableHead className="w-12 text-right sm:w-28">
+                    <span className="sr-only sm:not-sr-only">Rule</span>
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.labels.map((label, index, labels) => (
+                  <LabelRow
+                    key={label.label}
+                    metric={metric}
+                    label={label.label}
+                    cardinality={label.cardinality}
+                    index={index}
+                    maxCardinality={labels[0]?.cardinality ?? 1}
+                    seriesCount={data.seriesCount}
+                    job={job}
+                    scope={scope}
+                    open={expanded === label.label}
+                    // The largest labels are the likely ID suspects: check them without a hover.
+                    autoCheck={index < 4 && label.cardinality >= 20}
+                    selected={selected.has(label.label)}
+                    metricDropped={metricDropped}
+                    onToggle={() => onExpand(expanded === label.label ? null : label.label)}
+                  />
+                ))}
+              </TableBody>
+            </Table>
+            <LabelDialog
+              metric={metric}
+              job={job}
+              scope={scope}
+              label={expanded}
+              info={data.labels.find((item) => item.label === expanded)}
+              seriesCount={data.seriesCount}
+              onClose={() => onExpand(null)}
+            />
+          </>
         )}
       </CardContent>
     </Card>
+  )
+}
+
+/**
+ * A label's top values and what to do with them (drop matching series,
+ * group values, trim buckets), in a dialog so the table stays put. Keeps
+ * showing the last label while the dialog animates out.
+ */
+function LabelDialog({
+  metric,
+  job,
+  scope,
+  label,
+  info,
+  seriesCount,
+  onClose,
+}: {
+  metric: string
+  job?: string
+  scope: DropScope
+  label: string | null
+  info?: { label: string; cardinality: number }
+  seriesCount: number
+  onClose: () => void
+}) {
+  const [shown, setShown] = React.useState(label)
+  if (label !== null && label !== shown) setShown(label)
+  const open = label !== null && Boolean(info)
+  return (
+    <Dialog open={open} onOpenChange={(next) => (next ? null : onClose())}>
+      <DialogContent className="grid max-h-[calc(100svh-2rem)] grid-rows-[auto_minmax(0,1fr)] gap-0 p-0 sm:max-w-2xl">
+        <DialogHeader className="border-b border-border/60 p-5 pb-4">
+          <DialogTitle className="font-mono">{shown}</DialogTitle>
+          <DialogDescription className="tabular-nums">
+            {info ? `${formatNumber(info.cardinality)} values on ` : ""}
+            <span className="font-mono">{metric}</span>
+            {job !== undefined ? ` · job ${jobLabel(job)}` : ""}. Fewer values means fewer active series.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="overflow-y-auto px-5 pb-5">
+          {shown ? <LabelValues key={shown} metric={metric} label={shown} job={job} scope={scope} seriesCount={seriesCount} /> : null}
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 

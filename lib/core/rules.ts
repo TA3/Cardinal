@@ -1,3 +1,5 @@
+import type { Grouping } from "@/lib/core/value-groups"
+
 // The rule model shared by the UI, the config importers/compilers and the MCP
 // agent. A RuleSet is the single source of truth for "what the user wants to cut".
 
@@ -82,14 +84,29 @@ export interface KeepBucketsRule extends RuleBase {
   buckets: string[]
 }
 
-export type Rule = DropMetricRule | DropLabelsRule | DropSeriesRule | KeepBucketsRule
+/**
+ * Rewrites a label's values into a few groups (`200|201` → `2xx`) and
+ * combines the series that merge with `aggregation`. Needs an aggregation
+ * step (a recording rule on remote write); plain relabelling can't do it.
+ */
+export interface GroupValuesRule extends RuleBase, Grouping {
+  kind: "group_values"
+}
+
+export type Rule = DropMetricRule | DropLabelsRule | DropSeriesRule | KeepBucketsRule | GroupValuesRule
 export type RuleKind = Rule["kind"]
 type Input<T extends Rule> = Omit<T, "id" | "createdAt" | "status"> & { status?: RuleStatus }
-export type RuleInput = Input<DropMetricRule> | Input<DropLabelsRule> | Input<DropSeriesRule> | Input<KeepBucketsRule>
+export type RuleInput =
+  | Input<DropMetricRule>
+  | Input<DropLabelsRule>
+  | Input<DropSeriesRule>
+  | Input<KeepBucketsRule>
+  | Input<GroupValuesRule>
 
 type KeyedRule =
   | Pick<DropMetricRule | DropLabelsRule | KeepBucketsRule, "kind" | "selector">
   | Pick<DropSeriesRule, "kind" | "selector" | "match">
+  | Pick<GroupValuesRule, "kind" | "selector" | "label">
 
 /**
  * Identity of a rule's target; job `undefined` (every job) and `""` (no job)
@@ -98,6 +115,7 @@ type KeyedRule =
 export function ruleKey(rule: KeyedRule) {
   const base = [rule.kind, rule.selector.job ?? null, rule.selector.metric]
   if (rule.kind === "drop_series") base.push(rule.match.label, rule.match.regex)
+  if (rule.kind === "group_values") base.push(rule.label)
   return JSON.stringify(base)
 }
 
@@ -140,6 +158,10 @@ export function createRule(input: RuleInput): Rule {
   if (base.kind === "drop_series") {
     return { ...base, match: { label: base.match.label, regex: base.match.regex } }
   }
+  if (base.kind === "group_values") {
+    const groups = base.groups.map((group) => ({ name: group.name, regex: group.regex }))
+    return { ...base, groups, ...(base.rest ? { rest: base.rest } : { rest: undefined }) }
+  }
   return base as DropMetricRule
 }
 
@@ -159,12 +181,19 @@ export interface MergeResult {
 function covers(rule: Rule, other: Rule) {
   if (rule.kind === "drop_metric") return true
   if (rule.kind === "drop_series") return other.kind === "drop_series"
+  // One grouping per label: a different one is a change, not a duplicate.
+  if (rule.kind === "group_values") return other.kind === "group_values" && sameGrouping(rule, other)
   if (rule.kind === "keep_buckets") {
     // Keeping fewer buckets drops more: a rule keeping a subset covers the other.
     return other.kind === "keep_buckets" && rule.buckets.every((bucket) => other.buckets.includes(bucket))
   }
   if (other.kind !== "drop_labels") return false
   return other.labels.every((label) => rule.labels.includes(label))
+}
+
+export function sameGrouping(a: GroupValuesRule, b: GroupValuesRule) {
+  const norm = (rule: GroupValuesRule) => JSON.stringify([rule.label, rule.groups, rule.rest ?? null, rule.aggregation])
+  return norm(a) === norm(b)
 }
 
 /**
@@ -252,6 +281,12 @@ export function activateOrCreate(rules: Rule[], candidate: RuleInput): Rule[] {
     if (merged.length !== next.labels.length) next = { ...next, labels: merged, impact: undefined }
     if (candidate.kind === "drop_labels" && candidate.onMerge && candidate.onMerge !== next.onMerge) {
       next = { ...next, onMerge: candidate.onMerge, keepValues: candidate.onMerge === "keep_value" ? candidate.keepValues : undefined }
+    }
+  }
+  if (next.kind === "group_values" && candidate.kind === "group_values") {
+    const updated = createRule({ ...candidate, status: "active" }) as GroupValuesRule
+    if (!sameGrouping(next, updated)) {
+      next = { ...next, groups: updated.groups, rest: updated.rest, aggregation: updated.aggregation, impact: undefined }
     }
   }
   if (next.kind === "keep_buckets" && candidate.kind === "keep_buckets") {

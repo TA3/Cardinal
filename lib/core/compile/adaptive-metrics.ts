@@ -112,6 +112,12 @@ export function compileAdaptiveMetrics(
       )
       continue
     }
+    if (rule.kind === "group_values") {
+      warnings.push(
+        `${metric}: grouping ${rule.label} values can't be an Adaptive Metrics aggregation (it only drops whole labels). Skipped; export it for remote write as a recording rule.`
+      )
+      continue
+    }
     if (rule.onMerge === "keep_value") {
       warnings.push(`${metric}: keeping one value of ${rule.labels.join(", ")} can't be an Adaptive Metrics aggregation. Skipped; export it as relabel config.`)
       continue

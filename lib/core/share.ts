@@ -1,6 +1,7 @@
 import { isJobValue, isLabelName, isMetricName } from "@/lib/core/promql"
 import { regexProblem } from "@/lib/core/regex"
 import { createRule, type Rule, type RuleInput } from "@/lib/core/rules"
+import { GROUP_AGGREGATIONS, groupingProblem, type GroupAggregation, type ValueGroup } from "@/lib/core/value-groups"
 
 // Rule sets as portable JSON: a file download, or base64url in a URL hash
 // (`/rules#rules=…`) so a link carries the rules without a server. Anything
@@ -20,6 +21,11 @@ export interface SharedRule {
   labels?: string[]
   match?: { label: string; regex: string }
   buckets?: string[]
+  /** group_values: the label, its groups, the value for the rest and the aggregation. */
+  label?: string
+  groups?: ValueGroup[]
+  rest?: string
+  aggregation?: GroupAggregation
   rationale?: string
 }
 
@@ -36,6 +42,9 @@ function toShared(rule: Rule): SharedRule {
   if (rule.kind === "drop_labels") base.labels = rule.labels
   if (rule.kind === "drop_series") base.match = rule.match
   if (rule.kind === "keep_buckets") base.buckets = rule.buckets
+  if (rule.kind === "group_values") {
+    Object.assign(base, { label: rule.label, groups: rule.groups, aggregation: rule.aggregation }, rule.rest ? { rest: rule.rest } : {})
+  }
   if (rule.rationale) base.rationale = rule.rationale
   return base
 }
@@ -91,6 +100,26 @@ function fromShared(raw: unknown): RuleInput | string {
     case "keep_buckets": {
       const buckets = stringList(item.buckets, (value) => LE_VALUE.test(value))
       return buckets ? { ...common, kind: "keep_buckets", buckets } : `${metric}: invalid buckets`
+    }
+    case "group_values": {
+      const label = typeof item.label === "string" ? item.label : ""
+      if (!isLabelName(label)) return `${metric}: invalid grouping label`
+      if (!Array.isArray(item.groups) || item.groups.length > 100) return `${metric}: invalid groups`
+      const groups: ValueGroup[] = []
+      for (const raw of item.groups as unknown[]) {
+        const group = raw as Record<string, unknown> | null
+        const name = clean(group?.name)
+        const regex = typeof group?.regex === "string" ? group.regex : ""
+        if (!name) return `${metric}: a group has no name`
+        groups.push({ name, regex })
+      }
+      const rest = item.rest === undefined ? undefined : clean(item.rest)
+      if (item.rest !== undefined && !rest) return `${metric}: invalid value for the rest`
+      const aggregation = item.aggregation as GroupAggregation
+      if (!GROUP_AGGREGATIONS.includes(aggregation)) return `${metric}: invalid aggregation`
+      const problem = groupingProblem({ groups, rest })
+      if (problem) return `${metric}: ${problem}`
+      return { ...common, kind: "group_values", label, groups, rest, aggregation }
     }
     default:
       return `unknown rule kind ${JSON.stringify(item.kind)}`

@@ -63,7 +63,7 @@ import {
   type AggregationRule,
 } from "@/lib/core/compile/adaptive-metrics"
 import { renderAlloy } from "@/lib/core/compile/alloy"
-import { planRelabel, type BlockedRule, type RelabelMode } from "@/lib/core/compile/plan"
+import { planRelabel, type BlockedRule, type HeldRule, type RelabelMode } from "@/lib/core/compile/plan"
 import { renderPrometheus, type PrometheusStage } from "@/lib/core/compile/prometheus"
 import { describeRule, formatAgo, prDescription, renderHeader, type ReportContext } from "@/lib/core/report"
 import { describeKey, diffAgainstBaseline, fingerprint } from "@/lib/core/rule-diff"
@@ -556,8 +556,8 @@ const TARGET_NAMES: Record<Format, string> = {
 }
 
 /** The active rules a format actually emits (the ones its header and PR description list). */
-function emittedRules(rules: Rule[], format: Format, blocked: BlockedRule[]) {
-  const held = new Set(blocked.map(({ rule }) => rule.id))
+function emittedRules(rules: Rule[], format: Format, blocked: BlockedRule[], left: HeldRule[] = []) {
+  const held = new Set([...blocked, ...left].map(({ rule }) => rule.id))
   return rules.filter((rule) => {
     if (rule.status !== "active" || isShadowed(rule, rules)) return false
     if (format === "adaptive") {
@@ -625,7 +625,7 @@ export function useMetricsExport(stored: Rule[], override: ExportOutput | null):
     [rules, mode, stage, jobs]
   )
   const adaptive = React.useMemo(() => compileAdaptiveMetrics(rules), [rules])
-  const emitted = React.useMemo(() => emittedRules(rules, format, plan.blocked), [rules, format, plan.blocked])
+  const emitted = React.useMemo(() => emittedRules(rules, format, plan.blocked, plan.held), [rules, format, plan.blocked, plan.held])
   const metrics = React.useMemo(() => emitted.map((rule) => rule.selector.metric), [emitted])
   const { summaries } = useUsageSummaries(metrics, emitted.length > 0)
 
@@ -684,7 +684,7 @@ export function useMetricsExport(stored: Rule[], override: ExportOutput | null):
     fileName,
     empty,
     blocked: format === "adaptive" ? [] : plan.blocked,
-    warnings: format === "adaptive" ? adaptive.warnings : [],
+    warnings: format === "adaptive" ? adaptive.warnings : plan.held.map((item) => item.reason),
     relabel,
     cloud: format === "adaptive" && cloud,
     copyPr,

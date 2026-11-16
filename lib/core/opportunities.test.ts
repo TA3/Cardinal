@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest"
 
 import type { ClassicHistogram } from "@/lib/core/histograms"
 import { createLogRule } from "@/lib/core/logs/rules"
+import { assessMetric } from "@/lib/core/decide/risk"
 import {
+  aggregateOpportunity,
+  unseenLabels,
   bigMetrics,
   bucketOpportunities,
   churnOpportunity,
@@ -179,5 +182,44 @@ describe("unused metrics without a dashboard scan", () => {
     expect(item.rationale).toContain("dashboards weren't checked")
     const [checked] = unusedMetricOpportunities([{ metric: "big", seriesCount: 5000 }], { big: false })
     expect(reasonLabel(checked)).toBe("Unused")
+  })
+})
+
+describe("unseen labels", () => {
+  const usage = (labels: Record<string, Array<{ kind: "by" | "filter" | "without"; text: string }>>, flow: { all: false; only: string[] }) => ({
+    kind: "panel" as const,
+    dashboard: { uid: "d", title: "D", url: "/d" },
+    title: "p",
+    url: "/d",
+    labels,
+    flow,
+    expr: "",
+  })
+  const evidence = (usages: ReturnType<typeof usage>[], rules: Array<{ group: string; name: string; type: "alerting" }> | null = []) => ({
+    rules,
+    cloud: false,
+    cloudUsage: null,
+    dashboards: { host: "g", scannedAt: new Date().toISOString(), dashboardsScanned: 3, alertsScanned: 0, usages },
+  })
+
+  it("finds labels no panel reads or shows, never job or le", () => {
+    const ev = evidence([usage({ code: [{ kind: "by", text: "by (code)" }], pod: [{ kind: "without", text: "without (pod)" }] }, { all: false, only: ["code"] })])
+    expect(unseenLabels(["code", "pod", "instance", "job", "le", "path"], ev)).toEqual(["instance", "path", "pod"])
+  })
+
+  it("knows nothing without a scan, with unread rules, or with Prometheus rules using the metric", () => {
+    const panel = usage({}, { all: false, only: [] })
+    expect(unseenLabels(["pod"], undefined)).toBeNull()
+    expect(unseenLabels(["pod"], evidence([panel], null))).toBeNull()
+    expect(unseenLabels(["pod"], evidence([panel], [{ group: "g", name: "r", type: "alerting" }]))).toBeNull()
+    expect(unseenLabels(["pod"], evidence([]))).toBeNull()
+  })
+
+  it("proposes summing them away with the measured saving, rated safe when fully checked", () => {
+    const item = aggregateOpportunity({ metric: "m", labels: ["pod"], impact: { seriesBefore: 100, seriesAfter: 10, exact: true }, source: "dashboards" })
+    expect(item?.rule).toEqual({ kind: "drop_labels", metric: "m", labels: ["pod"], onMerge: "aggregate" })
+    expect(item?.savedSeries).toBe(90)
+    expect(assessMetric(item!, evidence([usage({}, { all: false, only: [] })])).level).toBe("safe")
+    expect(aggregateOpportunity({ metric: "m", labels: ["pod"], impact: { seriesBefore: 10, seriesAfter: 10, exact: true }, source: "dashboards" })).toBeNull()
   })
 })

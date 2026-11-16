@@ -3,6 +3,7 @@ import { Document, isScalar, isSeq, visit } from "yaml"
 import { KEEP_BUCKET_MARK, KEEP_VALUE_MARK, type Aggregation, type RelabelPlan, type RelabelSection, type RelabelStep } from "@/lib/core/compile/plan"
 import { assertLabelName, selector } from "@/lib/core/promql"
 import { escapeJoinedPart, joinSeparator, literalAlternation } from "@/lib/core/regex"
+import { groupedExpr, groupingRecordName } from "@/lib/core/value-groups"
 
 export interface RelabelConfig {
   source_labels?: string[]
@@ -119,13 +120,15 @@ const configs = (sections: RelabelSection[]) => sections.flatMap((section) => se
 export type PrometheusStage = "scrape" | "remote_write"
 
 /** The series a remote-write aggregation records: `<metric>:sum_without_<labels>`. */
-export function aggregationRecordName(aggregation: Pick<Aggregation, "metric" | "labels">) {
+export function aggregationRecordName(aggregation: Pick<Aggregation, "metric" | "labels" | "grouping">) {
+  if (aggregation.grouping) return groupingRecordName(aggregation.metric, aggregation.grouping)
   return `${aggregation.metric}:sum_without_${aggregation.labels.map(assertLabelName).join("_")}`
 }
 
 /** A recording rule summing the metric without the dropped labels. */
 export function aggregationRule(aggregation: Aggregation) {
   const sel = selector({ metric: aggregation.metric, matchers: aggregation.job === undefined ? undefined : { job: aggregation.job } })
+  if (aggregation.grouping) return { record: aggregationRecordName(aggregation), expr: groupedExpr(sel, aggregation.grouping) }
   return { record: aggregationRecordName(aggregation), expr: `sum without (${aggregation.labels.map(assertLabelName).join(", ")}) (${sel})` }
 }
 

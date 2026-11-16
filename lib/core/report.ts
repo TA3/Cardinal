@@ -21,6 +21,11 @@ export function describeRule(rule: Rule, code: (text: string) => string = (text)
       const merged = rule.impact?.mergesSeries ? " (merged series keep one sample)" : ""
       return `Drop label${rule.labels.length === 1 ? "" : "s"} ${labels} from ${metric}${merged}`
     }
+    case "group_values": {
+      const groups = rule.groups.map((group) => code(group.name)).join(", ")
+      const rest = rule.rest ? `, the rest as ${code(rule.rest)}` : ""
+      return `Group ${code(rule.label)} of ${metric} into ${groups || "nothing"}${rest} (${rule.aggregation})`
+    }
     case "drop_series":
       return `Drop series of ${metric} where ${code(`${rule.match.label}=~"${rule.match.regex}"`)}`
     case "keep_buckets":

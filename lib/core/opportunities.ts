@@ -5,16 +5,18 @@ import type { IdLikeVerdict } from "@/lib/core/id-like"
 import { logRuleKey, type LogRuleInput } from "@/lib/core/logs/rules"
 import type { LogRule, LogRuleStatus } from "@/lib/core/logs/types"
 import type { MergeChoice, Rule, RuleStatus } from "@/lib/core/rules"
-import { guardedLabel } from "@/lib/core/usage-gate"
+import { labelEvidence } from "@/lib/core/grafana-usage"
+import { guardedLabel, type UsageEvidence } from "@/lib/core/usage-gate"
 
 // "Top savings": concrete things to cut, ranked by what they save, each with
 // the rule a one-click Propose creates. Pure: the Overview hooks gather the
 // evidence (usage, label values, histograms, churn) and hand it here.
 
-export type OpportunityReason = "unused" | "id_like" | "buckets" | "churn"
+export type OpportunityReason = "unused" | "aggregate" | "id_like" | "buckets" | "churn"
 
 export const REASON_LABEL: Record<OpportunityReason, string> = {
   unused: "Unused",
+  aggregate: "Unseen labels",
   id_like: "ID-like",
   buckets: "Buckets",
   churn: "Churn",
@@ -177,6 +179,62 @@ export function churnOpportunity(input: {
   }
 }
 
+/**
+ * Labels summing away can't touch: `job` and `le` change what a query means
+ * (scrape jobs, histogram buckets) and `__name__` is the metric. `instance`
+ * is fine to sum away when nothing reads it: that is most of the saving.
+ */
+const KEEP_WHEN_AGGREGATING = new Set(["job", "le", "__name__"])
+
+/**
+ * Labels of a metric no known query can see: nothing filters, groups or joins
+ * on them, and no panel shows them. Summing them away keeps every query's
+ * result. Null when that can't be known: no dashboard scan, the rules API
+ * unread, or Prometheus rules using the metric (their labels aren't parsed).
+ * Grafana Cloud's Adaptive Metrics recommendation, when it names labels, is
+ * used as is.
+ */
+export function unseenLabels(labels: string[], evidence: UsageEvidence | undefined): string[] | null {
+  if (!evidence) return null
+  const cloud = evidence.cloudUsage?.droppedLabels
+  if (cloud?.length) return cloud.filter((label) => labels.includes(label) && !KEEP_WHEN_AGGREGATING.has(label)).sort()
+  const scan = evidence.dashboards
+  if (!scan || !scan.dashboardsScanned || evidence.rules === null) return null
+  const fromFile = new Set(scan.usages.flatMap((usage) => (usage.rule ? [`${usage.rule.group}/${usage.rule.name}`] : [])))
+  if (evidence.rules.some((rule) => !fromFile.has(`${rule.group}/${rule.name}`))) return null
+  // Unused metrics go whole instead; that is a bigger cut.
+  if (!scan.usages.length) return null
+  return labels
+    .filter((label) => !KEEP_WHEN_AGGREGATING.has(label))
+    .filter((label) => {
+      const found = labelEvidence(scan.usages, label)
+      return found.used.length === 0 && found.shown.length === 0
+    })
+    .sort()
+}
+
+/** Summing away the labels no query sees, measured. Null when it saves nothing. */
+export function aggregateOpportunity(input: {
+  metric: string
+  labels: string[]
+  impact: { seriesBefore: number; seriesAfter: number; exact: boolean }
+  /** Where the labels came from, for the rationale. */
+  source: "dashboards" | "cloud"
+}): MetricOpportunity | null {
+  const { metric, labels, impact } = input
+  const saved = impact.seriesBefore - impact.seriesAfter
+  if (!labels.length || saved <= 0) return null
+  return {
+    id: idOf("aggregate", metric),
+    reason: "aggregate",
+    metric,
+    savedSeries: saved,
+    estimate: !impact.exact,
+    rule: { kind: "drop_labels", metric, labels, onMerge: "aggregate" },
+    rationale: `${input.source === "cloud" ? "Adaptive Metrics finds" : "No dashboard or alert reads"} ${labels.join(", ")} on ${metric}: summing them away takes ${impact.seriesBefore.toLocaleString("en-US")} → ${impact.seriesAfter.toLocaleString("en-US")} series and every query keeps its result.`,
+  }
+}
+
 /** True when `rule` already does what the opportunity would (same metric, a scope at least as wide). */
 export function ruleCovers(rule: Rule, candidate: OpportunityRule) {
   if (rule.selector.metric !== candidate.metric) return false
@@ -198,7 +256,7 @@ function coveringStatus(rules: Rule[], candidate: OpportunityRule, now: number):
   return found
 }
 
-const REASON_ORDER: OpportunityReason[] = ["unused", "id_like", "buckets", "churn"]
+const REASON_ORDER: OpportunityReason[] = ["unused", "aggregate", "id_like", "buckets", "churn"]
 
 /**
  * Ranks opportunities by series saved. Items a rule already handles (active)

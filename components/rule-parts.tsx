@@ -132,6 +132,20 @@ function RuleKindBadges({ rule }: { rule: Rule }) {
           <span className="truncate">keep le {rule.buckets.join(", ")}</span>
         </Badge>
       )
+    case "group_values": {
+      const names = [...rule.groups.map((group) => group.name), ...(rule.rest ? [rule.rest] : [])]
+      return (
+        <Badge
+          variant="outline"
+          className="max-w-full font-mono"
+          title={`Groups ${rule.label} into ${names.join(", ")} and combines merged series with ${rule.aggregation}`}
+        >
+          <span className="truncate">
+            {rule.aggregation} {rule.label} → {names.join(" · ")}
+          </span>
+        </Badge>
+      )
+    }
   }
 }
 

@@ -64,7 +64,13 @@ export function assessMetric(
   let level: RiskLevel
   let missing: Assessment["missing"]
 
-  if (!summary || seen.share === 0) {
+  if (item.reason === "aggregate") {
+    // The labels were picked because no checked query sees them; the metric itself stays.
+    const labels = item.rule.kind === "drop_labels" ? item.rule.labels.join(", ") : "these labels"
+    level = seen.cloud || (seen.rules && seen.dashboards) ? "safe" : "review"
+    why.push(`No checked query reads ${labels}`, "Sums keep every dashboard's result")
+    if (level === "review") missing = "usage"
+  } else if (!summary || seen.share === 0) {
     missing = "usage"
     level = "review"
     why.push("Usage couldn't be checked")

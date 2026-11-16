@@ -3,7 +3,8 @@ import * as React from "react"
 import { connectionKey } from "@/hooks/use-cardinality"
 import { snapshotImpact } from "@/lib/cardinality/dashboard-helpers"
 import { runWithConcurrency } from "@/lib/core/concurrency"
-import { queries, type SeriesSelector } from "@/lib/core/promql"
+import { queries, selector, type SeriesSelector } from "@/lib/core/promql"
+import { groupedSeriesCountQuery } from "@/lib/core/value-groups"
 import type { Rule, RuleImpact } from "@/lib/core/rules"
 import { measureImpact } from "@/lib/sources/prometheus"
 import { sendJson, type Connection } from "@/lib/sources/transport"
@@ -50,6 +51,7 @@ async function countSeries(connection: Connection, query: string, signal?: Abort
  * Both remove whole series, so they never merge any.
  */
 export async function measureRuleImpact(connection: Connection, rule: Rule, signal?: AbortSignal): Promise<RuleImpact> {
+  if (rule.kind === "group_values") return measureGroupingImpact(connection, rule, signal)
   if (rule.kind !== "drop_series" && rule.kind !== "keep_buckets") return measureImpact(connection, rule, signal)
   const sel: SeriesSelector = {
     metric: rule.selector.metric,
@@ -70,6 +72,23 @@ export async function measureRuleImpact(connection: Connection, rule: Rule, sign
     mergesSeries: false,
     measuredAt: new Date().toISOString(),
   }
+}
+
+/** Series before and after grouping: the grouped series are counted after merging. */
+export async function measureGroupingImpact(
+  connection: Connection,
+  rule: Pick<Extract<Rule, { kind: "group_values" }>, "selector" | "label" | "groups" | "rest">,
+  signal?: AbortSignal
+): Promise<RuleImpact> {
+  const sel: SeriesSelector = {
+    metric: rule.selector.metric,
+    matchers: rule.selector.job === undefined ? undefined : { job: rule.selector.job },
+  }
+  const [seriesBefore, seriesAfter] = await Promise.all([
+    countSeries(connection, queries.seriesCount(sel), signal),
+    countSeries(connection, groupedSeriesCountQuery(selector(sel), rule), signal),
+  ])
+  return { seriesBefore, seriesAfter, exact: true, mergesSeries: seriesAfter < seriesBefore, measuredAt: new Date().toISOString() }
 }
 
 export function useRuleImpacts() {

@@ -57,6 +57,9 @@ function describeRule(rule: Rule) {
     case "keep_buckets":
       what = `Keep buckets ${rule.buckets.map(code).join(", ")}`
       break
+    case "group_values":
+      what = `Group ${code(rule.label)} into ${rule.groups.map((group) => code(group.name)).join(", ")}${rule.rest ? ` + ${code(rule.rest)}` : ""} (${rule.aggregation})`
+      break
     default:
       what = (rule as { kind: string }).kind
   }

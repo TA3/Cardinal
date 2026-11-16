@@ -21,6 +21,7 @@ import { quantileUsage } from "@/lib/core/histograms"
 import { detectIdLike } from "@/lib/core/id-like"
 import { jobLabel } from "@/lib/core/jobs"
 import {
+  aggregateOpportunity,
   bigMetrics,
   bucketOpportunities,
   churnOpportunity,
@@ -28,6 +29,7 @@ import {
   idLikeOpportunity,
   rankOpportunities,
   reasonLabel,
+  unseenLabels,
   unusedMetricOpportunities,
   type MetricOpportunity } from "@/lib/core/opportunities"
 import { createRule, type Rule, type RuleImpact } from "@/lib/core/rules"
@@ -45,6 +47,7 @@ import { useAppStore } from "@/lib/store/app-store"
 // instance-wide histogram query, and churn only when it's already loaded.
 
 const ID_CHECK_METRICS = 6
+const AGGREGATE_METRICS = 8
 const CHURN_PAIRS = 2
 const scan = createLimiter(2)
 
@@ -118,6 +121,62 @@ function useIdLikeFindings(snapshot: Snapshot, metrics: string[]) {
   })
 }
 
+interface AggregateFinding {
+  metric: string
+  labels: string[]
+  impact: RuleImpact
+  source: "dashboards" | "cloud"
+}
+
+/**
+ * For used metrics: the labels no checked query sees, and the exact series
+ * left once they are summed away (`count(count without (…))`).
+ */
+function useAggregateFindings(snapshot: Snapshot, metrics: string[], byMetric: Record<string, UsageEvidence | undefined>) {
+  const connection = useConnection()
+  const queryClient = useQueryClient()
+  const key = connectionKey(connection)
+  return useQuery({
+    queryKey: ["top-savings-aggregate", key, snapshot.capturedAt, metrics],
+    enabled: Boolean(connection) && metrics.length > 0,
+    staleTime: 10 * 60_000,
+    retry: false,
+    queryFn: async ({ signal }) => {
+      const findings: AggregateFinding[] = []
+      await Promise.all(
+        metrics.map(async (metric) => {
+          try {
+            const drilldown = await queryClient.fetchQuery({
+              queryKey: ["metric", key, metric, null],
+              queryFn: async () => {
+                const result = await scan(() => fetchMetricDrilldown(connection!, metric, { signal }))
+                cacheDrilldownFor(connection, result)
+                return result
+              },
+              staleTime: 5 * 60_000,
+            })
+            const evidence = byMetric[metric]
+            const labels = unseenLabels(
+              drilldown.labels.filter((item) => item.cardinality > 1).map((item) => item.label),
+              evidence
+            )
+            if (!labels?.length) return
+            const impact = await queryClient.fetchQuery({
+              queryKey: ["labels-drop-impact", key, metric, labels, null],
+              queryFn: () => scan(() => measureImpact(connection!, { kind: "drop_labels", selector: { metric }, labels }, signal)),
+              staleTime: 5 * 60_000,
+            })
+            findings.push({ metric, labels, impact, source: evidence?.cloudUsage?.droppedLabels?.length ? "cloud" : "dashboards" })
+          } catch (error) {
+            if (signal.aborted) throw error
+          }
+        })
+      )
+      return findings
+    },
+  })
+}
+
 /** Label drivers for the top churning pairs, only once the Overview's churn query has data. */
 function useChurnDrivers() {
   const connection = useConnection()
@@ -163,6 +222,18 @@ export function useMetricOpportunities(snapshot: Snapshot) {
     [big, used, usage.isPending]
   )
   const idLike = useIdLikeFindings(snapshot, idMetrics)
+  // Used metrics stay, but the labels no query sees can be summed away.
+  const aggregateMetrics = React.useMemo(
+    () =>
+      usage.isPending
+        ? []
+        : big
+            .filter((item) => used[item.metric] === true && histogramFamily(item.metric).part !== "bucket")
+            .slice(0, AGGREGATE_METRICS)
+            .map((item) => item.metric),
+    [big, used, usage.isPending]
+  )
+  const aggregate = useAggregateFindings(snapshot, aggregateMetrics, usage.byMetric)
   const histograms = useHistogramAnalysis()
   const churn = useChurnDrivers()
 
@@ -176,6 +247,10 @@ export function useMetricOpportunities(snapshot: Snapshot) {
       const item = idLikeOpportunity({ ...finding, used: usedFrom(usage.byMetric[finding.metric], finding.label) })
       if (item) all.push(item)
     }
+    for (const finding of aggregate.data ?? []) {
+      const item = aggregateOpportunity(finding)
+      if (item) all.push(item)
+    }
     if (histograms.data) all.push(...bucketOpportunities(histograms.data.families.slice(0, 20)))
     for (const { row, driver } of churn.rows) {
       if (!driver) continue
@@ -186,11 +261,20 @@ export function useMetricOpportunities(snapshot: Snapshot) {
       ...item,
       risk: applyPreference(assessMetric(item, usage.byMetric[item.metric]), learnedPreference(decisions, metricRuleKeys(item.rule))),
     }))
-  }, [usage.isPending, usage.byMetric, big, used, idLike.data, histograms.data, churn.rows, rules, decisions])
+  }, [usage.isPending, usage.byMetric, big, used, idLike.data, aggregate.data, histograms.data, churn.rows, rules, decisions])
 
-  const impacts = React.useMemo(() => new Map((idLike.data ?? []).map((finding) => [`${finding.metric}\u0000${finding.label}`, finding.impact])), [idLike.data])
+  const impacts = React.useMemo(
+    () =>
+      new Map([
+        ...(idLike.data ?? []).map((finding) => [`${finding.metric}\u0000${finding.label}`, finding.impact] as const),
+        // Aggregations are keyed by metric alone: one per metric.
+        ...(aggregate.data ?? []).map((finding) => [`${finding.metric}\u0000`, finding.impact] as const),
+      ]),
+    [idLike.data, aggregate.data]
+  )
   // isLoading, not isPending: without a live connection these queries never run, and nothing is loading.
-  const loading = usage.isPending || (idMetrics.length > 0 && idLike.isLoading) || histograms.isLoading || churn.pending
+  const loading =
+    usage.isPending || (idMetrics.length > 0 && idLike.isLoading) || (aggregateMetrics.length > 0 && aggregate.isLoading) || histograms.isLoading || churn.pending
   // Nothing about usage was checked, so unused metrics can't be told apart: that, not "nothing to cut", is why the list is short.
   const usageUnchecked = !usage.isPending && names.every((metric) => usedFrom(usage.byMetric[metric]) === undefined)
   return { items, loading, impacts, usageUnchecked }
@@ -213,7 +297,7 @@ export function useProposeOpportunity(snapshot: Snapshot, impacts: Map<string, R
       rule.impact = snapshotImpact(rule, snapshot) ?? undefined
     } else if (item.rule.kind === "drop_labels") {
       rule = createRule({ ...base, kind: "drop_labels", selector, labels: item.rule.labels, ...(item.rule.onMerge ? { onMerge: item.rule.onMerge } : {}) })
-      const measured = item.label && item.rule.job === undefined ? impacts.get(`${item.metric}\u0000${item.label}`) : undefined
+      const measured = item.rule.job === undefined ? impacts.get(`${item.metric}\u0000${item.label ?? ""}`) : undefined
       if (measured) rule.impact = measured
     } else {
       let buckets = item.rule.buckets
@@ -246,6 +330,7 @@ export function useProposeOpportunity(snapshot: Snapshot, impacts: Map<string, R
 }
 
 function itemTitle(item: MetricOpportunity) {
+  if (item.reason === "aggregate" && item.rule.kind === "drop_labels") return `${item.metric} · sum without ${item.rule.labels.join(", ")}`
   return item.label ? `${item.metric} · ${item.label}` : item.metric
 }
 
@@ -265,6 +350,9 @@ export function metricSavingsRows(
       <>
         {item.metric}
         {item.label ? <span className="text-brand-ink"> −{item.label}</span> : null}
+        {item.reason === "aggregate" && item.rule.kind === "drop_labels" ? (
+          <span className="text-brand-ink"> Σ without {item.rule.labels.join(", ")}</span>
+        ) : null}
       </>
     ),
     detail: item.job ? `job ${jobLabel(item.job)}` : undefined,
