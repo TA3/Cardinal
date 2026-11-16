@@ -1,4 +1,5 @@
 import type { RelabelPlan, RelabelSection, RelabelStep } from "@/lib/core/compile/plan"
+import { GROUPING_FORWARD, renderGroupings } from "@/lib/core/compile/alloy-groupings"
 import { toRelabelConfigs, type RelabelConfig } from "@/lib/core/compile/prometheus"
 import { escapeJoinedPart, joinSeparator, literalAlternation } from "@/lib/core/regex"
 
@@ -50,7 +51,7 @@ function ruleBlock(attrs: Array<[string, string]>) {
 }
 
 function renderStep(step: RelabelStep) {
-  if (step.kind === "drop_series" || step.kind === "keep_buckets" || step.kind === "keep_value") {
+  if (step.kind === "drop_series" || step.kind === "keep_buckets" || step.kind === "keep_value" || step.kind === "group_values") {
     return toRelabelConfigs(step).map((config) => ruleBlock(configAttrs(config))).join("\n")
   }
   let attrs: Array<[string, string]>
@@ -82,22 +83,28 @@ function renderStep(step: RelabelStep) {
   return ruleBlock(attrs)
 }
 
-function renderSection(section: RelabelSection, label: string) {
+function renderSection(section: RelabelSection, label: string, forward: string[]) {
   // JSON-quoted so a job containing a newline cannot end the comment.
   const header = section.job !== undefined ? `// scrape job: ${JSON.stringify(section.job)}\n` : ""
   return [
     `${header}prometheus.relabel ${alloyString(label)} {`,
-    "  // Point this at your existing remote_write receiver.",
-    "  forward_to = [prometheus.remote_write.default.receiver]",
-    "",
-    ...section.steps.map(renderStep),
+    forward.length > 1
+      ? "  // Ungrouped series go to remote_write, grouped ones through OpenTelemetry (below)."
+      : "  // Point this at your existing remote_write receiver.",
+    `  forward_to = [${forward.join(", ")}]`,
+    ...(section.steps.length ? ["", ...section.steps.map(renderStep)] : []),
     "}",
   ].join("\n")
 }
 
 export function renderAlloy(plan: RelabelPlan) {
+  const groupings = plan.groupings ?? []
+  // Groupings need a relabel component in front of the split, even with no other rules.
   const sections = plan.sections.filter((section) => section.steps.length > 0)
+  if (groupings.length && !sections.length) sections.push({ steps: [] })
   if (sections.length === 0) return "// No rules selected\n"
   const labels = componentLabels(sections)
-  return `${sections.map((section, index) => renderSection(section, labels[index])).join("\n\n")}\n`
+  const forward = groupings.length ? GROUPING_FORWARD : ["prometheus.remote_write.default.receiver"]
+  const body = sections.map((section, index) => renderSection(section, labels[index], forward)).join("\n\n")
+  return `${body}\n${groupings.length ? `\n${renderGroupings(groupings)}\n` : ""}`
 }

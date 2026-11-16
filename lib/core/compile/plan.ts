@@ -1,5 +1,5 @@
 import { jobLabel } from "@/lib/core/jobs"
-import { activeRules, isShadowed, sortUnique, type DropLabelsRule, type Rule } from "@/lib/core/rules"
+import { activeRules, groupsByRelabel, isShadowed, sortUnique, type DropLabelsRule, type Rule } from "@/lib/core/rules"
 import type { Grouping } from "@/lib/core/value-groups"
 
 // Turns a RuleSet into a target-independent relabel plan that the Prometheus
@@ -15,6 +15,15 @@ export interface RelabelOptions {
   jobsByMetric?: Record<string, string[]>
   /** Aggregations become recording rules plus a drop of the raw metric (remote write only). */
   aggregate?: boolean
+  /** Value groupings run in an OpenTelemetry transform (Alloy): values folded, merged series combined before sending. */
+  otel?: boolean
+}
+
+/** A value grouping run in the collector: `metric` (for `job`) goes through the OTel transform. */
+export interface CollectorGrouping {
+  job?: string
+  metric: string
+  grouping: Grouping
 }
 
 export interface RelabelDrop {
@@ -57,8 +66,18 @@ export interface RelabelKeepValue {
   value: string
 }
 
-export type RelabelStep = RelabelDrop | RelabelLabelClear | RelabelSeriesDrop | RelabelKeepBuckets | RelabelKeepValue
-type RelabelExtra = RelabelSeriesDrop | RelabelKeepBuckets | RelabelKeepValue
+/** Rewrites a label's values into groups; only for groupings where nothing collides. */
+export interface RelabelGroupValues {
+  kind: "group_values"
+  job?: string
+  metric: string
+  label: string
+  groups: Grouping["groups"]
+  rest?: string
+}
+
+export type RelabelStep = RelabelDrop | RelabelLabelClear | RelabelSeriesDrop | RelabelKeepBuckets | RelabelKeepValue | RelabelGroupValues
+type RelabelExtra = RelabelSeriesDrop | RelabelKeepBuckets | RelabelKeepValue | RelabelGroupValues
 
 /** A recording rule summing a metric without some labels; the raw metric is dropped from what's shipped. */
 export interface Aggregation {
@@ -103,6 +122,8 @@ export interface RelabelPlan {
   /** Rules left out because the target can't express them (they need no choice, only another target). */
   held: HeldRule[]
   aggregations: Aggregation[]
+  /** Value groupings for the collector (Alloy); empty unless `otel`. */
+  groupings: CollectorGrouping[]
 }
 
 export function planRelabel(rules: Rule[], options: RelabelOptions): RelabelPlan {
@@ -110,6 +131,7 @@ export function planRelabel(rules: Rule[], options: RelabelOptions): RelabelPlan
   const blocked: BlockedRule[] = []
   const held: HeldRule[] = []
   const aggregations: Aggregation[] = []
+  const groupings: CollectorGrouping[] = []
   const active = activeRules(rules)
 
   const drops: Array<{ job?: string; metric: string }> = []
@@ -132,8 +154,16 @@ export function planRelabel(rules: Rule[], options: RelabelOptions): RelabelPlan
     }
     if (rule.kind === "group_values") {
       const { job, metric } = rule.selector
+      if (groupsByRelabel(rule)) {
+        extras.push({ kind: "group_values", job, metric, label: rule.label, groups: rule.groups, rest: rule.rest })
+        continue
+      }
+      if (options.otel) {
+        groupings.push({ job, metric, grouping: { label: rule.label, groups: rule.groups, rest: rule.rest, aggregation: rule.aggregation } })
+        continue
+      }
       if (!options.aggregate) {
-        const reason = `Left out grouping ${rule.label} on ${metric}: merging grouped series needs an aggregation. Export for remote write (recording rules) instead.`
+        const reason = `Left out grouping ${rule.label} on ${metric}: merging grouped series needs an aggregation before storage. Export for Alloy (OpenTelemetry transform) or remote write (recording rule) instead.`
         held.push({ rule, reason })
         warnings.push(reason)
         continue
@@ -173,7 +203,7 @@ export function planRelabel(rules: Rule[], options: RelabelOptions): RelabelPlan
   aggregations.sort((a, b) => a.metric.localeCompare(b.metric) || compareJobs(a.job, b.job))
 
   if (options.mode === "combined") {
-    return { sections: [{ steps: buildSteps(drops, clears, extras) }], warnings, blocked, held, aggregations }
+    return { sections: [{ steps: buildSteps(drops, clears, extras) }], warnings, blocked, held, aggregations, groupings }
   }
 
   // split-by-job: one section per scrape job. Rules without a job are placed
@@ -209,7 +239,7 @@ export function planRelabel(rules: Rule[], options: RelabelOptions): RelabelPlan
     .sort(([a], [b]) => compareJobs(a, b))
     .map(([job, entry]) => ({ job, steps: buildSteps(entry.drops, entry.clears, entry.extras) }))
 
-  return { sections, warnings, blocked, held, aggregations }
+  return { sections, warnings, blocked, held, aggregations, groupings }
 }
 
 /** Orders undefined (every job) first, then "" (no job), then by name. */
@@ -245,6 +275,8 @@ function buildSteps(
   const sortedExtras = [...extras].sort(
     (a, b) => a.metric.localeCompare(b.metric) || compareJobs(a.job, b.job) || a.kind.localeCompare(b.kind)
   )
+  // Groupings rewrite values: after every step that matches on the original ones.
+  sortedExtras.sort((a, b) => Number(a.kind === "group_values") - Number(b.kind === "group_values"))
   for (const extra of sortedExtras) {
     const key = JSON.stringify(extra)
     if (seenExtras.has(key)) continue

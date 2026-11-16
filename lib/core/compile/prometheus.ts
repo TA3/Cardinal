@@ -3,7 +3,7 @@ import { Document, isScalar, isSeq, visit } from "yaml"
 import { KEEP_BUCKET_MARK, KEEP_VALUE_MARK, type Aggregation, type RelabelPlan, type RelabelSection, type RelabelStep } from "@/lib/core/compile/plan"
 import { assertLabelName, selector } from "@/lib/core/promql"
 import { escapeJoinedPart, joinSeparator, literalAlternation } from "@/lib/core/regex"
-import { groupedExpr, groupingRecordName } from "@/lib/core/value-groups"
+import { GROUP_RELABEL_MARK, groupedExpr, groupingRecordName } from "@/lib/core/value-groups"
 
 export interface RelabelConfig {
   source_labels?: string[]
@@ -29,7 +29,32 @@ export function joinedCondition(job: string | undefined, metric: string, labels:
   }
 }
 
+/** A relabel replacement is expanded (`$1`); `$$` keeps a literal dollar. */
+const literalReplacement = (value: string) => value.replace(/\$/g, "$$$$")
+
 export function toRelabelConfigs(step: RelabelStep): RelabelConfig[] {
+  if (step.kind === "group_values") {
+    // The group name goes to a temporary label first so every group matches
+    // the original value: the rest is written first, then groups from last
+    // to first, so the first matching group is written last and wins.
+    const mark = (part: string, name: string): RelabelConfig => ({
+      ...joinedCondition(step.job, step.metric, [step.label], [part]),
+      action: "replace",
+      target_label: GROUP_RELABEL_MARK,
+      replacement: literalReplacement(name),
+    })
+    return [
+      ...(step.rest ? [mark(".+", step.rest)] : []),
+      ...[...step.groups].reverse().map((group) => mark(`(${group.regex})`, group.name)),
+      {
+        ...joinedCondition(step.job, step.metric, [GROUP_RELABEL_MARK], ["(.+)"]),
+        action: "replace",
+        target_label: step.label,
+        replacement: "$1",
+      },
+      { regex: GROUP_RELABEL_MARK, action: "labeldrop" },
+    ]
+  }
   if (step.kind === "drop_series") {
     return [{ ...joinedCondition(step.job, step.metric, [step.label], [`(${step.regex})`]), action: "drop" }]
   }
@@ -62,7 +87,7 @@ export function toRelabelConfigs(step: RelabelStep): RelabelConfig[] {
   return [toRelabelConfig(step)]
 }
 
-function toRelabelConfig(step: Exclude<RelabelStep, { kind: "drop_series" | "keep_buckets" | "keep_value" }>): RelabelConfig {
+function toRelabelConfig(step: Exclude<RelabelStep, { kind: "drop_series" | "keep_buckets" | "keep_value" | "group_values" }>): RelabelConfig {
   if (step.kind === "drop") {
     const names = literalAlternation(step.metrics)
     if (step.job === undefined) return { source_labels: ["__name__"], regex: names, action: "drop" }

@@ -143,6 +143,32 @@ export function groupedSeriesCountQuery(sel: string, grouping: Pick<Grouping, "l
   return `count(count without (${GROUP_TEMP_LABEL}) (${groupedSelector(sel, grouping)}))`
 }
 
+/** Temporary label for grouping in relabel rules; `__tmp` is reserved by Prometheus for this. */
+export const GROUP_RELABEL_MARK = "__tmp_cardinal_group"
+
+/** How far back the overlap check and the churn saving look, and at what resolution. */
+export const OVERLAP_WINDOW = "1h"
+const OVERLAP_STEP = "5m"
+
+/**
+ * The most series that grouping merged at any moment in the window: 0 means
+ * no target ever held two values of one group at once, so rewriting the
+ * values with plain relabel rules never makes two series collide.
+ */
+export function groupingOverlapQuery(sel: string, grouping: Pick<Grouping, "label" | "groups" | "rest">) {
+  return `max_over_time((count(${sel}) - count(count without (${GROUP_TEMP_LABEL}) (${groupedSelector(sel, grouping)})))[${OVERLAP_WINDOW}:${OVERLAP_STEP}])`
+}
+
+/** Series seen in the window (active series, churn included). */
+export function seenSeriesQuery(sel: string) {
+  return `count(count_over_time(${sel}[${OVERLAP_WINDOW}]))`
+}
+
+/** Series seen in the window once grouped: churning values folded into one. */
+export function groupedSeenSeriesQuery(sel: string, grouping: Pick<Grouping, "label" | "groups" | "rest">) {
+  return `count(count without (${GROUP_TEMP_LABEL}) (count_over_time(${groupedSelector(sel, grouping)}[${OVERLAP_WINDOW}:${OVERLAP_STEP}])))`
+}
+
 /** The recorded series name: `<metric>:<agg>_grouped_<label>`. */
 export function groupingRecordName(metric: string, grouping: Pick<Grouping, "label" | "aggregation">) {
   return `${metric}:${grouping.aggregation}_grouped_${assertLabelName(grouping.label)}`

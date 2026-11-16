@@ -1,5 +1,5 @@
 import * as React from "react"
-import { RulerIcon, StackIcon, TrashIcon, WarningIcon } from "@phosphor-icons/react"
+import { CheckCircleIcon, RulerIcon, StackIcon, TrashIcon, WarningIcon } from "@phosphor-icons/react"
 import { useMutation } from "@tanstack/react-query"
 import { toast } from "sonner"
 
@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { scopeText } from "@/features/explore/drop-scope"
 import { ValueGrouper, type GroupingDraft } from "@/features/rules/value-grouper"
-import { useConnection } from "@/hooks/use-cardinality"
+import { useConnection, useMetricsTarget } from "@/hooks/use-cardinality"
 import { measureGroupingImpact } from "@/hooks/use-rule-impacts"
 import { formatDelta, formatNumber } from "@/lib/cardinality/dashboard-helpers"
 import { createRule, ruleKey, sameGrouping, type GroupValuesRule, type RuleImpact } from "@/lib/core/rules"
@@ -23,6 +23,13 @@ import {
 } from "@/lib/core/value-groups"
 import { useAppStore } from "@/lib/store/app-store"
 import { cn } from "@/lib/utils"
+
+const DESTINATION_LABEL: Record<ReturnType<typeof useMetricsTarget>["destination"], string> = {
+  prometheus: "Prometheus scrape config",
+  "remote-write": "Prometheus remote write",
+  alloy: "Grafana Alloy",
+  "grafana-cloud": "Adaptive Metrics",
+}
 
 const AGGREGATION_HINT: Record<GroupAggregation, string> = {
   sum: "Adds the merged series up: requests, bytes, errors. The right choice for counters.",
@@ -55,6 +62,7 @@ export function GroupValuesForm({
   const removeRule = useAppStore((state) => state.removeRule)
   const addRules = useAppStore((state) => state.addRules)
   const connection = useConnection()
+  const { destination } = useMetricsTarget()
   const selector = job === undefined ? { metric } : { metric, job }
   const key = ruleKey({ kind: "group_values", selector, label })
   const existing = rules.find((rule): rule is GroupValuesRule => rule.kind === "group_values" && rule.status === "active" && ruleKey(rule) === key)
@@ -74,13 +82,18 @@ export function GroupValuesForm({
       variables && measureGroupingImpact(connection!, { selector, label, groups: draft.groups, rest: draft.rest }),
   })
   const measured: RuleImpact | undefined = measure.data && measure.variables?.fingerprint === fingerprint ? measure.data : undefined
+  // What is known about this exact grouping: a fresh measurement, else the saved rule's.
+  const known = measured ?? (unchanged ? existing?.impact : undefined)
+  const verdict = known ? (known.mergesSeries ? "merges" : "relabel") : "unknown"
 
   function save() {
     if (problem) return
     if (existing) removeRule(existing.id)
-    addRules([createRule({ kind: "group_values", selector, ...grouping, origin: "user", impact: measured })])
+    addRules([createRule({ kind: "group_values", selector, ...grouping, origin: "user", impact: known })])
     toast.success(existing ? "Grouping updated" : "Grouping added", {
-      description: `${metric}: ${label} into ${draft.groups.length + (draft.rest ? 1 : 0)} values, merged with ${aggregation} (${scopeText(job)}).`,
+      description: `${metric}: ${label} into ${draft.groups.length + (draft.rest ? 1 : 0)} values, ${
+        verdict === "relabel" ? "as plain relabel rules" : `merged with ${aggregation}`
+      } (${scopeText(job)}).`,
     })
   }
 
@@ -110,7 +123,7 @@ export function GroupValuesForm({
 
       <div className="flex flex-col gap-2 rounded-xl bg-background/50 p-2.5 ring-1 ring-well-border">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <MeasureResult impact={measured} pending={measure.isPending} error={measure.error} />
+          <MeasureResult impact={known} pending={measure.isPending} error={measure.error} />
           <div className="flex flex-wrap gap-1.5">
             {existing ? (
               <Button size="sm" variant="ghost" onClick={() => removeRule(existing.id)}>
@@ -127,7 +140,7 @@ export function GroupValuesForm({
               <RulerIcon data-icon="inline-start" />
               Measure
             </Button>
-            <Button size="sm" disabled={Boolean(problem) || unchanged} onClick={save}>
+            <Button size="sm" disabled={Boolean(problem) || (unchanged && (!measured || measured === existing?.impact))} onClick={save}>
               <StackIcon data-icon="inline-start" />
               {existing ? "Update grouping" : "Group values"}
             </Button>
@@ -138,9 +151,34 @@ export function GroupValuesForm({
             `Can't save yet: ${problem}.`
           ) : (
             <>
-              Ships on remote write as the recording rule{" "}
-              <code className="font-mono text-foreground">{groupingRecordName(metric, { label, aggregation })}</code>, and the raw metric
-              stops being sent. Plain relabelling can't merge series, so scrape-time exports leave it out.
+              {verdict === "relabel" ? (
+                <span className="flex items-start gap-1 text-foreground">
+                  <CheckCircleIcon className="mt-px size-3.5 shrink-0 text-brand-ink" aria-hidden />
+                  No target held two of these values at once in the last hour, so nothing collides: plain relabel rules rewrite the values,
+                  in every export including the Prometheus scrape config. The saving is the churn folded away.
+                </span>
+              ) : (
+                <>
+                  {verdict === "merges" ? (
+                    <span className="mb-1 flex items-start gap-1 text-foreground">
+                      <StackIcon className="mt-px size-3.5 shrink-0 text-brand-ink" aria-hidden />
+                      Targets hold several of these values at once, so grouped series merge and have to be combined.
+                    </span>
+                  ) : (
+                    <span className="mb-1 block">Measure to check whether plain relabel rules are enough: they are when no target holds two grouped values at once. </span>
+                  )}
+                  Alloy combines merged series in an OpenTelemetry transform before sending; remote write records{" "}
+                  <code className="font-mono text-foreground">{groupingRecordName(metric, { label, aggregation })}</code> instead of the raw
+                  metric.
+                  {destination === "prometheus" ? (
+                    <span className="mt-1 flex items-start gap-1 text-brand-ink">
+                      <WarningIcon className="mt-px size-3.5 shrink-0" aria-hidden />
+                      Your rules export to {DESTINATION_LABEL[destination]}, which can only relabel: unless nothing collides, Rules offers the
+                      Alloy and remote write exports for this grouping.
+                    </span>
+                  ) : null}
+                </>
+              )}
             </>
           )}
           {existing ? (
@@ -170,7 +208,7 @@ function MeasureResult({ impact, pending, error }: { impact?: RuleImpact; pendin
     <span className="flex items-baseline gap-2 text-xs tabular-nums">
       <span>
         {formatNumber(impact.seriesBefore)} <span className="text-muted-foreground">→</span>{" "}
-        <span className="font-medium">{formatNumber(impact.seriesAfter)}</span> series
+        <span className="font-medium">{formatNumber(impact.seriesAfter)}</span> series{impact.window ? ` seen in ${impact.window}` : ""}
       </span>
       <span className="font-medium text-brand-ink">{formatDelta(-saved)}</span>
     </span>

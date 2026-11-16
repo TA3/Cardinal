@@ -67,7 +67,7 @@ import { planRelabel, type BlockedRule, type HeldRule, type RelabelMode } from "
 import { renderPrometheus, type PrometheusStage } from "@/lib/core/compile/prometheus"
 import { describeRule, formatAgo, prDescription, renderHeader, type ReportContext } from "@/lib/core/report"
 import { describeKey, diffAgainstBaseline, fingerprint } from "@/lib/core/rule-diff"
-import { isShadowed, type Rule } from "@/lib/core/rules"
+import { groupsByRelabel, isShadowed, type GroupValuesRule, type Rule } from "@/lib/core/rules"
 import { computeExpectedSavings } from "@/lib/core/savings"
 import { jobsByMetric } from "@/lib/core/snapshot"
 import { checkAggregationRules, fetchAggregationRules, saveAggregationRules } from "@/lib/sources/adaptive-metrics"
@@ -204,6 +204,50 @@ function Notes({ warnings }: { warnings: string[] }) {
         </ul>
       </InfoTip>
     </p>
+  )
+}
+
+/**
+ * Value groupings the current output can't carry. Grouping merges series, and
+ * only a recording rule evaluated before shipping can sum them, so they ship
+ * with the remote write export: one click switches to it.
+ */
+function NeedsRemoteWrite({
+  rules,
+  output,
+  onOutput,
+}: {
+  rules: GroupValuesRule[]
+  output: ExportOutput
+  onOutput: (output: ExportOutput | null) => void
+}) {
+  if (!rules.length) return null
+  return (
+    <div className="flex flex-col gap-2 rounded-xl border border-brand/30 bg-brand/5 p-3">
+      <p className="text-xs font-medium text-brand-ink">
+        {rules.length === 1 ? "1 value grouping needs Alloy or remote write" : `${rules.length} value groupings need Alloy or remote write`}
+      </p>
+      <ul className="flex flex-col gap-0.5">
+        {rules.map((rule) => (
+          <li key={rule.id} className="truncate font-mono text-xs" title={rule.selector.metric}>
+            {rule.selector.metric} <span className="text-muted-foreground">{rule.label} → {[...rule.groups.map((group) => group.name), ...(rule.rest ? [rule.rest] : [])].join(" · ")}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="text-xs text-muted-foreground">
+        Grouping merges series, so they have to be combined before they're stored. {OUTPUT_LABEL[output]} can only drop or relabel series, so
+        the grouping isn't in this config. Alloy combines them in an OpenTelemetry transform; remote write records the sums with a recording
+        rule.
+      </p>
+      <div className="flex flex-wrap gap-1.5">
+        <Button size="sm" variant="outline" onClick={() => onOutput("alloy")}>
+          Show the Alloy export
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => onOutput("remote-write")}>
+          Show remote write
+        </Button>
+      </div>
+    </div>
   )
 }
 
@@ -594,6 +638,8 @@ export interface MetricsExport {
   fileName: string
   empty: boolean
   blocked: BlockedRule[]
+  /** Value groupings this output can't carry: they need remote write's recording rules. */
+  heldGroupings: GroupValuesRule[]
   warnings: string[]
   /** Adaptive output only: the rules Adaptive Metrics can't carry, as Alloy relabel config. */
   relabel: { code: string; fileName: string; count: number } | null
@@ -621,8 +667,14 @@ export function useMetricsExport(stored: Rule[], override: ExportOutput | null):
   const jobs = React.useMemo(() => (snapshot ? jobsByMetric(snapshot) : undefined), [snapshot])
 
   const plan = React.useMemo(
-    () => planRelabel(rules, { mode: stage === "remote_write" ? "combined" : mode, jobsByMetric: jobs, aggregate: stage === "remote_write" }),
-    [rules, mode, stage, jobs]
+    () =>
+      planRelabel(rules, {
+        mode: stage === "remote_write" ? "combined" : mode,
+        jobsByMetric: jobs,
+        aggregate: stage === "remote_write",
+        otel: format === "alloy",
+      }),
+    [rules, mode, stage, jobs, format]
   )
   const adaptive = React.useMemo(() => compileAdaptiveMetrics(rules), [rules])
   const emitted = React.useMemo(() => emittedRules(rules, format, plan.blocked, plan.held), [rules, format, plan.blocked, plan.held])
@@ -650,14 +702,26 @@ export function useMetricsExport(stored: Rule[], override: ExportOutput | null):
     const carried = new Set(emitted.map((rule) => rule.id))
     const rest = emittedRules(rules, "alloy", plan.blocked).filter((rule) => !carried.has(rule.id))
     if (!rest.length) return null
-    const restPlan = planRelabel(rest, { mode, jobsByMetric: jobs })
+    const restPlan = planRelabel(rest, { mode, jobsByMetric: jobs, otel: true })
     return { code: `${renderHeader(rest, context, "//")}${renderAlloy(restPlan)}`, fileName: FILE_NAMES.alloy, count: rest.length }
   }, [format, emitted, rules, plan.blocked, mode, jobs, context])
 
+  const heldGroupings = React.useMemo(
+    () =>
+      // Remote write records them, Alloy runs them in OpenTelemetry, Adaptive hands them to its Alloy part.
+      format !== "prometheus" || stage === "remote_write"
+        ? []
+        : rules.filter(
+            (rule): rule is GroupValuesRule =>
+              rule.kind === "group_values" && rule.status === "active" && !groupsByRelabel(rule) && !isShadowed(rule, rules)
+          ),
+    [rules, format, stage]
+  )
   const body = format === "prometheus" ? renderPrometheus(plan, stage) : format === "alloy" ? renderAlloy(plan) : renderAdaptiveMetrics(adaptive)
   // JSON has no comments; YAML and Alloy get a header with each rule's rationale and savings.
   const code = format === "adaptive" ? body : `${renderHeader(emitted, context, format === "alloy" ? "//" : "#")}${body}`
-  const empty = format === "adaptive" ? adaptive.rules.length === 0 : plan.sections.every((section) => section.steps.length === 0)
+  const empty =
+    format === "adaptive" ? adaptive.rules.length === 0 : plan.sections.every((section) => section.steps.length === 0) && plan.groupings.length === 0
   const fileName = format === "prometheus" && stage === "remote_write" ? "cardinal-write-relabel.yml" : FILE_NAMES[format]
 
   const copyPr = async () => {
@@ -684,7 +748,11 @@ export function useMetricsExport(stored: Rule[], override: ExportOutput | null):
     fileName,
     empty,
     blocked: format === "adaptive" ? [] : plan.blocked,
-    warnings: format === "adaptive" ? adaptive.warnings : plan.held.map((item) => item.reason),
+    heldGroupings,
+    // Groupings get their own card; the notes keep the other reasons.
+    warnings: (format === "adaptive" ? adaptive.warnings : plan.held.map((item) => item.reason)).filter(
+      (warning) => !heldGroupings.some((rule) => warning.startsWith(`${rule.selector.metric}: grouping`) || warning.startsWith(`Left out grouping ${rule.label} on ${rule.selector.metric}`))
+    ),
     relabel,
     cloud: format === "adaptive" && cloud,
     copyPr,
@@ -809,6 +877,7 @@ export function ExportCard({ exp, onOutput }: { exp: MetricsExport; onOutput: (o
           </div>
         ) : null}
         <NeedsChoice blocked={exp.blocked} />
+        <NeedsRemoteWrite rules={exp.heldGroupings} output={exp.output} onOutput={onOutput} />
         <Notes warnings={exp.warnings} />
         <ImportDiff rules={rules} />
         {exp.empty ? (

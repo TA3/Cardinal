@@ -17,6 +17,8 @@ export interface RuleImpact {
   seriesAfter: number
   /** True when measured with an exact query rather than a heuristic. */
   exact: boolean
+  /** Set when the counts are series seen over this window (churn included), e.g. "1h". */
+  window?: string
   /**
    * True when removing the labels merges distinct series. What happens then is
    * the rule's `onMerge` choice (see DropLabelsRule).
@@ -91,6 +93,17 @@ export interface KeepBucketsRule extends RuleBase {
  */
 export interface GroupValuesRule extends RuleBase, Grouping {
   kind: "group_values"
+  /**
+   * No target holds two values of one group at once, so plain relabel rules
+   * can rewrite the values without collisions. A measured impact decides
+   * (`mergesSeries` false); this is the fallback, e.g. for imported config.
+   */
+  relabel?: boolean
+}
+
+/** True when a grouping can ship as plain relabel rules: nothing it groups ever collides. */
+export function groupsByRelabel(rule: GroupValuesRule) {
+  return rule.impact ? !rule.impact.mergesSeries : Boolean(rule.relabel)
 }
 
 export type Rule = DropMetricRule | DropLabelsRule | DropSeriesRule | KeepBucketsRule | GroupValuesRule

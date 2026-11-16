@@ -1,6 +1,6 @@
 import { isJobValue, isLabelName, isMetricName } from "@/lib/core/promql"
 import { regexProblem } from "@/lib/core/regex"
-import { createRule, type Rule, type RuleInput } from "@/lib/core/rules"
+import { createRule, groupsByRelabel, type Rule, type RuleInput } from "@/lib/core/rules"
 import { GROUP_AGGREGATIONS, groupingProblem, type GroupAggregation, type ValueGroup } from "@/lib/core/value-groups"
 
 // Rule sets as portable JSON: a file download, or base64url in a URL hash
@@ -26,6 +26,8 @@ export interface SharedRule {
   groups?: ValueGroup[]
   rest?: string
   aggregation?: GroupAggregation
+  /** group_values: measured to never collide, so it ships as plain relabel rules. */
+  relabel?: boolean
   rationale?: string
 }
 
@@ -44,6 +46,7 @@ function toShared(rule: Rule): SharedRule {
   if (rule.kind === "keep_buckets") base.buckets = rule.buckets
   if (rule.kind === "group_values") {
     Object.assign(base, { label: rule.label, groups: rule.groups, aggregation: rule.aggregation }, rule.rest ? { rest: rule.rest } : {})
+    if (groupsByRelabel(rule)) base.relabel = true
   }
   if (rule.rationale) base.rationale = rule.rationale
   return base
@@ -119,7 +122,7 @@ function fromShared(raw: unknown): RuleInput | string {
       if (!GROUP_AGGREGATIONS.includes(aggregation)) return `${metric}: invalid aggregation`
       const problem = groupingProblem({ groups, rest })
       if (problem) return `${metric}: ${problem}`
-      return { ...common, kind: "group_values", label, groups, rest, aggregation }
+      return { ...common, kind: "group_values", label, groups, rest, aggregation, ...(item.relabel === true ? { relabel: true } : {}) }
     }
     default:
       return `unknown rule kind ${JSON.stringify(item.kind)}`

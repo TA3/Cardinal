@@ -1,4 +1,5 @@
 import { KEEP_BUCKET_MARK, KEEP_VALUE_MARK } from "@/lib/core/compile/plan"
+import { GROUP_RELABEL_MARK, type ValueGroup } from "@/lib/core/value-groups"
 import { isLabelName } from "@/lib/core/promql"
 import { parseLiteralAlternation, regexProblem, splitJoinedRegex } from "@/lib/core/regex"
 import { createRule, mergeRules, type Rule } from "@/lib/core/rules"
@@ -41,6 +42,9 @@ type PendingKeeps = Map<string, string[]>
 const keepKey = (job: string | undefined, metric: string) => JSON.stringify([job ?? null, metric])
 const valueKey = (job: string | undefined, metric: string, label: string) => JSON.stringify([job ?? null, metric, label])
 
+/** Group marks of a value grouping (in config order), waiting for the step that copies them onto the label. */
+type PendingGroups = Map<string, Array<{ name: string; part: string }>>
+
 /** Removes one wrapping group from the last part of a joined regex: `(re)` → `re`. */
 function unwrapGroup(part: string) {
   const trimmed = part.trim()
@@ -67,7 +71,7 @@ function joinedHead(raw: RawRelabelRule, restCount: number) {
   return { job: job ?? raw.scrapeJob, metric, rest: parts.slice(scoped ? 2 : 1), restLabels: labels.slice(scoped ? 2 : 1) }
 }
 
-function convert(raw: RawRelabelRule, pending: PendingKeeps): Rule[] | string {
+function convert(raw: RawRelabelRule, pending: PendingKeeps, groups: PendingGroups = new Map()): Rule[] | string {
   const action = (raw.action ?? "replace").trim().toLowerCase()
   const labels = raw.sourceLabels
   const regex = raw.regex ?? "(.*)"
@@ -75,6 +79,42 @@ function convert(raw: RawRelabelRule, pending: PendingKeeps): Rule[] | string {
   const scope = (job: string | undefined | null) => {
     const resolved = job ?? raw.scrapeJob
     return resolved === undefined ? {} : { job: resolved }
+  }
+
+  // A value grouping: marks (rest first, then groups last to first), a copy onto the label, removing the mark.
+  if (action === "labeldrop" && regex.trim() === GROUP_RELABEL_MARK) return []
+  if (action === "replace" && raw.targetLabel === GROUP_RELABEL_MARK) {
+    const head = joinedHead(raw, 1)
+    if (!head) return "group mark is not scoped to one metric"
+    const key = valueKey(head.job, head.metric, head.restLabels[0])
+    const name = (raw.replacement ?? "").replace(/\$\$/g, "$")
+    groups.set(key, [...(groups.get(key) ?? []), { name, part: head.rest[0] }])
+    return []
+  }
+  if (action === "replace" && labels[labels.length - 1] === GROUP_RELABEL_MARK && raw.targetLabel) {
+    const head = joinedHead(raw, 1)
+    const label = raw.targetLabel
+    const marks = head ? groups.get(valueKey(head.job, head.metric, label)) : undefined
+    if (!head || !marks?.length) return "group copy without matching group marks"
+    const rest = marks[0].part.trim() === ".+" ? marks[0].name : undefined
+    const parsed: ValueGroup[] = []
+    for (const mark of (rest === undefined ? marks : marks.slice(1)).reverse()) {
+      const pattern = unwrapGroup(mark.part)
+      if (pattern === null) return `group "${mark.name}" has an unsupported value pattern`
+      parsed.push({ name: mark.name, regex: pattern })
+    }
+    return [
+      createRule({
+        kind: "group_values",
+        selector: { metric: head.metric, ...scope(head.job) },
+        label,
+        groups: parsed,
+        rest,
+        aggregation: "sum",
+        relabel: true,
+        origin: "import",
+      }),
+    ]
   }
 
   // Keep one value of a label: mark it, drop the unmarked values, remove the mark.
@@ -184,8 +224,9 @@ export function rulesFromRelabel(raws: RawRelabelRule[]): ImportResult {
   const warnings: string[] = []
   let rules: Rule[] = []
   const pending: PendingKeeps = new Map()
+  const groups: PendingGroups = new Map()
   raws.forEach((raw, index) => {
-    const out = convert(raw, pending)
+    const out = convert(raw, pending, groups)
     if (typeof out === "string") {
       warnings.push(`Rule ${index + 1}: ${out}`)
     } else {

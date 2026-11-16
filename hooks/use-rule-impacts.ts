@@ -4,7 +4,7 @@ import { connectionKey } from "@/hooks/use-cardinality"
 import { snapshotImpact } from "@/lib/cardinality/dashboard-helpers"
 import { runWithConcurrency } from "@/lib/core/concurrency"
 import { queries, selector, type SeriesSelector } from "@/lib/core/promql"
-import { groupedSeriesCountQuery } from "@/lib/core/value-groups"
+import { groupedSeenSeriesQuery, groupedSeriesCountQuery, groupingOverlapQuery, OVERLAP_WINDOW, seenSeriesQuery } from "@/lib/core/value-groups"
 import type { Rule, RuleImpact } from "@/lib/core/rules"
 import { measureImpact } from "@/lib/sources/prometheus"
 import { sendJson, type Connection } from "@/lib/sources/transport"
@@ -74,7 +74,12 @@ export async function measureRuleImpact(connection: Connection, rule: Rule, sign
   }
 }
 
-/** Series before and after grouping: the grouped series are counted after merging. */
+/**
+ * Whether the grouping ever merges series, and what it saves. When no target
+ * held two values of one group at once in the last hour, nothing collides and
+ * plain relabel rules can do it: the saving is the churn it folds, counted as
+ * series seen over that hour. Otherwise it is the merge, counted now.
+ */
 export async function measureGroupingImpact(
   connection: Connection,
   rule: Pick<Extract<Rule, { kind: "group_values" }>, "selector" | "label" | "groups" | "rest">,
@@ -84,11 +89,17 @@ export async function measureGroupingImpact(
     metric: rule.selector.metric,
     matchers: rule.selector.job === undefined ? undefined : { job: rule.selector.job },
   }
-  const [seriesBefore, seriesAfter] = await Promise.all([
+  const raw = selector(sel)
+  const [seriesBefore, seriesAfter, overlap, seenBefore, seenAfter] = await Promise.all([
     countSeries(connection, queries.seriesCount(sel), signal),
-    countSeries(connection, groupedSeriesCountQuery(selector(sel), rule), signal),
+    countSeries(connection, groupedSeriesCountQuery(raw, rule), signal),
+    countSeries(connection, groupingOverlapQuery(raw, rule), signal),
+    countSeries(connection, seenSeriesQuery(raw), signal),
+    countSeries(connection, groupedSeenSeriesQuery(raw, rule), signal),
   ])
-  return { seriesBefore, seriesAfter, exact: true, mergesSeries: seriesAfter < seriesBefore, measuredAt: new Date().toISOString() }
+  const measuredAt = new Date().toISOString()
+  if (overlap > 0 || seriesAfter < seriesBefore) return { seriesBefore, seriesAfter, exact: true, mergesSeries: true, measuredAt }
+  return { seriesBefore: seenBefore, seriesAfter: Math.min(seenAfter, seenBefore), exact: true, mergesSeries: false, window: OVERLAP_WINDOW, measuredAt }
 }
 
 export function useRuleImpacts() {

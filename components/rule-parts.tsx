@@ -198,6 +198,7 @@ export function RuleImpact({ rule, totalSeries, showCost = true }: { rule: Rule;
       {ago ? (
         <span className="text-[11px] text-muted-foreground/80" title={new Date(rule.impact.measuredAt).toLocaleString()}>
           {rule.kind === "drop_metric" ? "snapshot" : "measured"} {ago}
+          {rule.impact.window ? `, seen in ${rule.impact.window}` : ""}
         </span>
       ) : null}
     </div>
