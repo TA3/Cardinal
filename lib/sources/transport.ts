@@ -346,8 +346,8 @@ export async function send(connection: Connection, request: HttpRequest): Promis
   let response: Response
   try {
     response = await attempt(false)
-    // The proxy's own 401 (token expired, or minted by another isolate): refresh once.
-    if (response.status === 401 && response.headers.get(PROXY_ERROR_HEADER) === "token") {
+    // The proxy's own 401 (token expired, the client IP changed, or minted by another isolate): refresh, at most twice.
+    for (let retry = 0; retry < 2 && response.status === 401 && response.headers.get(PROXY_ERROR_HEADER) === "token"; retry += 1) {
       await response.body?.cancel().catch(() => undefined)
       response = await attempt(true)
     }

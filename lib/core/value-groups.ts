@@ -90,6 +90,13 @@ export function literalValues(regex: string): string[] | null {
     const char = regex[i]
     if (char === "\\") {
       const next = regex[i + 1]
+      // \xHH: a control character escaped by escapeRegex.
+      const hex = next === "x" ? /^[0-9A-F]{2}$/.exec(regex.slice(i + 2, i + 4)) : null
+      if (hex) {
+        current += String.fromCharCode(parseInt(hex[0], 16))
+        i += 3
+        continue
+      }
       if (next === undefined || /[A-Za-z0-9]/.test(next)) return null
       current += next
       i += 1

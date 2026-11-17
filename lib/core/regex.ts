@@ -2,7 +2,13 @@
 // plain alternation of escaped literals matches exactly those names.
 
 export function escapeRegex(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  return (
+    value
+      .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+      // Control characters (newlines and tabs in SQL or log text) as \xHH, which RE2 and JavaScript both read.
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\u0000-\u001f\u007f]/g, (char) => `\\x${char.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0")}`)
+  )
 }
 
 export function literalAlternation(values: string[]) {
@@ -31,7 +37,9 @@ export function joinSeparator(job: string | undefined) {
 }
 
 function unescapeRegex(value: string) {
-  return value.replace(/\\([^A-Za-z0-9])/g, "$1")
+  return value.replace(/\\(x[0-9A-Fa-f]{2}|[^A-Za-z0-9])/g, (_, escaped: string) =>
+    escaped.length === 3 ? String.fromCharCode(parseInt(escaped.slice(1), 16)) : escaped
+  )
 }
 
 function stripWrappingGroup(value: string) {
@@ -84,8 +92,8 @@ export function splitJoinedRegex(regex: string, separator = ";") {
   return splitTopLevel(regex, separator)
 }
 
-// Only escapes of punctuation are literal; `\d`, `\w`, `\b`... are classes.
-const LITERAL = /^(?:[^.*+?^${}()|[\]\\]|\\[^A-Za-z0-9])+$/
+// Only escapes of punctuation (and \xHH, a control character) are literal; `\d`, `\w`, `\b`... are classes.
+const LITERAL = /^(?:[^.*+?^${}()|[\]\\]|\\x[0-9A-Fa-f]{2}|\\[^A-Za-z0-9])+$/
 
 /**
  * Returns the literal names matched by a regex like `a|b\.c|(d|e)`, or null

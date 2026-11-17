@@ -12,6 +12,9 @@ export function Footer() {
         <p className="flex items-center gap-2">
           <LogoMark className="size-4" />
           <span>Cardinal © {new Date().getFullYear()}</span>
+          <span className="font-mono text-[11px] text-muted-foreground/70" title="Cardinal version">
+            {/^\d/.test(__CARDINAL_VERSION__) ? `v${__CARDINAL_VERSION__}` : __CARDINAL_VERSION__}
+          </span>
           <a
             href="https://github.com/TA3/cardinal"
             {...external}

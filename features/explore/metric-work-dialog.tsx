@@ -8,7 +8,6 @@ import {
   FunnelIcon,
   ProhibitIcon,
   SquaresFourIcon,
-  TagIcon,
 } from "@phosphor-icons/react"
 import { Link } from "react-router"
 
@@ -26,14 +25,11 @@ import {
 } from "@/components/ui/dialog"
 import { Kbd } from "@/components/ui/kbd"
 import { Skeleton } from "@/components/ui/skeleton"
-import {
-  DropImpactCell,
-  IdBadge,
-  LabelValues,
-  useTopValues,
-} from "@/features/explore/label-tools"
+import { Spinner } from "@/components/ui/spinner"
+import { InfoTip } from "@/components/info-tip"
+import { IdBadge, LabelValues, useTopValues } from "@/features/explore/label-tools"
 import { BucketPicker } from "@/features/rules/series-rule-forms"
-import { RuleMergeControl, useMergeDefaults } from "@/features/rules/merge-choice"
+import { RuleMergeControl, useLabelDropImpact, useMergeDefaults } from "@/features/rules/merge-choice"
 import { DashboardLabelBadge } from "@/features/usage/dashboard-label-badge"
 import { useConnection, useMetricDrilldown } from "@/hooks/use-cardinality"
 import { formatDelta, formatNumber } from "@/lib/cardinality/dashboard-helpers"
@@ -51,11 +47,7 @@ import { cn } from "@/lib/utils"
 // buckets), so only what the user picked is on screen. J and K step through
 // the job's metrics without closing the dialog.
 
-type Panel =
-  | { view: "home" }
-  | { view: "labels" }
-  | { view: "values"; mode: "group" | "drop"; label?: string }
-  | { view: "buckets" }
+type Panel = { view: "home" } | { view: "label"; label: string } | { view: "buckets" }
 
 /** Text fields and controls that use letters themselves. */
 function typing(target: EventTarget | null) {
@@ -222,17 +214,8 @@ function MetricWorkBody({ job, item, used }: { job: string; item: MetricWork; us
               <ArrowLeftIcon data-icon="inline-start" />
               All options
             </Button>
-            {panel.view === "labels" ? <LabelsPanel job={job} item={item} /> : null}
+            {panel.view === "label" ? <LabelPanel job={job} item={item} label={panel.label} /> : null}
             {panel.view === "buckets" ? <BucketPicker metric={item.metric} job={job} /> : null}
-            {panel.view === "values" ? (
-              <ValuesPanel
-                job={job}
-                item={item}
-                mode={panel.mode}
-                label={panel.label}
-                onLabel={(label) => setPanel({ ...panel, label })}
-              />
-            ) : null}
           </div>
         )}
       </div>
@@ -268,27 +251,6 @@ function Home({
               />
               <DropToggle metric={item.metric} job={job} scope="job" />
             </li>
-            <OptionButton
-              icon={TagIcon}
-              title="Remove labels"
-              description="Each label removed can fold series into fewer."
-              disabled={!live}
-              onClick={() => onPanel({ view: "labels" })}
-            />
-            <OptionButton
-              icon={SquaresFourIcon}
-              title="Group label values"
-              description="Fold many values into a few, like chrome-1 and chrome-2 into chrome."
-              disabled={!live}
-              onClick={() => onPanel({ view: "values", mode: "group" })}
-            />
-            <OptionButton
-              icon={FunnelIcon}
-              title="Drop some series"
-              description="Only the series whose label matches a pattern."
-              disabled={!live}
-              onClick={() => onPanel({ view: "values", mode: "drop" })}
-            />
             {bucket ? (
               <OptionButton
                 icon={ChartBarIcon}
@@ -299,12 +261,12 @@ function Home({
               />
             ) : null}
           </ul>
-          {live ? null : (
-            <p className="px-2 text-xs text-muted-foreground">
-              Label tools need a live connection; a pasted snapshot only counts series.
-            </p>
-          )}
         </section>
+      )}
+      {gone ? null : live ? (
+        <LabelList job={job} item={item} onLabel={(label) => onPanel({ view: "label", label })} />
+      ) : (
+        <p className="px-2 text-xs text-muted-foreground">Labels need a live connection; a pasted snapshot only counts series.</p>
       )}
     </div>
   )
@@ -431,49 +393,78 @@ function useLabels(item: MetricWork, job: string) {
   return { labels, seriesCount: data?.seriesCount ?? item.seriesCount, isPending, error }
 }
 
-function LabelsPanel({ job, item }: { job: string; item: MetricWork }) {
+function LabelList({ job, item, onLabel }: { job: string; item: MetricWork; onLabel: (label: string) => void }) {
   const { labels, seriesCount, isPending, error } = useLabels(item, job)
-  if (error) return <p className="px-2 text-xs text-destructive">{error.message}</p>
-  if (isPending) return <ListSkeleton />
   // A label with one value tells no series apart: removing it saves nothing.
   const varying = labels.filter((label) => label.cardinality > 1)
   const fixed = labels.length - varying.length
   return (
     <section className="flex flex-col gap-1">
-      <p className="px-2 text-xs text-muted-foreground">
-        Removing a label saves series only when series that differ by it fold together. Cardinal measures each label and asks
-        how to handle a merge.
-      </p>
-      <ul className="flex flex-col">
-        {varying.map((label, index) => (
-          <LabelChoice
-            key={label.label}
-            job={job}
-            metric={item.metric}
-            label={label.label}
-            cardinality={label.cardinality}
-            seriesCount={seriesCount}
-            // The largest labels are measured and ID-checked up front, the rest on hover.
-            eager={index < 5}
-          />
-        ))}
-      </ul>
-      {fixed ? (
+      <h3 className="flex items-center gap-1 px-2 text-xs font-medium text-muted-foreground">
+        Labels
+        <InfoTip label="About labels">
+          Each distinct combination of label values is a series. A label adds the series that would fold together without it;
+          open a label to remove it, group its values or drop some of its series.
+        </InfoTip>
+        <span className="ml-auto font-normal">values · series it adds</span>
+      </h3>
+      {error ? (
+        <p className="px-2 text-xs text-destructive">{error.message}</p>
+      ) : isPending ? (
+        <ListSkeleton />
+      ) : varying.length === 0 ? (
+        <p className="px-2 py-3 text-xs text-muted-foreground">Every label has a single value: there is nothing to fold.</p>
+      ) : (
+        <ul className="flex flex-col">
+          {varying.map((label, index) => (
+            <LabelRow
+              key={label.label}
+              job={job}
+              metric={item.metric}
+              label={label.label}
+              cardinality={label.cardinality}
+              seriesCount={seriesCount}
+              // The largest labels are measured and ID-checked up front, the rest on hover.
+              eager={index < 4}
+              onOpen={() => onLabel(label.label)}
+            />
+          ))}
+        </ul>
+      )}
+      {fixed && !isPending ? (
         <p className="px-2 text-[11px] text-muted-foreground">
-          {fixed} label{fixed === 1 ? " has" : "s have"} a single value; removing {fixed === 1 ? "it" : "them"} saves no series.
+          {fixed} more label{fixed === 1 ? " has" : "s have"} a single value and add{fixed === 1 ? "s" : ""} no series.
         </p>
       ) : null}
     </section>
   )
 }
 
-function LabelChoice({
+/** Series a label adds: those that would fold together without it. */
+function AddsCell({ metric, label, job, requested }: { metric: string; label: string; job: string; requested: boolean }) {
+  const { data, isFetching, error } = useLabelDropImpact(metric, label, requested, job)
+  if (!requested) return <span className="text-[11px] text-muted-foreground/60">hover</span>
+  if (error) return <span className="text-[11px] text-muted-foreground" title={error.message}>n/a</span>
+  if (!data) return isFetching ? <Spinner className="ml-auto size-3.5" /> : null
+  const adds = data.seriesBefore - data.seriesAfter
+  return (
+    <span
+      className={cn("text-xs tabular-nums", adds > 0 ? "font-medium" : "text-muted-foreground")}
+      title={`Without ${label}, ${formatNumber(data.seriesBefore)} series fold into ${formatNumber(data.seriesAfter)}.`}
+    >
+      {adds > 0 ? `+${formatNumber(adds)}` : "0"}
+    </span>
+  )
+}
+
+function LabelRow({
   job,
   metric,
   label,
   cardinality,
   seriesCount,
   eager,
+  onOpen,
 }: {
   job: string
   metric: string
@@ -481,98 +472,87 @@ function LabelChoice({
   cardinality: number
   seriesCount: number
   eager: boolean
+  onOpen: () => void
 }) {
   const [hovered, setHovered] = React.useState(false)
   const values = useTopValues(metric, label, eager && cardinality >= 20, job)
   const verdict = React.useMemo(() => (values.data ? detectIdLike(values.data.map((item) => item.value)) : null), [values.data])
-  const unique = cardinality > 1 && cardinality === seriesCount
+  const unique = cardinality === seriesCount
   return (
-    <li
-      className="flex items-center gap-3 rounded-xl px-2 py-1.5 hover:bg-accent/60"
-      onMouseEnter={() => setHovered(true)}
-      onFocus={() => setHovered(true)}
-    >
-      <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
-        <span className="truncate font-mono text-xs" title={label}>
-          {label}
+    <li>
+      <button
+        type="button"
+        onClick={onOpen}
+        onMouseEnter={() => setHovered(true)}
+        onFocus={() => setHovered(true)}
+        className="group/option flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-left outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
+      >
+        <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="truncate font-mono text-xs" title={label}>
+            {label}
+          </span>
+          {unique ? (
+            <Badge variant="destructive" className="shrink-0">
+              unique per series
+            </Badge>
+          ) : verdict ? (
+            <IdBadge verdict={verdict} />
+          ) : null}
+          <DashboardLabelBadge metric={metric} label={label} />
         </span>
-        {unique ? (
-          <Badge variant="destructive" className="shrink-0">
-            unique per series
-          </Badge>
-        ) : verdict ? (
-          <IdBadge verdict={verdict} />
-        ) : null}
-        <DashboardLabelBadge metric={metric} label={label} />
-      </span>
-      <span className="hidden w-20 shrink-0 text-right text-[11px] text-muted-foreground tabular-nums sm:inline">
-        {formatNumber(cardinality)} values
-      </span>
-      <span className="w-20 shrink-0 text-right">
-        <DropImpactCell metric={metric} label={label} job={job} requested={eager || hovered} />
-      </span>
-      <DropToggle metric={metric} label={label} job={job} scope="job" idleText="Remove" />
+        <span className="w-20 shrink-0 text-right text-[11px] text-muted-foreground tabular-nums">{formatNumber(cardinality)}</span>
+        <span className="w-16 shrink-0 text-right">
+          <AddsCell metric={metric} label={label} job={job} requested={eager || hovered} />
+        </span>
+        <CaretRightIcon className="size-3.5 shrink-0 text-muted-foreground transition-transform group-hover/option:translate-x-0.5" />
+      </button>
     </li>
   )
 }
 
-function ValuesPanel({
-  job,
-  item,
-  mode,
-  label,
-  onLabel,
-}: {
-  job: string
-  item: MetricWork
-  mode: "group" | "drop"
-  label?: string
-  onLabel: (label: string | undefined) => void
-}) {
-  const { labels, seriesCount, isPending, error } = useLabels(item, job)
-  if (label) {
-    return (
-      <section className="flex flex-col gap-2">
-        <div className="flex items-center gap-2 px-2 text-xs text-muted-foreground">
-          <span>
-            Label <span className="font-mono text-foreground">{label}</span>
-          </span>
-          <button type="button" className="text-brand-ink hover:underline" onClick={() => onLabel(undefined)}>
-            Change
-          </button>
-        </div>
-        <div className="px-2">
-          <LabelValues key={label} metric={item.metric} label={label} job={job} scope="job" seriesCount={seriesCount} initialMode={mode} />
-        </div>
-      </section>
-    )
-  }
-  if (error) return <p className="px-2 text-xs text-destructive">{error.message}</p>
-  if (isPending) return <ListSkeleton />
-  const choices = labels.filter((item) => item.label !== "le" && item.cardinality > 1)
+type LabelTool = "group" | "drop"
+
+/** One label of the metric: what it adds, and the three things to do with it. */
+function LabelPanel({ job, item, label }: { job: string; item: MetricWork; label: string }) {
+  const { labels, seriesCount } = useLabels(item, job)
+  const info = labels.find((entry) => entry.label === label)
+  const { data: impact } = useLabelDropImpact(item.metric, label, true, job)
+  const [tool, setTool] = React.useState<LabelTool | null>(null)
+  const adds = impact ? impact.seriesBefore - impact.seriesAfter : null
+  const bucket = label === "le" && histogramFamily(item.metric).part === "bucket"
+
   return (
-    <section className="flex flex-col gap-1">
-      <p className="px-2 text-xs text-muted-foreground">
-        {mode === "group" ? "Which label's values do you want to group?" : "Which label do you want to match series on?"}
-      </p>
-      {choices.length === 0 ? (
-        <p className="px-2 py-4 text-center text-xs text-muted-foreground">No label has more than one value.</p>
+    <section className="flex flex-col gap-3 px-2">
+      <div className="flex flex-col gap-0.5">
+        <span className="font-mono text-sm">{label}</span>
+        <span className="text-xs text-muted-foreground tabular-nums">
+          {info ? `${formatNumber(info.cardinality)} values` : "…"}
+          {adds === null ? "" : adds > 0 ? ` · adds ${formatNumber(adds)} of ${formatNumber(impact!.seriesBefore)} series` : " · adds no series"}
+        </span>
+      </div>
+      {bucket ? (
+        <p className="text-xs text-muted-foreground">le holds the histogram buckets: trim the buckets instead of removing it.</p>
       ) : (
-        <ul className="flex flex-col">
-          {choices.map((choice) => (
-            <li key={choice.label}>
-              <button
-                type="button"
-                onClick={() => onLabel(choice.label)}
-                className="group/option flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-left outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
-              >
-                <span className="min-w-0 flex-1 truncate font-mono text-xs">{choice.label}</span>
-                <span className="text-[11px] text-muted-foreground tabular-nums">{formatNumber(choice.cardinality)} values</span>
-                <CaretRightIcon className="size-3.5 shrink-0 text-muted-foreground transition-transform group-hover/option:translate-x-0.5" />
-              </button>
-            </li>
-          ))}
-        </ul>
+        <div className="flex flex-wrap items-center gap-2">
+          <DropToggle metric={item.metric} label={label} job={job} scope="job" idleText={`Remove ${label}`} size="lg" />
+          <Button variant={tool === "group" ? "secondary" : "outline"} aria-pressed={tool === "group"} onClick={() => setTool("group")}>
+            <SquaresFourIcon data-icon="inline-start" />
+            Group values
+          </Button>
+          <Button variant={tool === "drop" ? "secondary" : "outline"} aria-pressed={tool === "drop"} onClick={() => setTool("drop")}>
+            <FunnelIcon data-icon="inline-start" />
+            Drop some series
+          </Button>
+        </div>
+      )}
+      {tool && !bucket ? (
+        <LabelValues key={tool} metric={item.metric} label={label} job={job} scope="job" seriesCount={seriesCount} initialMode={tool} fixedMode />
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          {bucket
+            ? ""
+            : "Remove drops the label (Cardinal asks how to handle series that fold together). Group values folds many values into a few, like chrome-1 and chrome-2 into chrome. Drop some series removes only the series whose value matches a pattern."}
+        </p>
       )}
     </section>
   )

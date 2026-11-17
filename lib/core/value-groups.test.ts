@@ -7,6 +7,7 @@ import { parseAlloyRelabel } from "@/lib/core/parse/alloy"
 import { compileAdaptiveMetrics } from "@/lib/core/compile/adaptive-metrics"
 import { renderPrometheus } from "@/lib/core/compile/prometheus"
 import { parsePrometheusRelabel } from "@/lib/core/parse/prometheus"
+import { fullMatch, regexProblem } from "@/lib/core/regex"
 import { createRule, mergeRules } from "@/lib/core/rules"
 import { fromRuleSet, toRuleSet } from "@/lib/core/share"
 import { groupedExpr, groupOf, groupOutcome, literalValues, suggestGroups, valuesRegex } from "@/lib/core/value-groups"
@@ -34,6 +35,17 @@ const rule = () =>
   })
 
 describe("value groups", () => {
+  it("groups values that hold newlines and tabs, like SQL text", () => {
+    const values = ["SELECT\t2", "SELECT 1\n  FROM t"]
+    const regex = valuesRegex(values)
+    expect(regex).toBe("SELECT\\x092|SELECT 1\\x0A  FROM t")
+    expect(regexProblem(regex)).toBeNull()
+    expect(values.every((value) => fullMatch(regex, value))).toBe(true)
+    expect(literalValues(regex)).toEqual(values)
+    const yaml = renderPrometheus(planRelabel([{ ...rule(), label: "query", groups: [{ name: "pgquery", regex }], rest: undefined, impact: { seriesBefore: 2, seriesAfter: 1, exact: true, mergesSeries: false, window: "1h", measuredAt: "" } }], { mode: "combined" }))
+    expect(yaml).toContain("x0A")
+  })
+
   it("puts a value in the first matching group, the rest only when it has a value", () => {
     const groups = [
       { name: "a", regex: "20." },

@@ -13,7 +13,7 @@ RUN bun install --frozen-lockfile
 COPY . .
 ARG TARGETARCH
 ARG VERSION=""
-RUN bun run build \
+RUN CARDINAL_VERSION="$VERSION" bun run build \
   && CARDINAL_VERSION="$VERSION" bun server/build.ts "bun-linux-$([ "$TARGETARCH" = arm64 ] && echo arm64 || echo x64)" --outfile /out/cardinal
 
 # glibc and libstdc++, no shell, runs as uid 65532.

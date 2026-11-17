@@ -87,6 +87,7 @@ export function LabelValues({
   scope,
   seriesCount,
   initialMode,
+  fixedMode = false,
 }: {
   metric: string
   label: string
@@ -95,6 +96,8 @@ export function LabelValues({
   seriesCount: number
   /** Which tool opens first; else grouping when the label is grouped already, dropping series otherwise. */
   initialMode?: "drop" | "group"
+  /** The caller picked the tool: no switch between dropping series and grouping. */
+  fixedMode?: boolean
 }) {
   const { data, isPending, error } = useLabelValues(metric, label, true, job)
   const [pattern, setPattern] = React.useState("")
@@ -128,7 +131,7 @@ export function LabelValues({
       return next.length ? valuesPattern(next) : ""
     })
 
-  const modes = (
+  const modes = fixedMode ? null : (
     <SegmentedControl
       size="sm"
       className="self-start"

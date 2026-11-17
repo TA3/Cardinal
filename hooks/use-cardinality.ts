@@ -40,9 +40,13 @@ export function connectionKey(connection: Connection | null) {
   return connection ? `${connection.mode}:${connection.baseUrl}:${connection.instanceId ?? ""}:${connection.tenant ?? ""}` : "none"
 }
 
-/** 401 only: a 403 usually means a token without the scope for one endpoint, not a missing token. */
+/**
+ * The backend refused the token: 401 only (a 403 usually means a token without
+ * the scope for one endpoint), and never the Cardinal proxy's own 401, which
+ * is about its short-lived session token, not the user's.
+ */
 export function isAuthError(error: unknown) {
-  return error instanceof HttpError && error.status === 401
+  return error instanceof HttpError && error.status === 401 && !error.proxyFailure
 }
 
 /**
