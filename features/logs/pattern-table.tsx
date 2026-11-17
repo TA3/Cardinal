@@ -122,7 +122,20 @@ export function PatternActions({ row, groupLabel, size = "icon", reveal = false 
   )
 }
 
-function PatternDetail({ row, groupLabel, range, showOpen }: { row: PatternTableRow; groupLabel: string; range: PatternRange; showOpen: boolean }) {
+/** Recent lines like the pattern, what cutting it saves, and its actions; in a table row or the pattern dialog. */
+export function PatternDetail({
+  row,
+  groupLabel,
+  range,
+  showOpen,
+  className,
+}: {
+  row: PatternTableRow
+  groupLabel: string
+  range: PatternRange
+  showOpen: boolean
+  className?: string
+}) {
   const info = React.useMemo(() => patternToRegex(row.pattern), [row.pattern])
   const regex = info.broad ? null : info.regex
   const examples = usePatternExamples(groupLabel, row.service, regex, range, true)
@@ -135,7 +148,7 @@ function PatternDetail({ row, groupLabel, range, showOpen }: { row: PatternTable
   const sampleSaves = bytesPerDay === null ? null : patternSavings(bytesPerDay, 0.1)
 
   return (
-    <div className="flex flex-col gap-3 py-2 pr-1 pl-7">
+    <div className={cn("flex flex-col gap-3 py-2 pr-1 pl-7", className)}>
       <div className="grid gap-3 md:grid-cols-[1fr_16rem]">
         <div className="flex min-w-0 flex-col gap-1.5">
           <div className="text-xs text-muted-foreground">Recent lines like this</div>

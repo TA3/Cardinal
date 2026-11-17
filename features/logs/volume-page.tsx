@@ -42,7 +42,7 @@ import { Combobox } from "@/components/combobox"
 import { groupLink } from "@/features/logs/streams-shared"
 import { useVerifiedGrowth, useVolumeBreakdown, useVolumeSeries } from "@/features/logs/volume-data"
 import { formatTickFor, SERIES_COLOR_VARS, SERIES_COLORS, stepLabel } from "@/features/logs/volume-parts"
-import { useProposeLogRule } from "@/features/logs/volume-propose"
+import { addLogCut } from "@/features/logs/add-log-cut"
 import { authErrorText, isAuthError, useConnection } from "@/hooks/use-cardinality"
 import { formatNumber } from "@/lib/cardinality/dashboard-helpers"
 import { BYTES_NOTE, formatBytes, formatBytesDelta, toGB } from "@/lib/core/bytes"
@@ -91,7 +91,6 @@ function GrowthBadge({ row }: { row: VolumeRow }) {
 }
 
 function RowActions({ row, by, groupLabel, range }: { row: VolumeRow; by: string; groupLabel: string; range: LogsRange }) {
-  const propose = useProposeLogRule()
   if (row.value === "") return null
   const selector = { matchers: [{ label: by, op: "=" as const, value: row.value }] }
   const share = `${row.share.toFixed(1)}% of logs volume (${formatBytes(row.bytes)} in the last ${range})`
@@ -115,7 +114,7 @@ function RowActions({ row, by, groupLabel, range }: { row: VolumeRow; by: string
         <DropdownMenuSeparator />
         <DropdownMenuItem
           onSelect={() =>
-            propose({
+            addLogCut({
               kind: "sample",
               selector,
               keep: 0.1,
@@ -125,11 +124,11 @@ function RowActions({ row, by, groupLabel, range }: { row: VolumeRow; by: string
           }
         >
           <PercentIcon />
-          Propose: sample to 10%
+          Add: keep 10% of its lines
         </DropdownMenuItem>
         <DropdownMenuItem
           onSelect={() =>
-            propose({
+            addLogCut({
               kind: "drop_lines",
               selector,
               line: { levels: ["debug", "trace"] },
@@ -139,7 +138,7 @@ function RowActions({ row, by, groupLabel, range }: { row: VolumeRow; by: string
           }
         >
           <FunnelIcon />
-          Propose: drop debug and trace lines
+          Add: drop debug and trace lines
         </DropdownMenuItem>
         {by === groupLabel ? (
           <DropdownMenuItem asChild>

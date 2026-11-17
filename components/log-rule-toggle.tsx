@@ -100,6 +100,14 @@ export function findActiveLogRule(rules: LogRule[], candidate: LogToggleCandidat
   return rules.find((rule) => rule.status === "active" && logRuleKey(rule) === key)
 }
 
+/** Clicks the log rule toggle of `kind` in the row the keyboard cursor is on (useRowCursor's data-cursor), which opens its gate when one is due. */
+export function clickCursorToggle(kind: LogToggleKind) {
+  const button = document.querySelector<HTMLButtonElement>(`[data-cursor="true"] [data-log-toggle="${kind}"]`)
+  if (!button || button.disabled) return false
+  button.click()
+  return true
+}
+
 /**
  * The one control for log rules, modelled on DropToggle: an outline pill that
  * turns into a crimson active pill (brand for a metadata move) with an undo
@@ -193,6 +201,8 @@ export function LogRuleToggle({
             <button
               type="button"
               aria-pressed={on}
+              // Keyboard shortcuts click the highlighted row's toggle, so they pass the same usage gate.
+              data-log-toggle={kind}
               aria-label={`${on ? "Undo" : meta.idle} ${name}: ${hintText}`}
               aria-haspopup="dialog"
               aria-expanded={gateOpen}

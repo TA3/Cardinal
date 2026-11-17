@@ -1,29 +1,13 @@
 import * as React from "react"
-import {
-  ArrowLeftIcon,
-  CaretLeftIcon,
-  CaretRightIcon,
-  ChartBarIcon,
-  CheckIcon,
-  FunnelIcon,
-  ProhibitIcon,
-  SquaresFourIcon,
-} from "@phosphor-icons/react"
+import { ArrowLeftIcon, CaretRightIcon, ChartBarIcon, FunnelIcon, ProhibitIcon, SquaresFourIcon } from "@phosphor-icons/react"
 import { Link } from "react-router"
 
 import { metricPath } from "@/app/paths"
 import { DropToggle } from "@/components/drop-toggle"
+import { nextOpenIndex, useShownIndex, WorkDialog } from "@/components/work-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { Kbd } from "@/components/ui/kbd"
+import { DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { InfoTip } from "@/components/info-tip"
@@ -49,15 +33,6 @@ import { cn } from "@/lib/utils"
 
 type Panel = { view: "home" } | { view: "label"; label: string } | { view: "buckets" }
 
-/** Text fields and controls that use letters themselves. */
-function typing(target: EventTarget | null) {
-  return (
-    target instanceof HTMLElement &&
-    (target.isContentEditable ||
-      ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))
-  )
-}
-
 export function MetricWorkDialog({
   job,
   queue,
@@ -77,108 +52,32 @@ export function MetricWorkDialog({
   onIndex: (index: number) => void
   onClose: () => void
 }) {
-  // Keep the last metric on screen while the dialog animates out.
-  const [shown, setShown] = React.useState(index)
-  if (index !== null && index !== shown) setShown(index)
-  const position = index ?? shown ?? 0
+  const position = useShownIndex(index)
   const metric = queue[position]
   const item = metric === undefined ? undefined : work.get(metric)
   const setKeptAsIs = useAppStore((state) => state.setKeptAsIs)
 
-  const go = (step: number) => {
-    const next = position + step
-    if (next >= 0 && next < queue.length) onIndex(next)
-  }
-  // After "Keep as is": the next metric nobody looked at yet, else close.
-  const nextOpen = () => {
-    const next = queue.findIndex(
-      (name, at) => at > position && work.get(name)?.state === "open"
-    )
-    if (next === -1) onClose()
-    else onIndex(next)
-  }
-
   return (
-    <Dialog
+    <WorkDialog
       open={index !== null && item !== undefined}
-      onOpenChange={(open) => (open ? null : onClose())}
+      position={position}
+      total={queue.length}
+      noun="metric"
+      state={item === undefined ? undefined : item.state === "open" || item.state === "kept" ? item.state : "done"}
+      onStep={(step) => onIndex(position + step)}
+      onKeepAsIs={() => {
+        if (!item) return
+        setKeptAsIs(job, item.metric, true)
+        // Then the next metric nobody decided yet, else close.
+        const next = nextOpenIndex(queue, position, (name) => work.get(name)?.state === "open")
+        if (next === -1) onClose()
+        else onIndex(next)
+      }}
+      onUndoKeep={() => item && setKeptAsIs(job, item.metric, false)}
+      onClose={onClose}
     >
-      <DialogContent
-        // Pinned near the top: stepping through metrics and opening tools changes its height, so it grows down instead of jumping.
-        className="top-4 grid max-h-[calc(100svh-2rem)] translate-y-0 grid-rows-[auto_minmax(0,1fr)_auto] gap-0 p-0 sm:top-[10svh] sm:max-h-[80svh] sm:max-w-2xl"
-        // Focus the dialog, not its first control (whose tooltip would pop up); J and K work from there.
-        onOpenAutoFocus={(event) => {
-          event.preventDefault()
-          ;(event.currentTarget as HTMLElement | null)?.focus()
-        }}
-        onKeyDown={(event) => {
-          if (typing(event.target) || event.metaKey || event.ctrlKey || event.altKey) return
-          if (event.key === "j") {
-            event.preventDefault()
-            go(1)
-          } else if (event.key === "k") {
-            event.preventDefault()
-            go(-1)
-          }
-        }}
-      >
-        {item ? (
-          <MetricWorkBody key={item.metric} job={job} item={item} used={used[item.metric]} />
-        ) : null}
-        <DialogFooter className="mx-0 mb-0 flex-row items-center justify-between gap-2 border-t border-border/60 p-3">
-          <div className="flex items-center gap-1">
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              aria-label="Previous metric"
-              disabled={position === 0}
-              onClick={() => go(-1)}
-            >
-              <CaretLeftIcon />
-            </Button>
-            <span className="min-w-14 text-center text-xs text-muted-foreground tabular-nums">
-              {position + 1} of {queue.length}
-            </span>
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              aria-label="Next metric"
-              disabled={position >= queue.length - 1}
-              onClick={() => go(1)}
-            >
-              <CaretRightIcon />
-            </Button>
-            <span className="ml-1 hidden items-center gap-1 text-[11px] text-muted-foreground sm:flex">
-              <Kbd>J</Kbd>
-              <Kbd>K</Kbd>
-            </span>
-          </div>
-          {item?.state === "open" ? (
-            <Button
-              variant="outline"
-              onClick={() => {
-                setKeptAsIs(job, item.metric, true)
-                nextOpen()
-              }}
-            >
-              <CheckIcon data-icon="inline-start" />
-              Keep as is
-            </Button>
-          ) : item?.state === "kept" ? (
-            <Button variant="ghost" onClick={() => setKeptAsIs(job, item.metric, false)}>
-              Kept as is · Undo
-            </Button>
-          ) : position < queue.length - 1 ? (
-            <Button onClick={() => go(1)}>
-              Next metric
-              <CaretRightIcon data-icon="inline-end" />
-            </Button>
-          ) : (
-            <Button onClick={onClose}>Done</Button>
-          )}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      {item ? <MetricWorkBody key={item.metric} job={job} item={item} used={used[item.metric]} /> : null}
+    </WorkDialog>
   )
 }
 

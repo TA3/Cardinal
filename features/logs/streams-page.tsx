@@ -4,7 +4,7 @@ import { Link, useNavigate, useSearchParams } from "react-router"
 
 import { CostText, useBytesCost } from "@/components/cost-text"
 import { EmptyState } from "@/components/empty-state"
-import { findActiveLogRule, LogRuleToggle } from "@/components/log-rule-toggle"
+import { clickCursorToggle, findActiveLogRule, LogRuleToggle } from "@/components/log-rule-toggle"
 import { Page, PageHeader } from "@/components/page"
 import { RequireLogsSnapshot } from "@/components/require-snapshot"
 import { SegmentedControl } from "@/components/segmented-control"
@@ -72,11 +72,9 @@ function StreamsTable({ snapshot, label, rows, resetKey }: { snapshot: LogsSnaps
       const row = visible[index]
       if (row) navigate(groupLink(row.value, label))
     },
-    onToggle: (index) => {
-      const row = visible[index]
-      if (!row) return
-      const { toggleLogRule } = useAppStore.getState()
-      toggleLogRule({ kind: "drop_streams", selector: groupSelector(label, row.value), origin: "user" })
+    // x clicks the row's Drop toggle, so the usage gate asks first like a click does.
+    onToggle: () => {
+      clickCursorToggle("drop_streams")
     },
   })
 

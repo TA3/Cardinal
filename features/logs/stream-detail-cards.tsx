@@ -1,13 +1,11 @@
 import * as React from "react"
-import { ArrowSquareOutIcon, CaretDownIcon, FingerprintIcon, MagnifyingGlassIcon, ShieldCheckIcon, TerminalIcon } from "@phosphor-icons/react"
+import { ArrowSquareOutIcon, ShieldCheckIcon } from "@phosphor-icons/react"
 import { Link } from "react-router"
 import { toast } from "sonner"
 
 import { paths } from "@/app/paths"
 import { EmptyState } from "@/components/empty-state"
-import { Expand } from "@/components/motion"
 import { ShareBar } from "@/components/share-bar"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { InfoTip } from "@/components/info-tip"
@@ -18,9 +16,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { selectorText } from "@/features/logs/log-rule-gate"
-import { PatternsTable, patternTableRows } from "@/features/logs/pattern-table"
-import { usePatterns, type PatternRange } from "@/features/logs/patterns-data"
-import { perDay, useLabelVolume, useSampleLines } from "@/features/logs/streams-queries"
+import { perDay, useLabelVolume } from "@/features/logs/streams-queries"
 import { EvidenceList } from "@/features/rules/drop-gate"
 import { LogRuleActions, LogRuleDescription, LogRuleImpactCell, LogRuleOriginBadge } from "@/features/rules/log-rule-parts"
 import { useLogUsageSummary } from "@/features/rules/log-usage"
@@ -99,104 +95,6 @@ export function VolumeByValueCard({ snapshot, selector, labels }: { snapshot: Lo
               <ShareBar percent={total > 0 ? (row.bytes / total) * 100 : 0} />
             </div>
           ))
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
-// ---- sample lines ----
-
-export function SampleLinesCard({ selector }: { selector: StreamSelector }) {
-  const [open, setOpen] = React.useState(false)
-  const { data, isPending, error, isFetching } = useSampleLines(selector.matchers, open)
-  return (
-    <Card size="sm">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <TerminalIcon className="size-4 text-muted-foreground" />
-          Sample lines
-          <InfoTip label="About this card">The newest 20 lines from the last hour, read only when you open this.</InfoTip>
-        </CardTitle>
-        <CardAction>
-          <Button size="sm" variant="outline" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
-            {open && isFetching ? <Spinner data-icon="inline-start" /> : <CaretDownIcon data-icon="inline-start" className={cn("transition-transform", open && "rotate-180")} />}
-            {open ? "Hide" : "Show"}
-          </Button>
-        </CardAction>
-      </CardHeader>
-      <Expand open={open}>
-        <CardContent>
-          {isPending ? (
-            <Skeleton className="h-32" />
-          ) : error ? (
-            <p className="text-xs text-destructive">{errorText(error)}</p>
-          ) : !data?.length ? (
-            <p className="text-sm text-muted-foreground">No lines in the last hour.</p>
-          ) : (
-            <ol className="max-h-96 overflow-auto rounded-lg border bg-background/60 font-mono text-[11px] leading-relaxed">
-              {data.map((line, index) => (
-                <li key={`${line.t}-${index}`} className="flex gap-3 border-b px-2.5 py-1 last:border-b-0">
-                  <time className="shrink-0 text-muted-foreground tabular-nums" dateTime={new Date(line.t).toISOString()}>
-                    {new Date(line.t).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
-                  </time>
-                  <span className="min-w-0 break-all whitespace-pre-wrap">{line.line}</span>
-                </li>
-              ))}
-            </ol>
-          )}
-        </CardContent>
-      </Expand>
-    </Card>
-  )
-}
-
-// ---- patterns ----
-
-/** The group's top patterns, in the same table (and with the same toggles) as the Patterns page. */
-export function PatternsCard({ snapshot, by, group }: { snapshot: LogsSnapshot; by: string; group: string }) {
-  const range: PatternRange = "3h"
-  const { data, isPending, error } = usePatterns(by, group, range)
-  const { rows } = React.useMemo(() => patternTableRows(snapshot, by, group, data), [snapshot, by, group, data])
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <FingerprintIcon className="size-4 text-muted-foreground" />
-          Top <Term id="logPattern">patterns</Term>
-          <InfoTip label="About this card">
-            Line shapes Loki detected over the last {range}, most frequent first. Drop, sample or protect a pattern with a line regex built from it.
-          </InfoTip>
-        </CardTitle>
-        <CardAction>
-          <Button asChild size="xs" variant="ghost">
-            <Link to={`${paths.logPatterns}?service=${encodeURIComponent(group)}`}>All patterns</Link>
-          </Button>
-        </CardAction>
-      </CardHeader>
-      <CardContent>
-        {isPending ? (
-          <div className="flex flex-col gap-2">
-            {Array.from({ length: 4 }, (_, index) => (
-              <Skeleton key={index} className="h-10 rounded-lg" />
-            ))}
-          </div>
-        ) : error ? (
-          <Alert variant="destructive">
-            <AlertTitle>Couldn't read patterns</AlertTitle>
-            <AlertDescription>{authErrorText(error, "logs")}</AlertDescription>
-          </Alert>
-        ) : data?.patterns === null ? (
-          <EmptyState
-            compact
-            icon={FingerprintIcon}
-            title="Your Loki doesn't run the pattern ingester"
-            description="Patterns need Loki 3.0+ with pattern_ingester enabled (Grafana Cloud has it). Use Drop lines… with a regex instead."
-          />
-        ) : rows.length === 0 ? (
-          <EmptyState compact icon={MagnifyingGlassIcon} title="No patterns yet" description={`Loki detected no patterns for these streams in the last ${range}.`} />
-        ) : (
-          <PatternsTable rows={rows} groupLabel={by} range={range} showService={false} showOpen={false} initial={8} />
         )}
       </CardContent>
     </Card>

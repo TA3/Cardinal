@@ -4,13 +4,13 @@ import { Link, useParams, useSearchParams } from "react-router"
 import { logLabelPath, paths } from "@/app/paths"
 import { CopyButton } from "@/components/code-block"
 import { CostText } from "@/components/cost-text"
-import { LogRuleToggle } from "@/components/log-rule-toggle"
 import { Page, PageHeader } from "@/components/page"
 import { RequireLogsSnapshot } from "@/components/require-snapshot"
 import { Badge } from "@/components/ui/badge"
 import { Term } from "@/features/rules/term"
 import { GroupLabelsCard, useGroupLabelStats } from "@/features/logs/stream-detail-labels"
-import { GroupRulesCard, PatternsCard, SampleLinesCard, UsedByCard, VolumeByValueCard } from "@/features/logs/stream-detail-cards"
+import { PatternWorklist, ServiceSummary, useServiceWork } from "@/features/logs/service-workbench"
+import { GroupRulesCard, UsedByCard, VolumeByValueCard } from "@/features/logs/stream-detail-cards"
 import { LogsSnapshotLine, patchParams } from "@/features/logs/streams-shared"
 import { perDay, useStreamStats } from "@/features/logs/streams-queries"
 import { formatNumber } from "@/lib/cardinality/dashboard-helpers"
@@ -18,9 +18,10 @@ import { BYTES_NOTE, formatBytes } from "@/lib/core/bytes"
 import { groupNoun, LOGS_RANGE_LABEL } from "@/lib/core/logs/snapshot"
 import type { LabelMatcher, LogsSnapshot, StreamSelector } from "@/lib/core/logs/types"
 
-// One stream group (a service, by default): the logs equivalent of the metric
-// detail page. Labels and what dropping or moving each saves, volume by value,
-// sample lines, top patterns, the rules that apply and where it is used.
+// One stream group (a service, by default), worked through by hand like a
+// metrics job: what its cuts save and the service-wide actions, its patterns
+// as a to-do list (each opens a dialog), then its labels. On the side: the
+// rules that apply, volume by label value and where it is used.
 
 function GroupDetail({ snapshot, group, by }: { snapshot: LogsSnapshot; group: string; by: string }) {
   const [params, setParams] = useSearchParams()
@@ -34,6 +35,7 @@ function GroupDetail({ snapshot, group, by }: { snapshot: LogsSnapshot; group: s
   const share = bytes !== undefined && snapshot.totals.bytes > 0 ? (bytes / snapshot.totals.bytes) * 100 : undefined
   const day = bytes !== undefined ? perDay(bytes, snapshot) : undefined
   const labelStats = useGroupLabelStats(snapshot, by, group, streams)
+  const service = useServiceWork(snapshot, by, group, selector, day ?? null)
   // Every param, like the metric page's link (the label that's open, a non-default grouping).
   const link = typeof window === "undefined" ? "" : `${window.location.origin}${window.location.pathname}${params.size ? `?${params}` : ""}`
 
@@ -89,18 +91,19 @@ function GroupDetail({ snapshot, group, by }: { snapshot: LogsSnapshot; group: s
             <LogsSnapshotLine snapshot={snapshot} />
           </span>
         }
-        actions={
-          <>
-            <CopyButton text={link} label="Copy link" className="h-8 px-3" />
-            <LogRuleToggle kind="drop_lines" selector={selector} size="lg" />
-            <LogRuleToggle kind="sample" selector={selector} size="lg" />
-            <LogRuleToggle kind="drop_streams" selector={selector} size="lg" hint={day !== undefined ? `−${formatBytes(day)}/day` : undefined} />
-            <LogRuleToggle kind="keep" selector={selector} size="lg" />
-          </>
-        }
+        actions={<CopyButton text={link} label="Copy link" className="h-8 px-3" />}
       />
+      <ServiceSummary work={service.work} selector={selector} bytesPerDay={day ?? null} />
       <div className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <div className="flex min-w-0 flex-col gap-4">
+          <PatternWorklist
+            by={by}
+            group={group}
+            work={service.work}
+            rows={service.rows}
+            patterns={service.patterns}
+            keptKey={service.keptKey}
+          />
           <GroupLabelsCard
             snapshot={snapshot}
             by={by}
@@ -109,8 +112,6 @@ function GroupDetail({ snapshot, group, by }: { snapshot: LogsSnapshot; group: s
             expanded={expanded}
             onExpand={(label) => setParams((current) => patchParams(current, { label }), { replace: true })}
           />
-          <PatternsCard snapshot={snapshot} by={by} group={group} />
-          <SampleLinesCard selector={selector} />
         </div>
         <div className="flex min-w-0 flex-col gap-4">
           <GroupRulesCard snapshot={snapshot} selector={selector} />

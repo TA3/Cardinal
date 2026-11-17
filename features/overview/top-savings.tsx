@@ -3,8 +3,7 @@ import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "react-router"
 import { toast } from "sonner"
 
-import { metricPath, paths, rulesPath } from "@/app/paths"
-import type { SavingsRowProps } from "@/components/savings-list"
+import { rulesPath } from "@/app/paths"
 import { SavingsLine } from "@/components/savings-line"
 import { useChurn } from "@/features/churn/use-churn"
 import { useAutopilot } from "@/features/inbox/autopilot"
@@ -19,7 +18,6 @@ import { assessMetric } from "@/lib/core/decide/risk"
 import { histogramFamily } from "@/lib/core/families"
 import { quantileUsage } from "@/lib/core/histograms"
 import { detectIdLike } from "@/lib/core/id-like"
-import { jobLabel } from "@/lib/core/jobs"
 import {
   aggregateOpportunity,
   bigMetrics,
@@ -343,48 +341,6 @@ export function useProposeOpportunity(snapshot: Snapshot, impacts: Map<string, R
     })
     return true
   }
-}
-
-function itemTitle(item: MetricOpportunity) {
-  if (item.reason === "aggregate" && item.rule.kind === "drop_labels") return `${item.metric} · sum without ${item.rule.labels.join(", ")}`
-  return item.label ? `${item.metric} · ${item.label}` : item.metric
-}
-
-type RankedMetricOpportunity = ReturnType<typeof useMetricOpportunities>["items"][number]
-
-/** One Top savings row per metric opportunity. */
-export function metricSavingsRows(
-  items: RankedMetricOpportunity[],
-  propose: ReturnType<typeof useProposeOpportunity>,
-  format: (series: number) => string | null
-): SavingsRowProps[] {
-  return items.map((item) => ({
-    id: item.id,
-    reason: reasonLabel(item),
-    titleText: itemTitle(item),
-    title: (
-      <>
-        {item.metric}
-        {item.label ? <span className="text-brand-ink"> −{item.label}</span> : null}
-        {item.reason === "aggregate" && item.rule.kind === "drop_labels" ? (
-          <span className="text-brand-ink"> Σ without {item.rule.labels.join(", ")}</span>
-        ) : null}
-      </>
-    ),
-    detail: item.job ? `job ${jobLabel(item.job)}` : undefined,
-    // Bucket and churn cuts come from Explore's Histograms and Churn views: link to that evidence.
-    to:
-      item.reason === "buckets"
-        ? `${paths.histograms}?family=${encodeURIComponent(histogramFamily(item.metric).base)}`
-        : item.reason === "churn"
-          ? paths.churn
-          : metricPath(item.metric),
-    saving: `${item.estimate ? "~" : ""}${formatDelta(-item.savedSeries)}`,
-    cost: format(item.savedSeries) ?? undefined,
-    state: item.state,
-    risk: item.risk,
-    onPropose: () => propose(item),
-  }))
 }
 
 /** Overview's line about Savings: how many cuts, what they save, and the way there. */

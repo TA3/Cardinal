@@ -429,6 +429,15 @@ export function labelOpportunities(
  * or mark them "proposed", matched by rule identity.
  */
 export function rankLogOpportunities(items: LogOpportunity[], rules: LogRule[] = [], now = Date.now()): Array<LogOpportunity & { state: OpportunityState }> {
+  return planLogOpportunities(items, rules, now).filter((item): item is LogOpportunity & { state: OpportunityState } => item.state !== "active")
+}
+
+/** Like rankLogOpportunities, but cuts already in the plan stay, marked "active", so the Plan can show them in place. */
+export function planLogOpportunities(
+  items: LogOpportunity[],
+  rules: LogRule[] = [],
+  now = Date.now()
+): Array<LogOpportunity & { state: OpportunityState | "active" }> {
   const statusByKey = new Map<string, LogRuleStatus>()
   for (const rule of rules) {
     if (snoozeExpired(rule, now)) continue
@@ -437,11 +446,11 @@ export function rankLogOpportunities(items: LogOpportunity[], rules: LogRule[] =
     if (current === "active") continue
     if (rule.status === "active" || rule.status === "proposed" || !current) statusByKey.set(key, rule.status)
   }
-  const ranked: Array<LogOpportunity & { state: OpportunityState }> = []
+  const ranked: Array<LogOpportunity & { state: OpportunityState | "active" }> = []
   for (const item of items) {
     const status = statusByKey.get(logRuleKey(item.rule))
-    if (status === "active" || status === "rejected") continue
-    ranked.push({ ...item, state: status === "proposed" ? "proposed" : "open" })
+    if (status === "rejected") continue
+    ranked.push({ ...item, state: status === "active" ? "active" : status === "proposed" ? "proposed" : "open" })
   }
   return ranked.sort(
     (a, b) =>

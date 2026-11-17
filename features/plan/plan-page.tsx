@@ -24,9 +24,10 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { PlanBar } from "@/components/plan-bar"
-import { Connect, Learning, LogsSavings } from "@/features/inbox/inbox-page"
+import { Connect, Learning } from "@/features/inbox/inbox-page"
 import { SetupChecklist } from "@/features/inbox/setup-checklist"
 import { KeepListDialog } from "@/features/plan/keep-list-dialog"
+import { LogsPlan } from "@/features/plan/logs-plan"
 import {
   cutTitle,
   removeKeepList,
@@ -45,8 +46,6 @@ import { cn } from "@/lib/utils"
 // as a whole: keep the metrics something reads, drop the exporter's own
 // runtime metrics, trim what is too fine. Every cut says what it does and
 // why in plain words; Add puts it straight into the rules Cardinal exports.
-
-const NOOP = () => {}
 
 export function PlanPage() {
   const snapshot = useAppStore((state) => state.snapshot)
@@ -72,7 +71,7 @@ export function PlanPage() {
         ) : null}
         {logs ? (
           <Reveal>
-            <LogsSavings snapshot={logs} onCounts={NOOP} />
+            <LogsPlan snapshot={logs} />
           </Reveal>
         ) : null}
         {snapshot || logs ? (

@@ -1,10 +1,9 @@
 import * as React from "react"
 import { CaretDownIcon, CaretRightIcon, MagnifyingGlassIcon, TagSimpleIcon } from "@phosphor-icons/react"
 import { useSearchParams } from "react-router"
-import { toast } from "sonner"
 
 import { EmptyState } from "@/components/empty-state"
-import { LogRuleToggle } from "@/components/log-rule-toggle"
+import { clickCursorToggle, LogRuleToggle } from "@/components/log-rule-toggle"
 import { Page, PageHeader } from "@/components/page"
 import { RequireLogsSnapshot } from "@/components/require-snapshot"
 import { SegmentedControl } from "@/components/segmented-control"
@@ -23,10 +22,9 @@ import { fromControl, LogsSnapshotLine, patchParams } from "@/features/logs/stre
 import { authErrorText } from "@/hooks/use-cardinality"
 import { formatNumber } from "@/lib/cardinality/dashboard-helpers"
 import { BYTES_NOTE, formatBytes } from "@/lib/core/bytes"
-import { adviseLogLabel, guardedLogLabel } from "@/lib/core/logs/label-advice"
+import { adviseLogLabel } from "@/lib/core/logs/label-advice"
 import { groupNoun, LOGS_RANGE_LABEL, MAX_LABEL_VALUES } from "@/lib/core/logs/snapshot"
 import type { LabelMatcher, LogLabelStat, LogsSnapshot, StreamSelector } from "@/lib/core/logs/types"
-import { useAppStore } from "@/lib/store/app-store"
 import { cn } from "@/lib/utils"
 
 // Every stream label: how many values it has, how many streams and bytes carry
@@ -189,20 +187,9 @@ function LabelsList({ snapshot }: { snapshot: LogsSnapshot }) {
       const row = visible[index]
       if (row) toggle(row.label)
     },
-    // x moves the highlighted label to structured metadata (or back); guarded labels need the toggle's override.
-    onToggle: (index) => {
-      const row = visible[index]
-      if (!row) return
-      const guard = guardedLogLabel(row.label)
-      if (guard) {
-        toast.info(guard.title, { description: "Use the To metadata toggle to confirm moving it." })
-        return
-      }
-      try {
-        useAppStore.getState().toggleLogRule({ kind: "label_to_metadata", selector: { matchers: scopeMatchers }, label: row.label, origin: "user" })
-      } catch (error) {
-        toast.error("Couldn't change the rule", { description: error instanceof Error ? error.message : String(error) })
-      }
+    // x clicks the highlighted label's To metadata toggle, so the usage gate (and a guarded label's override) asks first.
+    onToggle: () => {
+      clickCursorToggle("label_to_metadata")
     },
   })
 

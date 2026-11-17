@@ -1,21 +1,26 @@
 import * as React from "react"
 
-import { logGroupPath, logLabelPath } from "@/app/paths"
-import type { SavingsRowProps } from "@/components/savings-list"
 import { SavingsLine } from "@/components/savings-line"
 import { useAutopilot } from "@/features/inbox/autopilot"
 import { useServicesPatterns } from "@/features/logs/patterns-data"
 import { patternTableRows } from "@/features/logs/pattern-table"
 import { useProposeLogRule } from "@/features/logs/volume-propose"
-import { formatNumber } from "@/lib/cardinality/dashboard-helpers"
+import { useLogUsageEvidence } from "@/features/rules/log-usage"
 import { formatBytes } from "@/lib/core/bytes"
 import { applyPreference, learnedPreference, logRuleKeys } from "@/lib/core/decide/learn"
 import { assessLog } from "@/lib/core/decide/risk"
 import { adviseLogLabel } from "@/lib/core/logs/label-advice"
-import { patternLineFilter, patternPreview } from "@/lib/core/logs/patterns"
+import { patternLineFilter } from "@/lib/core/logs/patterns"
 import { MAX_LABEL_VALUES } from "@/lib/core/logs/snapshot"
 import type { LogsSnapshot } from "@/lib/core/logs/types"
-import { LOG_REASON_LABEL, labelOpportunities, patternOpportunities, rankLogOpportunities } from "@/lib/core/opportunities"
+import { summarizeLogRule, type LogUsageEvidence } from "@/lib/core/logs/logql-usage"
+import {
+  labelOpportunities,
+  patternOpportunities,
+  planLogOpportunities,
+  type LogOpportunity,
+  type OpportunityState,
+} from "@/lib/core/opportunities"
 import { useAppStore } from "@/lib/store/app-store"
 
 // The logs Overview's lead, like the metrics one: noisy patterns and debug
@@ -28,6 +33,8 @@ const SERVICES = 5
 export function useLogOpportunities(snapshot: LogsSnapshot | null) {
   const rules = useAppStore((state) => state.logRules)
   const decisions = useAppStore((state) => state.decisions)
+  // Whether queries select by a label, for label moves (Loki rules and the LogQL dashboard scan).
+  const { evidence } = useLogUsageEvidence(Boolean(snapshot))
   const groupLabel = snapshot?.groupLabel ?? ""
   const services = React.useMemo(
     () => (snapshot ? snapshot.groups.filter((group) => group.value !== "").slice(0, SERVICES).map((group) => group.value) : []),
@@ -35,7 +42,7 @@ export function useLogOpportunities(snapshot: LogsSnapshot | null) {
   )
   const patterns = useServicesPatterns(groupLabel, services, "1h", Boolean(snapshot))
   const loading = patterns.some((query) => query.isPending && query.fetchStatus !== "idle")
-  if (!snapshot) return { items: [], loading: false }
+  if (!snapshot) return { items: [], planned: [], loading: false }
 
   // Cheap enough per render (a few services' patterns); the query results are a new array every render anyway.
   const perService = patterns.map((query) => ({
@@ -55,41 +62,21 @@ export function useLogOpportunities(snapshot: LogsSnapshot | null) {
       return { ...label, move: advice.kind === "label_to_metadata" && advice.strength === "strong" }
     })
   )
-  const items = rankLogOpportunities([...patternOpportunities(groupLabel, perService), ...labels], rules).map((item) => ({
+  const planned = planLogOpportunities([...patternOpportunities(groupLabel, perService), ...labels], rules).map((item) => ({
     ...item,
-    risk: applyPreference(assessLog(item), learnedPreference(decisions, logRuleKeys(item.rule))),
+    risk: applyPreference(assessLog(item, { labelQueried: labelQueried(item, evidence) }), learnedPreference(decisions, logRuleKeys(item.rule))),
   }))
-  return { items, loading }
+  const items = planned.filter((item): item is (typeof planned)[number] & { state: OpportunityState } => item.state !== "active")
+  return { items, planned, loading }
 }
 
-type RankedLogOpportunity = ReturnType<typeof useLogOpportunities>["items"][number]
-
-/** One Top savings row per log opportunity. */
-export function logSavingsRows(
-  items: RankedLogOpportunity[],
-  propose: ReturnType<typeof useProposeLogRule>,
-  format: (bytes: number, per?: string) => string | null
-): SavingsRowProps[] {
-  return items.map((item) => ({
-    id: item.id,
-    reason: LOG_REASON_LABEL[item.reason],
-    titleText: item.reason === "noisy" ? `${item.subtitle}: ${item.title}` : item.title,
-    title: item.reason === "noisy" ? patternPreview(item.title, 80) : item.title,
-    detail: item.reason === "noisy" ? item.subtitle : item.reason === "labels" ? item.subtitle : "debug + trace",
-    to: item.reason === "labels" ? logLabelPath(item.title) : logGroupPath(item.reason === "noisy" ? (item.subtitle ?? "") : item.title),
-    saving:
-      item.savedBytesPerDay !== null
-        ? `~−${formatBytes(item.savedBytesPerDay)}/day`
-        : item.savedStreams
-          ? `~−${formatNumber(item.savedStreams)} streams`
-          : "to metadata",
-    cost: item.savedBytesPerDay !== null ? (format(item.savedBytesPerDay, "day") ?? undefined) : undefined,
-    state: item.state,
-    risk: item.risk,
-    onPropose: () => {
-      propose(item.rule, { success: "Proposed" })
-    },
-  }))
+/** For a label move: true when a checked query selects by the label, false when rules and dashboards were both checked and none does. */
+function labelQueried(item: LogOpportunity, evidence: LogUsageEvidence | null) {
+  if (item.reason !== "labels" || item.rule.kind !== "label_to_metadata" || !evidence) return undefined
+  const summary = summarizeLogRule({ kind: "label_to_metadata", selector: item.rule.selector, label: item.rule.label }, evidence)
+  if (!summary) return undefined
+  if (summary.used) return true
+  return summary.unchecked.length === 0 ? false : undefined
 }
 
 /** Logs overview's line about Savings: how many cuts, what they save, and the way there. */
