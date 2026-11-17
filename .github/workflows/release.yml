@@ -57,6 +57,7 @@ jobs:
             dist/cardinal-*
             dist/SHA256SUMS
             install.sh
+            LICENSE
 
   image:
     runs-on: ubuntu-latest

@@ -51,15 +51,18 @@ writeFileSync(
       keywords: ["prometheus", "loki", "grafana", "cardinality", "observability", "mimir"],
       homepage: "https://cardinal.ta3.dev",
       repository: { type: "git", url: "git+https://github.com/TA3/cardinal.git" },
+      license: "AGPL-3.0-only",
       type: "module",
       bin: { cardinal: "cardinal.mjs" },
-      files: ["cardinal.mjs", "app"],
+      files: ["cardinal.mjs", "app", "LICENSE"],
       engines: { node: ">=20" },
     },
     null,
     2
   )}\n`
 )
+
+cpSync(path.join(root, "LICENSE"), path.join(out, "LICENSE"))
 
 writeFileSync(
   path.join(out, "README.md"),
@@ -76,6 +79,8 @@ npx @ta3/cardinal          # then open http://localhost:9181
 It listens on 127.0.0.1 only. Run \`npx @ta3/cardinal --help\` for options. Needs Node 20 or later.
 
 More: https://github.com/TA3/cardinal
+
+License: AGPL-3.0-only (see LICENSE).
 `
 )
 

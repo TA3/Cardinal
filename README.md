@@ -152,6 +152,11 @@ server/       self-hosted server and binaries (Bun), shares lib/proxy with the w
 
 </details>
 
+## License
+
+[GNU Affero General Public License v3.0](LICENSE). You can use, change and share Cardinal; if you run a changed
+version for other people, including as a hosted service, you must offer them its source under the same license.
+
 ---
 
 <p align="center">
