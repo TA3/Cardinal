@@ -6,6 +6,8 @@ import tailwindcss from "@tailwindcss/vite"
 import react from "@vitejs/plugin-react"
 import { defineConfig } from "vite"
 
+import packageJson from "./package.json"
+
 // Long-lived vendor chunks for the client, so an app deploy doesn't bust the
 // libraries' cache. Earlier groups win; anything unmatched stays with its importer.
 const VENDOR_GROUPS: [name: string, test: RegExp][] = [
@@ -18,22 +20,27 @@ const VENDOR_GROUPS: [name: string, test: RegExp][] = [
   ["yaml", /node_modules[\\/]yaml[\\/]/],
 ]
 
+function git(...args: string[]) {
+  try {
+    return execFileSync("git", args, { stdio: ["ignore", "pipe", "ignore"] }).toString().trim()
+  } catch {
+    return ""
+  }
+}
+
 /**
  * The version shown in the app's footer: CARDINAL_VERSION (release builds and
  * the Docker image), the tag a GitHub Actions run builds, else `git describe`
- * (e.g. 0.6.0-3-gabc1234 a few commits after v0.6.0), else "dev".
+ * (e.g. 0.6.0-3-gabc1234 a few commits after v0.6.0). Clones without tags
+ * (Cloudflare Workers Builds) get package.json's version and the commit.
  */
 function appVersion() {
   const given = process.env.CARDINAL_VERSION || (process.env.GITHUB_REF_TYPE === "tag" ? process.env.GITHUB_REF_NAME : "")
   if (given) return given.replace(/^v/, "")
-  try {
-    return execFileSync("git", ["describe", "--tags", "--match", "v*"], { stdio: ["ignore", "pipe", "ignore"] })
-      .toString()
-      .trim()
-      .replace(/^v/, "")
-  } catch {
-    return "dev"
-  }
+  const described = git("describe", "--tags", "--match", "v*")
+  if (described) return described.replace(/^v/, "")
+  const commit = (process.env.WORKERS_CI_COMMIT_SHA || git("rev-parse", "HEAD")).slice(0, 7)
+  return commit ? `${packageJson.version}+${commit}` : packageJson.version
 }
 
 export default defineConfig({
