@@ -1,8 +1,9 @@
 import { Document, isScalar, isSeq, visit } from "yaml"
 
-import { KEEP_BUCKET_MARK, KEEP_VALUE_MARK, type Aggregation, type RelabelPlan, type RelabelSection, type RelabelStep } from "@/lib/core/compile/plan"
+import { KEEP_BUCKET_MARK, KEEP_METRIC_MARK, KEEP_VALUE_MARK, type Aggregation, type RelabelPlan, type RelabelSection, type RelabelStep } from "@/lib/core/compile/plan"
 import { assertLabelName, selector } from "@/lib/core/promql"
 import { escapeJoinedPart, joinSeparator, literalAlternation } from "@/lib/core/regex"
+import { ALWAYS_KEPT } from "@/lib/core/rules"
 import { GROUP_RELABEL_MARK, groupedExpr, groupingRecordName } from "@/lib/core/value-groups"
 
 export interface RelabelConfig {
@@ -33,6 +34,19 @@ export function joinedCondition(job: string | undefined, metric: string, labels:
 const literalReplacement = (value: string) => value.replace(/\$/g, "$$$$")
 
 export function toRelabelConfigs(step: RelabelStep): RelabelConfig[] {
+  if (step.kind === "keep_metrics") {
+    // RE2 can't say "this job and not these names": mark the kept series of
+    // the job, drop the job's unmarked ones, remove the mark.
+    const separator = joinSeparator(step.job)
+    const job = escapeJoinedPart(step.job, separator)
+    const names = [literalAlternation(step.metrics), ALWAYS_KEPT].filter(Boolean).join("|")
+    const sep = separator === ";" ? {} : { separator }
+    return [
+      { source_labels: ["job", "__name__"], ...sep, regex: `${job}${separator}(${names})`, action: "replace", target_label: KEEP_METRIC_MARK, replacement: "1" },
+      { source_labels: ["job", KEEP_METRIC_MARK], ...sep, regex: `${job}${separator}`, action: "drop" },
+      { regex: KEEP_METRIC_MARK, action: "labeldrop" },
+    ]
+  }
   if (step.kind === "group_values") {
     // The group name goes to a temporary label first so every group matches
     // the original value: the rest is written first, then groups from last
@@ -87,7 +101,7 @@ export function toRelabelConfigs(step: RelabelStep): RelabelConfig[] {
   return [toRelabelConfig(step)]
 }
 
-function toRelabelConfig(step: Exclude<RelabelStep, { kind: "drop_series" | "keep_buckets" | "keep_value" | "group_values" }>): RelabelConfig {
+function toRelabelConfig(step: Exclude<RelabelStep, { kind: "drop_series" | "keep_buckets" | "keep_value" | "group_values" | "keep_metrics" }>): RelabelConfig {
   if (step.kind === "drop") {
     const names = literalAlternation(step.metrics)
     if (step.job === undefined) return { source_labels: ["__name__"], regex: names, action: "drop" }

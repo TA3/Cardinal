@@ -16,8 +16,11 @@ const MAX_RATIONALE = 500
 
 export interface SharedRule {
   kind: Rule["kind"]
-  metric: string
+  /** Every kind but keep_metrics, which applies to a whole job. */
+  metric?: string
   job?: string
+  /** keep_metrics: the metrics the job keeps. */
+  metrics?: string[]
   labels?: string[]
   match?: { label: string; regex: string }
   buckets?: string[]
@@ -39,7 +42,7 @@ export interface SharedRuleSet {
 }
 
 function toShared(rule: Rule): SharedRule {
-  const base: SharedRule = { kind: rule.kind, metric: rule.selector.metric }
+  const base: SharedRule = rule.kind === "keep_metrics" ? { kind: rule.kind, job: rule.selector.job, metrics: rule.metrics } : { kind: rule.kind, metric: rule.selector.metric }
   if (rule.selector.job !== undefined) base.job = rule.selector.job
   if (rule.kind === "drop_labels") base.labels = rule.labels
   if (rule.kind === "drop_series") base.match = rule.match
@@ -69,8 +72,8 @@ function clean(text: unknown) {
   return flat ? flat.slice(0, MAX_RATIONALE) : undefined
 }
 
-function stringList(value: unknown, valid: (item: string) => boolean) {
-  if (!Array.isArray(value) || value.length === 0 || value.length > 100) return null
+function stringList(value: unknown, valid: (item: string) => boolean, max = 100) {
+  if (!Array.isArray(value) || value.length === 0 || value.length > max) return null
   return value.every((item) => typeof item === "string" && valid(item)) ? (value as string[]) : null
 }
 
@@ -78,6 +81,12 @@ function stringList(value: unknown, valid: (item: string) => boolean) {
 function fromShared(raw: unknown): RuleInput | string {
   if (!raw || typeof raw !== "object") return "not an object"
   const item = raw as Record<string, unknown>
+  if (item.kind === "keep_metrics") {
+    if (typeof item.job !== "string" || !isJobValue(item.job)) return "keep-list: invalid job"
+    const metrics = stringList(item.metrics, isMetricName, 10_000)
+    if (!metrics) return `keep-list for ${item.job}: invalid metrics`
+    return { selector: { job: item.job }, origin: "import", status: "proposed", rationale: clean(item.rationale), kind: "keep_metrics", metrics }
+  }
   const metric = typeof item.metric === "string" ? item.metric : ""
   if (!isMetricName(metric)) return `invalid metric name ${JSON.stringify(item.metric)}`
   if (item.job !== undefined && (typeof item.job !== "string" || !isJobValue(item.job))) return `${metric}: invalid job`

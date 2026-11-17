@@ -104,7 +104,7 @@ export function buildLabelOwnerMarkdownReport({ snapshot, owner, chain, drilldow
   else {
     lines.push(`About ${number(savings.savedSeries)} series saved${priced ? ` (≈ ${money(savings.savedSeries, pricePer1k)}/mo)` : ""}, from each rule's saving scaled by this owner's share of its metric.`, "")
     for (const { rule, savedSeries } of savings.rules) {
-      lines.push(`- ${rule.kind} ${code(rule.selector.metric)}${rule.selector.job !== undefined ? ` in job ${code(rule.selector.job)}` : ""}: ~${number(savedSeries)} series`)
+      lines.push(`- ${rule.kind} ${code(rule.selector.metric ?? "")}${rule.selector.job !== undefined ? ` in job ${code(rule.selector.job)}` : ""}: ~${number(savedSeries)} series`)
     }
     lines.push("")
   }

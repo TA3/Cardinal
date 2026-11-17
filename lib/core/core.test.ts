@@ -998,8 +998,9 @@ describe("signals and legacy routes", () => {
   })
 
   it("redirects pre-restructure URLs and keeps the query", () => {
-    expect(legacyRedirect("/", "")).toBe("/savings")
-    expect(legacyRedirect("/", "?x=1")).toBe("/savings?x=1")
+    expect(legacyRedirect("/", "")).toBe("/plan")
+    expect(legacyRedirect("/", "?x=1")).toBe("/plan?x=1")
+    expect(legacyRedirect("/savings", "")).toBe("/plan")
     expect(legacyRedirect("/jobs", "?sort=a")).toBe("/metrics/jobs?sort=a")
     expect(legacyRedirect("/jobs/kube%2Fapi/x", "")).toBe("/metrics/jobs/kube%2Fapi/x")
     expect(legacyRedirect("/churn", "?window=1h")).toBe("/metrics/churn?window=1h")

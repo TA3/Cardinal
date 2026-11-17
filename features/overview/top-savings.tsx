@@ -27,12 +27,13 @@ import {
   churnOpportunity,
   idCheckCandidates,
   idLikeOpportunity,
+  planOpportunities,
   rankOpportunities,
   reasonLabel,
   unseenLabels,
   unusedMetricOpportunities,
   type MetricOpportunity } from "@/lib/core/opportunities"
-import { createRule, type Rule, type RuleImpact } from "@/lib/core/rules"
+import { createRule, ruleKey, type Rule, type RuleImpact } from "@/lib/core/rules"
 import { snapshotImpact } from "@/lib/core/savings"
 import type { Snapshot } from "@/lib/core/snapshot"
 import { summarizeEvidence, type UsageEvidence } from "@/lib/core/usage-gate"
@@ -257,11 +258,18 @@ export function useMetricOpportunities(snapshot: Snapshot) {
       const item = churnOpportunity({ metric: row.metric, job: row.job, label: driver.label, churned: row.churned, used: undefined })
       if (item) all.push(item)
     }
-    return rankOpportunities(all, rules).map((item) => ({
+    return all
+  }, [usage.isPending, big, used, idLike.data, aggregate.data, histograms.data, churn.rows, usage.byMetric])
+  const withRisk = React.useCallback(
+    <T extends MetricOpportunity>(item: T) => ({
       ...item,
       risk: applyPreference(assessMetric(item, usage.byMetric[item.metric]), learnedPreference(decisions, metricRuleKeys(item.rule))),
-    }))
-  }, [usage.isPending, usage.byMetric, big, used, idLike.data, aggregate.data, histograms.data, churn.rows, rules, decisions])
+    }),
+    [usage.byMetric, decisions]
+  )
+  const ranked = React.useMemo(() => rankOpportunities(items, rules).map(withRisk), [items, rules, withRisk])
+  // The Plan also shows what is already in it.
+  const planned = React.useMemo(() => planOpportunities(items, rules).map(withRisk), [items, rules, withRisk])
 
   const impacts = React.useMemo(
     () =>
@@ -277,7 +285,7 @@ export function useMetricOpportunities(snapshot: Snapshot) {
     usage.isPending || (idMetrics.length > 0 && idLike.isLoading) || (aggregateMetrics.length > 0 && aggregate.isLoading) || histograms.isLoading || churn.pending
   // Nothing about usage was checked, so unused metrics can't be told apart: that, not "nothing to cut", is why the list is short.
   const usageUnchecked = !usage.isPending && names.every((metric) => usedFrom(usage.byMetric[metric]) === undefined)
-  return { items, loading, impacts, usageUnchecked }
+  return { items: ranked, planned, loading, impacts, usageUnchecked }
 }
 
 /** Creates the opportunity's rule as a proposal; bucket trims are refined with the observed distribution first. */
@@ -288,7 +296,7 @@ export function useProposeOpportunity(snapshot: Snapshot, impacts: Map<string, R
   const key = connectionKey(connection)
   const families = useHistogramAnalysis().data?.families
 
-  return async (item: MetricOpportunity, { quiet = false }: { quiet?: boolean } = {}) => {
+  return async (item: MetricOpportunity, { quiet = false, activate = false }: { quiet?: boolean; activate?: boolean } = {}) => {
     const base = { origin: "user" as const, status: "proposed" as const, rationale: item.rationale }
     const selector = item.rule.job === undefined ? { metric: item.metric } : { metric: item.metric, job: item.rule.job }
     let rule: Rule
@@ -316,6 +324,14 @@ export function useProposeOpportunity(snapshot: Snapshot, impacts: Map<string, R
       rule = createRule({ ...base, kind: "keep_buckets", selector, buckets })
     }
     const { added } = useAppStore.getState().addRules([rule])
+    if (activate) {
+      // Straight into the plan: accept the proposal (or the one it folded into), so ratings still learn from it.
+      const state = useAppStore.getState()
+      const key = ruleKey(rule)
+      const ids = state.rules.filter((other) => other.status === "proposed" && ruleKey(other) === key).map((other) => other.id)
+      if (ids.length) state.setRuleStatus(ids, "active")
+      return ids.length > 0
+    }
     if (quiet) return added > 0
     if (!added) {
       toast.info("A rule already covers this")

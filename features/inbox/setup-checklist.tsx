@@ -11,7 +11,7 @@ import { useIsGrafanaCloud } from "@/hooks/use-cardinality"
 import { cn } from "@/lib/utils"
 import { selectHasLogs, useAppStore } from "@/lib/store/app-store"
 
-// Onboarding on the Savings page, once a data source is connected: the few
+// Onboarding on the Plan page, once a data source is connected: the few
 // steps that make the ratings and numbers trustworthy, each one click away.
 // It goes once every step is done, or when dismissed.
 
@@ -45,7 +45,7 @@ function useSetupSteps(): Step[] {
     {
       id: "usage",
       title: "Check dashboard usage",
-      why: "Scan Grafana or upload dashboard exports so cuts nothing uses can be rated safe.",
+      why: "Scan Grafana or upload dashboard exports: unlocks keep-lists and rates unused cuts safe.",
       done: cloud || Boolean(index),
       to: `${paths.settings}#grafana`,
       action: "Add usage",
@@ -60,10 +60,10 @@ function useSetupSteps(): Step[] {
     },
     {
       id: "review",
-      title: "Review a proposal",
-      why: "Accept or reject one in Rules; ratings learn from what you decide.",
+      title: "Add a cut to your plan",
+      why: "Then export the config from Rules; ratings learn from what you add and reject.",
       done: reviewed,
-      to: rulesPath("proposed"),
+      to: rulesPath("active"),
       action: "Open Rules",
     },
   ]

@@ -51,7 +51,7 @@ function ruleBlock(attrs: Array<[string, string]>) {
 }
 
 function renderStep(step: RelabelStep) {
-  if (step.kind === "drop_series" || step.kind === "keep_buckets" || step.kind === "keep_value" || step.kind === "group_values") {
+  if (step.kind === "drop_series" || step.kind === "keep_buckets" || step.kind === "keep_value" || step.kind === "group_values" || step.kind === "keep_metrics") {
     return toRelabelConfigs(step).map((config) => ruleBlock(configAttrs(config))).join("\n")
   }
   let attrs: Array<[string, string]>

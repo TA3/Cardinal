@@ -189,6 +189,9 @@ interface AppState {
   /** The Savings setup checklist was dismissed. Persisted. */
   setupDismissed: boolean
   setSetupDismissed: (dismissed: boolean) => void
+  /** Metrics marked "keep as is" while going through a job, by job. Persisted. */
+  keptAsIs: Record<string, string[]>
+  setKeptAsIs: (job: string, metric: string, kept: boolean) => void
   /**
    * Progress of the snapshot running now, null when none is. `total` is 0
    * while unknown (a single query, or listing jobs); per-job fallbacks on
@@ -555,9 +558,19 @@ function migrateSnapshot(snapshot: Snapshot | null | undefined) {
   }
 }
 
+/** Persisted "keep as is" marks, or null when the stored value has the wrong shape. */
+function validKeptAsIs(value: unknown): Record<string, string[]> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null
+  const result: Record<string, string[]> = {}
+  for (const [job, metrics] of Object.entries(value)) {
+    if (job !== "__proto__" && Array.isArray(metrics)) result[job] = metrics.filter((metric): metric is string => typeof metric === "string")
+  }
+  return result
+}
+
 function migrateRules(rules: Rule[] | undefined, version: number) {
   return (rules ?? []).map((rule): Rule => {
-    const fixed = rule.selector.job === LEGACY_NO_JOB ? { ...rule, selector: { ...rule.selector, job: "" } } : rule
+    const fixed = rule.selector.job === LEGACY_NO_JOB ? ({ ...rule, selector: { ...rule.selector, job: "" } } as Rule) : rule
     const adaptive = fixed.origin === "import" && fixed.rationale?.startsWith("Adaptive Metrics recommendation")
     if (version < 9 && fixed.kind === "drop_labels" && !fixed.onMerge && adaptive) return { ...fixed, onMerge: "aggregate" }
     return fixed
@@ -578,6 +591,7 @@ type PersistedState = Partial<
     | "proxyConsent"
     | "autopilot"
     | "setupDismissed"
+    | "keptAsIs"
     | "attribution"
     | "signal"
     | "logsSettings"
@@ -634,6 +648,7 @@ export const useAppStore = create<AppState>()(
       proxyConsent: false,
       autopilot: false,
       setupDismissed: false,
+      keptAsIs: {},
       snapshotProgress: null,
 
       updateSettings: (patch) =>
@@ -681,6 +696,7 @@ export const useAppStore = create<AppState>()(
           proxyConsent: false,
           autopilot: false,
           setupDismissed: false,
+          keptAsIs: {},
           attribution: DEFAULT_ATTRIBUTION,
           logsSettings: defaultLogsSettings,
           logsSnapshot: null,
@@ -766,6 +782,16 @@ export const useAppStore = create<AppState>()(
       setAgentPaused: (agentPaused) => set({ agentPaused }),
       setAutopilot: (autopilot) => set({ autopilot }),
       setSetupDismissed: (setupDismissed) => set({ setupDismissed }),
+      setKeptAsIs: (job, metric, kept) =>
+        set((state) => {
+          if (job === "__proto__") return {}
+          const current = Object.hasOwn(state.keptAsIs, job) ? state.keptAsIs[job] : []
+          const next = kept ? Array.from(new Set([...current, metric])) : current.filter((item) => item !== metric)
+          const keptAsIs = { ...state.keptAsIs }
+          if (next.length) keptAsIs[job] = next
+          else delete keptAsIs[job]
+          return { keptAsIs }
+        }),
       setProxyConsent: (proxyConsent) => set({ proxyConsent }),
       setAgentShareLabelValues: (agentShareLabelValues) => set({ agentShareLabelValues }),
       setSnapshotProgress: (snapshotProgress) => set({ snapshotProgress }),
@@ -950,6 +976,7 @@ export const useAppStore = create<AppState>()(
         proxyConsent: state.proxyConsent,
         autopilot: state.autopilot,
         setupDismissed: state.setupDismissed,
+        keptAsIs: state.keptAsIs,
         attribution: state.attribution,
         signal: state.signal,
         logsSettings: state.logsSettings.rememberToken ? state.logsSettings : { ...state.logsSettings, token: "" },
@@ -991,6 +1018,7 @@ export const useAppStore = create<AppState>()(
           rules: persisted.rules ?? current.rules,
           logRules: Array.isArray(persisted.logRules) ? persisted.logRules : current.logRules,
           decisions: Array.isArray(persisted.decisions) ? persisted.decisions : current.decisions,
+          keptAsIs: validKeptAsIs(persisted.keptAsIs) ?? current.keptAsIs,
           signal: isSignal(persisted.signal) ? persisted.signal : current.signal,
           drilldowns: sameConnection ? current.drilldowns : {},
           logsSettings,

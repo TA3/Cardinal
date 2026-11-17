@@ -1,6 +1,6 @@
 import { createBrowserRouter } from "react-router"
 
-import { LegacyRedirect } from "@/app/legacy-redirect"
+import { legacyLoader, LegacyRedirect } from "@/app/legacy-redirect"
 import { NotFound, RouteError } from "@/app/route-error"
 import { AppShell } from "@/app/shell/app-shell"
 
@@ -19,7 +19,7 @@ export const router = createBrowserRouter([
         errorElement: <RouteError />,
         children: [
           // "/" and pre-restructure URLs (/jobs/…, /churn, /adaptive, /metrics/<metric>…) redirect.
-          { index: true, element: <LegacyRedirect /> },
+          { index: true, loader: legacyLoader, element: <LegacyRedirect /> },
 
           // Metrics
           { path: "metrics", lazy: () => import("@/features/overview/overview-page").then((m) => ({ Component: m.OverviewPage })) },
@@ -38,7 +38,7 @@ export const router = createBrowserRouter([
           { path: "metrics/churn", lazy: () => import("@/features/churn/churn-page").then((m) => ({ Component: m.ChurnPage })) },
           { path: "metrics/histograms", lazy: () => import("@/features/histograms/histograms-page").then((m) => ({ Component: m.HistogramsPage })) },
           // Static routes above win, so this only catches old /metrics/<metric> links.
-          { path: "metrics/:metric", element: <LegacyRedirect /> },
+          { path: "metrics/:metric", loader: legacyLoader, element: <LegacyRedirect /> },
 
           // Logs
           { path: "logs", lazy: () => import("@/features/logs/logs-overview-page").then((m) => ({ Component: m.LogsOverviewPage })) },
@@ -50,19 +50,20 @@ export const router = createBrowserRouter([
           { path: "logs/patterns", lazy: () => import("@/features/logs/patterns-page").then((m) => ({ Component: m.LogPatternsPage })) },
 
           // Shared
-          { path: "savings", lazy: () => import("@/features/inbox/inbox-page").then((m) => ({ Component: m.InboxPage })) },
+          { path: "plan", lazy: () => import("@/features/plan/plan-page").then((m) => ({ Component: m.PlanPage })) },
+          { path: "savings", loader: legacyLoader, element: <LegacyRedirect /> },
           { path: "rules", lazy: () => import("@/features/rules/rules-page").then((m) => ({ Component: m.RulesPage })) },
           { path: "attribution", lazy: () => import("@/features/attribution/attribution-page").then((m) => ({ Component: m.AttributionPage })) },
           { path: "agent", lazy: () => import("@/features/agent/agent-page").then((m) => ({ Component: m.AgentPage })) },
           { path: "settings", lazy: () => import("@/features/settings/settings-page").then((m) => ({ Component: m.SettingsPage })) },
 
           // Old URLs
-          { path: "jobs", element: <LegacyRedirect /> },
-          { path: "jobs/*", element: <LegacyRedirect /> },
-          { path: "churn", element: <LegacyRedirect /> },
-          { path: "histograms", element: <LegacyRedirect /> },
-          { path: "adaptive", element: <LegacyRedirect /> },
-          { path: "teams", element: <LegacyRedirect /> },
+          { path: "jobs", loader: legacyLoader, element: <LegacyRedirect /> },
+          { path: "jobs/*", loader: legacyLoader, element: <LegacyRedirect /> },
+          { path: "churn", loader: legacyLoader, element: <LegacyRedirect /> },
+          { path: "histograms", loader: legacyLoader, element: <LegacyRedirect /> },
+          { path: "adaptive", loader: legacyLoader, element: <LegacyRedirect /> },
+          { path: "teams", loader: legacyLoader, element: <LegacyRedirect /> },
           { path: "*", element: <NotFound /> },
         ],
       },

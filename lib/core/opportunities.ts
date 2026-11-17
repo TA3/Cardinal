@@ -266,7 +266,21 @@ const REASON_ORDER: OpportunityReason[] = ["unused", "aggregate", "id_like", "bu
  * (ID-like and churn) shows once.
  */
 export function rankOpportunities(items: MetricOpportunity[], rules: Rule[] = [], now = Date.now()): Array<MetricOpportunity & { state: OpportunityState }> {
-  const wholeMetric = new Set(items.filter((item) => item.rule.kind === "drop_metric").map((item) => item.metric))
+  return planOpportunities(items, rules, now).filter((item): item is MetricOpportunity & { state: OpportunityState } => item.state !== "active")
+}
+
+/**
+ * The same ranking, keeping items an active rule already handles as "active"
+ * (the Plan shows what is in it). A whole-metric drop only hides the smaller
+ * items of its metric when dashboards were checked: on alert rules alone it
+ * is a guess, and a bucket trim or a label drop is the safer cut.
+ */
+export function planOpportunities(
+  items: MetricOpportunity[],
+  rules: Rule[] = [],
+  now = Date.now()
+): Array<MetricOpportunity & { state: OpportunityState | "active" }> {
+  const wholeMetric = new Set(items.filter((item) => item.rule.kind === "drop_metric" && !item.rulesOnly).map((item) => item.metric))
   const best = new Map<string, MetricOpportunity>()
   for (const item of items) {
     if (item.rule.kind !== "drop_metric" && wholeMetric.has(item.metric)) continue
@@ -274,11 +288,11 @@ export function rankOpportunities(items: MetricOpportunity[], rules: Rule[] = []
     const current = best.get(key)
     if (!current || item.savedSeries > current.savedSeries) best.set(key, item)
   }
-  const ranked: Array<MetricOpportunity & { state: OpportunityState }> = []
+  const ranked: Array<MetricOpportunity & { state: OpportunityState | "active" }> = []
   for (const item of best.values()) {
     const status = coveringStatus(rules, item.rule, now)
-    if (status === "active" || status === "rejected") continue
-    ranked.push({ ...item, state: status === "proposed" ? "proposed" : "open" })
+    if (status === "rejected") continue
+    ranked.push({ ...item, state: status === "active" ? "active" : status === "proposed" ? "proposed" : "open" })
   }
   return ranked.sort(
     (a, b) =>

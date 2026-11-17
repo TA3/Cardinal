@@ -94,6 +94,12 @@ export function compileAdaptiveMetrics(
   const desired = new Map<string, AggregationRule>()
 
   for (const rule of active) {
+    if (rule.kind === "keep_metrics") {
+      warnings.push(
+        `Keep-list for job ${jobLabel(rule.selector.job)}: Adaptive Metrics rules apply to every job, so they can't keep a list for one job. Skipped; export it as Prometheus or Alloy relabel config.`
+      )
+      continue
+    }
     const metric = rule.selector.metric
     if (rule.selector.job !== undefined) {
       warnings.push(

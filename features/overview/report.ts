@@ -60,10 +60,13 @@ function describeRule(rule: Rule) {
     case "group_values":
       what = `Group ${code(rule.label)} into ${rule.groups.map((group) => code(group.name)).join(", ")}${rule.rest ? ` + ${code(rule.rest)}` : ""} (${rule.aggregation})`
       break
+    case "keep_metrics":
+      what = `Keep only ${rule.metrics.length} metrics, drop the rest`
+      break
     default:
       what = (rule as { kind: string }).kind
   }
-  return { what, metric: code(rule.selector.metric), scope }
+  return { what, metric: rule.selector.metric === undefined ? "" : code(rule.selector.metric), scope }
 }
 
 export function buildMarkdownReport({ snapshot, rules, drilldowns, pricePer1k, source, topN = 20 }: ReportInput) {

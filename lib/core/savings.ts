@@ -1,3 +1,4 @@
+import { jobMetrics, keepListDrops } from "@/lib/core/keep-list"
 import { activeRules, isShadowed, type Rule, type RuleImpact } from "@/lib/core/rules"
 import { snapshotSeries, type Snapshot } from "@/lib/core/snapshot"
 import type { MetricDrilldown, SnapshotResponse } from "@/lib/prometheus/types"
@@ -24,11 +25,15 @@ export interface Savings {
  * series per job and metric, so no query is needed. Null for drop_labels (it
  * must be measured) or when a legacy snapshot has no per-job counts.
  */
-export function snapshotImpact(
-  rule: Pick<Rule, "kind" | "selector">,
-  snapshot: SnapshotLike | null
-): RuleImpact | null {
-  if (rule.kind !== "drop_metric" || !snapshot) return null
+export function snapshotImpact(rule: Rule, snapshot: SnapshotLike | null): RuleImpact | null {
+  if (!snapshot) return null
+  if (rule.kind === "keep_metrics") {
+    if (!snapshot.seriesByMetricJob) return null
+    const seriesBefore = jobMetrics(snapshot, rule.selector.job).reduce((sum, item) => sum + item.seriesCount, 0)
+    const dropped = keepListDrops(snapshot, rule.selector.job, rule.metrics).reduce((sum, item) => sum + item.seriesCount, 0)
+    return { seriesBefore, seriesAfter: seriesBefore - dropped, exact: true, mergesSeries: false, measuredAt: snapshot.capturedAt ?? new Date().toISOString() }
+  }
+  if (rule.kind !== "drop_metric") return null
   const seriesBefore = snapshotSeries(snapshot, rule.selector.metric, rule.selector.job)
   if (seriesBefore === undefined) return null
   return {
@@ -61,13 +66,26 @@ export function computeExpectedSavings(
   const saved = new Map<string, Map<string | null, { dropped?: number; labels: number }>>()
   let isEstimate = false
 
-  for (const rule of active) {
-    if (isShadowed(rule, active)) continue
-    const { metric, job } = rule.selector
-    const scopes = saved.get(metric) ?? new Map()
+  const scopeOf = (metric: string, job: string | undefined) => {
+    const scopes = saved.get(metric) ?? new Map<string | null, { dropped?: number; labels: number }>()
     saved.set(metric, scopes)
     const scope = scopes.get(job ?? null) ?? { labels: 0 }
     scopes.set(job ?? null, scope)
+    return scope
+  }
+
+  for (const rule of active) {
+    if (rule.kind === "keep_metrics") {
+      // A keep-list is a metric drop for every metric of the job it doesn't keep.
+      if (!snapshot.seriesByMetricJob) isEstimate = true
+      for (const item of keepListDrops(snapshot, rule.selector.job, rule.metrics)) {
+        scopeOf(item.metric, rule.selector.job).dropped = item.seriesCount
+      }
+      continue
+    }
+    if (isShadowed(rule, active)) continue
+    const { metric, job } = rule.selector
+    const scope = scopeOf(metric, job)
 
     if (rule.kind === "drop_metric") {
       const impact = rule.impact ?? snapshotImpact(rule, snapshot)

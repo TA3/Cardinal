@@ -46,7 +46,7 @@ function namespace(metric: string) {
 /** Keys for a metric rule, broad first. */
 export function metricRuleKeys(rule: {
   kind: string
-  selector?: { metric: string; job?: string }
+  selector?: { metric?: string; job?: string }
   metric?: string
   job?: string
   labels?: string[]

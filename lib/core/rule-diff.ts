@@ -19,7 +19,9 @@ export function fingerprint(rule: Rule): RuleFingerprint {
         ? rule.buckets
         : rule.kind === "group_values"
           ? [...rule.groups.map((group) => `${group.name}=${group.regex}`), ...(rule.rest ? [`*=${rule.rest}`] : []), rule.aggregation]
-          : []
+          : rule.kind === "keep_metrics"
+            ? rule.metrics
+            : []
   return { key: ruleKey(rule), items: [...items] }
 }
 
@@ -70,6 +72,7 @@ export function describeKey(key: string) {
   try {
     const [kind, job, metric, label, regex] = JSON.parse(key) as [string, string | null, string, string?, string?]
     const scope = job === null ? "" : ` (job ${job === "" ? "(no job)" : job})`
+    if (kind === "keep_metrics") return `keep-list${scope}`
     const match = label !== undefined ? ` where ${label}=~"${regex}"` : ""
     return `${kind} ${metric}${match}${scope}`
   } catch {

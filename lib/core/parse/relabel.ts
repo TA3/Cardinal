@@ -1,8 +1,8 @@
-import { KEEP_BUCKET_MARK, KEEP_VALUE_MARK } from "@/lib/core/compile/plan"
+import { KEEP_BUCKET_MARK, KEEP_METRIC_MARK, KEEP_VALUE_MARK } from "@/lib/core/compile/plan"
 import { GROUP_RELABEL_MARK, type ValueGroup } from "@/lib/core/value-groups"
 import { isLabelName } from "@/lib/core/promql"
 import { parseLiteralAlternation, regexProblem, splitJoinedRegex } from "@/lib/core/regex"
-import { createRule, mergeRules, type Rule } from "@/lib/core/rules"
+import { ALWAYS_KEPT, createRule, mergeRules, type Rule } from "@/lib/core/rules"
 
 export interface RawRelabelRule {
   sourceLabels: string[]
@@ -69,6 +69,15 @@ function joinedHead(raw: RawRelabelRule, restCount: number) {
   const metric = unscopedLiteral(parts[scoped ? 1 : 0])
   if (job === null || !metric) return null
   return { job: job ?? raw.scrapeJob, metric, rest: parts.slice(scoped ? 2 : 1), restLabels: labels.slice(scoped ? 2 : 1) }
+}
+
+/** Literal metric names of a keep regex, without Cardinal's always-kept `up|scrape_…` tail. */
+function keptNames(regex: string) {
+  let inner = regex.trim()
+  const wrapped = inner.startsWith("(") && inner.endsWith(")") ? inner.slice(1, -1).replace(/^\?:/, "") : inner
+  inner = wrapped.endsWith(`|${ALWAYS_KEPT}`) ? wrapped.slice(0, -ALWAYS_KEPT.length - 1) : wrapped === ALWAYS_KEPT ? "" : wrapped
+  if (inner === "") return []
+  return parseLiteralAlternation(inner)
 }
 
 function convert(raw: RawRelabelRule, pending: PendingKeeps, groups: PendingGroups = new Map()): Rule[] | string {
@@ -141,6 +150,31 @@ function convert(raw: RawRelabelRule, pending: PendingKeeps, groups: PendingGrou
         origin: "import",
       }),
     ]
+  }
+
+  // A job's keep-list: mark the kept metrics of the job, drop its unmarked series, remove the mark.
+  if (action === "labeldrop" && regex.trim() === KEEP_METRIC_MARK) return []
+  if (action === "replace" && raw.targetLabel === KEEP_METRIC_MARK) {
+    const parts = labels.length === 2 && labels[0] === "job" && labels[1] === "__name__" ? splitJoinedRegex(regex, separator) : null
+    const job = parts?.length === 2 ? jobLiteral(parts[0]) : null
+    const names = parts?.length === 2 ? keptNames(parts[1]) : null
+    if (job === null || !names) return "keep-list mark is not one job and literal metric names"
+    pending.set(keepKey(job, ""), names)
+    return []
+  }
+  if (action === "drop" && labels.length === 2 && labels[0] === "job" && labels[1] === KEEP_METRIC_MARK) {
+    const parts = splitJoinedRegex(regex, separator)
+    const job = parts?.length === 2 && parts[1] === "" ? jobLiteral(parts[0]) : null
+    const metrics = job === null ? undefined : pending.get(keepKey(job, ""))
+    if (job === null || !metrics) return "keep-list drop without a matching mark"
+    return [createRule({ kind: "keep_metrics", selector: { job }, metrics, origin: "import" })]
+  }
+  // A plain keep on metric names inside a scrape config is that job's keep-list.
+  if (action === "keep" && labels.length === 1 && labels[0] === "__name__") {
+    if (raw.scrapeJob === undefined) return "keep on __name__ outside a scrape config: no job to scope it to"
+    const metrics = keptNames(regex)
+    if (!metrics) return "keep regex is not a list of literal metric names"
+    return [createRule({ kind: "keep_metrics", selector: { job: raw.scrapeJob }, metrics, origin: "import" })]
   }
 
   // Keep-buckets: mark kept buckets, drop unmarked ones, remove the mark.

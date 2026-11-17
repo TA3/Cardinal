@@ -62,7 +62,7 @@ const SIGNAL_CHORDS: Record<Signal, Record<string, NavChord>> = {
 export function navChords(signal: Signal, lastPathBySignal: Partial<Record<Signal, string>> = {}): Record<string, NavChord> {
   return {
     ...SIGNAL_CHORDS[signal],
-    i: { to: paths.savings, label: "Savings" },
+    i: { to: paths.plan, label: "Plan" },
     r: { to: paths.rules, label: "Rules" },
     a: { to: paths.recommendations, label: "Recommendations" },
     t: { to: paths.attribution, label: "Attribution" },

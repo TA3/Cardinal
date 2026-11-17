@@ -348,7 +348,8 @@ export function estimateLabelOwnerSavings(
   const totals = new Map(snapshot.metrics.map((item) => [item.metric, item.seriesCount]))
   const byMetric = new Map<string, Rule[]>()
   for (const rule of rules) {
-    if (rule.status !== "active" || !mine.has(rule.selector.metric)) continue
+    // Keep-lists are job-wide: not split by owner.
+    if (rule.status !== "active" || rule.kind === "keep_metrics" || !mine.has(rule.selector.metric)) continue
     const list = byMetric.get(rule.selector.metric) ?? []
     byMetric.set(rule.selector.metric, list)
     list.push(rule)

@@ -1,8 +1,8 @@
 import { runWithConcurrency } from "@/lib/core/concurrency"
 import { jobLabel } from "@/lib/core/jobs"
-import { queries, quoteLabelValue, selector, type SeriesSelector } from "@/lib/core/promql"
+import { JOB_METRIC_LABEL, queries, quoteLabelValue, selector, type SeriesSelector } from "@/lib/core/promql"
 import { histogramFamily } from "@/lib/core/families"
-import type { DropLabelsRule, Rule, RuleImpact } from "@/lib/core/rules"
+import type { DropLabelsRule, MetricRule, RuleImpact } from "@/lib/core/rules"
 import { buildJobDrilldownFromRows, buildSnapshotFromRows, type Snapshot } from "@/lib/core/snapshot"
 import { HttpError, sendJson, type Connection } from "@/lib/sources/transport"
 import type {
@@ -271,6 +271,38 @@ export async function fetchJobDrilldown(
   )
 }
 
+/** Never listed for a whole job: the name, and the job itself. */
+const JOB_FIXED_LABELS = new Set(["__name__", "job"])
+
+/** The labels series of a job carry, with their distinct values across the job, largest first. */
+export async function fetchJobLabels(connection: Connection, job: string, signal?: AbortSignal) {
+  const names = await api<string[]>(connection, "/labels", { "match[]": `{job=${quoteLabelValue(job)}}` }, signal)
+  const labels = await runWithConcurrency(
+    names.filter((label) => !JOB_FIXED_LABELS.has(label)),
+    async (label) => ({ label, cardinality: await scalarCount(connection, queries.jobLabelCardinality(job, label), signal) }),
+    4,
+    signal
+  )
+  return labels.filter((label) => label.cardinality > 0).sort((a, b) => b.cardinality - a.cardinality || a.label.localeCompare(b.label))
+}
+
+/** What removing `label` from a whole job does, per metric that carries it: series before and after. */
+export async function measureJobLabel(connection: Connection, job: string, label: string, signal?: AbortSignal) {
+  const [before, after] = await Promise.all([
+    instant(connection, queries.jobSeriesWithLabel(job, label), signal),
+    instant(connection, queries.jobSeriesWithoutLabel(job, label), signal),
+  ])
+  const remaining = new Map(after.map((row) => [row.metric[JOB_METRIC_LABEL] ?? "", Number(row.value[1]) || 0]))
+  return before
+    .map((row) => {
+      const metric = row.metric.__name__ ?? ""
+      const seriesBefore = Number(row.value[1]) || 0
+      return { metric, seriesBefore, seriesAfter: Math.min(seriesBefore, remaining.get(metric) ?? seriesBefore) }
+    })
+    .filter((row) => row.metric)
+    .sort((a, b) => b.seriesBefore - a.seriesBefore || a.metric.localeCompare(b.metric))
+}
+
 /**
  * Per-label distinct value counts computed server-side, so high-cardinality
  * metrics never ship their raw series to the browser.
@@ -334,7 +366,7 @@ export async function fetchSeriesByJob(connection: Connection, metric: string, s
  */
 export async function measureImpact(
   connection: Connection,
-  rule: Pick<Rule, "kind" | "selector"> & Partial<Pick<DropLabelsRule, "labels" | "onMerge" | "keepValues">>,
+  rule: Pick<MetricRule, "kind" | "selector"> & Partial<Pick<DropLabelsRule, "labels" | "onMerge" | "keepValues">>,
   signal?: AbortSignal
 ): Promise<RuleImpact> {
   const sel: SeriesSelector = { metric: rule.selector.metric, matchers: jobMatchers(rule.selector.job) }

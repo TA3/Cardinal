@@ -46,7 +46,7 @@ function withParam(search: string, key: string, value: string) {
  */
 export function legacyRedirect(pathname: string, search: string): string | null {
   const path = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname
-  if (path === "/") return `/savings${search}`
+  if (path === "/" || path === "/savings") return `/plan${search}`
   if (/^\/(jobs|churn|histograms)(\/|$)/.test(path)) return `/metrics${path}${search}`
   if (path === "/adaptive") return `/rules${withParam(search, "view", "recommendations")}`
   if (path === "/teams") return `/attribution${search}`

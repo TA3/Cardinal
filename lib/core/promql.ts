@@ -137,4 +137,24 @@ export const queries = {
     `topk(${topLimit(limit)}, count without (${labelList(labels)}) (${selector(sel)}) > 1)`,
   topLabelValues: (sel: SeriesSelector, label: string, limit: number) =>
     `topk(${topLimit(limit)}, count by (${labelList([label])}) (${selector(sel)}))`,
+  /** Distinct values of `label` across every metric of a job. */
+  jobLabelCardinality: (job: string, label: string) => `count(count by (${labelList([label])}) (${jobSelector(job)}))`,
+  /** Series per metric of a job that carry `label`. */
+  jobSeriesWithLabel: (job: string, label: string) => `count by (__name__) (${jobSelector(job, label)})`,
+  /**
+   * Series per metric of a job left once `label` is gone. Aggregations drop
+   * the metric name, so it is copied to a label first to keep metrics apart.
+   */
+  jobSeriesWithoutLabel: (job: string, label: string) =>
+    `count by (${JOB_METRIC_LABEL}) (count without (${labelList([label])}) (label_replace(${jobSelector(job, label)}, "${JOB_METRIC_LABEL}", "$1", "__name__", "(.+)")))`,
+}
+
+/** Holds the metric name through an aggregation (see jobSeriesWithoutLabel). */
+export const JOB_METRIC_LABEL = "cardinal_metric"
+
+/** Every series of a job; with `label`, only those that carry it. */
+function jobSelector(job: string, label?: string) {
+  const parts = [`__name__=~".+"`, `job=${quoteLabelValue(job)}`]
+  if (label !== undefined) parts.push(`${assertLabelName(label)}!=""`)
+  return `{${parts.join(",")}}`
 }

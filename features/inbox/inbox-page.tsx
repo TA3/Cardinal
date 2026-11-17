@@ -4,28 +4,21 @@ import { Link, useNavigate } from "react-router"
 import { toast } from "sonner"
 
 import { paths, rulesPath } from "@/app/paths"
-import { useBytesCost, useCost } from "@/components/cost-text"
+import { useBytesCost } from "@/components/cost-text"
 import { Frame, FrameHeader, FrameWell } from "@/components/frame"
-import { Reveal, Stagger } from "@/components/motion"
-import { Page, PageHeader } from "@/components/page"
 import { SavingsList } from "@/components/savings-list"
 import { Button } from "@/components/ui/button"
 import { useAutopilot } from "@/features/inbox/autopilot"
-import { SetupChecklist } from "@/features/inbox/setup-checklist"
 import { logSavingsRows, useLogOpportunities } from "@/features/logs/top-savings"
 import { useProposeLogRule } from "@/features/logs/volume-propose"
-import { metricSavingsRows, useMetricOpportunities, useProposeOpportunity } from "@/features/overview/top-savings"
 import { ConnectChooser } from "@/features/settings/connect-chooser"
-import { formatDelta } from "@/lib/cardinality/dashboard-helpers"
 import { formatBytes } from "@/lib/core/bytes"
-import { orderForReview, RISK_LABEL, RISK_ORDER, type Assessment, type RiskLevel } from "@/lib/core/decide/risk"
+import { orderForReview, type Assessment, type RiskLevel } from "@/lib/core/decide/risk"
 import type { LogsSnapshot } from "@/lib/core/logs/types"
-import type { Snapshot } from "@/lib/core/snapshot"
-import { selectHasLogs, useAppStore } from "@/lib/store/app-store"
+import { useAppStore } from "@/lib/store/app-store"
 
-// Savings: every cut Cardinal found, metrics and logs on one page, safest
-// first. Each signal keeps its own unit (series, bytes/day); "Propose N safe"
-// queues every cut rated safe for review in Rules in one click.
+// Pieces of the Plan page: the logs cuts (bytes/day, proposed for review in
+// Rules), the connect card and the note on what the ratings learn from.
 
 function countByRisk(items: Array<{ risk: Assessment; state: string }>) {
   const counts: Record<RiskLevel, number> = { safe: 0, review: 0, risky: 0 }
@@ -59,67 +52,7 @@ function useBulkPropose() {
   }
 }
 
-function MetricsSavings({ snapshot, onCounts }: { snapshot: Snapshot; onCounts: (counts: Record<RiskLevel, number>) => void }) {
-  const { items, loading, impacts, usageUnchecked } = useMetricOpportunities(snapshot)
-  const propose = useProposeOpportunity(snapshot, impacts)
-  const bulk = useBulkPropose()
-  const { format } = useCost()
-  const sorted = React.useMemo(() => orderForReview(items), [items])
-  const safe = sorted.filter((item) => item.state === "open" && item.risk.level === "safe")
-  const total = items.filter((item) => item.state === "open").reduce((sum, item) => sum + item.savedSeries, 0)
-  useReportCounts(items, onCounts)
-  useAutopilot(items, loading, (item) => propose(item, { quiet: true }))
-
-  const needScan = items.filter((item) => item.state === "open" && item.risk.level !== "safe" && item.risk.missing === "dashboards").length
-
-  return (
-    <div className="flex flex-col gap-2">
-      {needScan ? (
-        <p className="px-1 text-xs text-muted-foreground">
-          {needScan} {needScan === 1 ? "cut is" : "cuts are"} waiting on dashboard usage.{" "}
-          <Link to={`${paths.settings}#grafana`} className="text-brand-ink hover:underline">
-            Scan your Grafana
-          </Link>{" "}
-          and unused ones turn safe.
-        </p>
-      ) : null}
-      <SavingsList
-        title="Metrics"
-        rows={metricSavingsRows(sorted, propose, format)}
-        loading={loading}
-        initial={8}
-        total={total > 0 ? `up to ${formatDelta(-total)} series` : undefined}
-        proposeSafe={{
-          count: safe.length,
-          run: () => bulk(safe, (item) => propose(item, { quiet: true })),
-        }}
-        empty={
-          usageUnchecked
-            ? {
-                title: "Check usage to find cuts",
-                description: "Cardinal only suggests dropping what nothing uses. Scan Grafana, or upload your dashboards and rule files.",
-                action: (
-                  <Button asChild size="sm">
-                    <Link to={`${paths.settings}#grafana`}>Add usage</Link>
-                  </Button>
-                ),
-              }
-            : {
-                title: "Nothing obvious to cut",
-                description: "No unused big metrics, ID-like labels or heavy histograms found.",
-                action: (
-                  <Button asChild variant="outline" size="sm">
-                    <Link to={paths.explore}>Explore metrics</Link>
-                  </Button>
-                ),
-              }
-        }
-      />
-    </div>
-  )
-}
-
-function LogsSavings({ snapshot, onCounts }: { snapshot: LogsSnapshot; onCounts: (counts: Record<RiskLevel, number>) => void }) {
+export function LogsSavings({ snapshot, onCounts }: { snapshot: LogsSnapshot; onCounts: (counts: Record<RiskLevel, number>) => void }) {
   const { items, loading } = useLogOpportunities(snapshot)
   const propose = useProposeLogRule()
   const bulk = useBulkPropose()
@@ -156,7 +89,7 @@ function LogsSavings({ snapshot, onCounts }: { snapshot: LogsSnapshot; onCounts:
   )
 }
 
-function Connect() {
+export function Connect() {
   const navigate = useNavigate()
   return (
     <Frame>
@@ -168,20 +101,14 @@ function Connect() {
   )
 }
 
-/** "3 safe · 5 review · 1 risky" across both signals. */
-function RiskSummary({ counts }: { counts: Record<RiskLevel, number> }) {
-  const parts = RISK_ORDER.filter((level) => counts[level] > 0).map((level) => `${counts[level]} ${RISK_LABEL[level].toLowerCase()}`)
-  return parts.length ? <span className="tabular-nums">{parts.join(" · ")}</span> : null
-}
-
 /** How many decisions the ratings learn from, and a way to forget them. */
-function Learning() {
+export function Learning() {
   const decisions = useAppStore((state) => state.decisions)
   const forget = useAppStore((state) => state.forgetDecisions)
   const count = decisions.filter((decision) => decision.reason !== "later").length
   if (!count) {
     return (
-      <p className="px-1 text-xs text-muted-foreground">Ratings adapt as you accept and reject proposals in Rules. Nothing leaves this browser.</p>
+      <p className="px-1 text-xs text-muted-foreground">Ratings adapt as you add cuts and reject proposals. Nothing leaves this browser.</p>
     )
   }
   return (
@@ -198,59 +125,5 @@ function Learning() {
         Forget them
       </button>
     </p>
-  )
-}
-
-const EMPTY_COUNTS: Record<RiskLevel, number> = { safe: 0, review: 0, risky: 0 }
-
-export function InboxPage() {
-  const snapshot = useAppStore((state) => state.snapshot)
-  const logsSnapshot = useAppStore((state) => state.logsSnapshot)
-  const hasLogs = useAppStore(selectHasLogs)
-  const logs = hasLogs ? logsSnapshot : null
-  const [metricCounts, setMetricCounts] = React.useState(EMPTY_COUNTS)
-  const [logCounts, setLogCounts] = React.useState(EMPTY_COUNTS)
-  const counts = {
-    safe: metricCounts.safe + logCounts.safe,
-    review: metricCounts.review + logCounts.review,
-    risky: metricCounts.risky + logCounts.risky,
-  }
-
-  return (
-    <Page>
-      <PageHeader
-        title="Savings"
-        status={<RiskSummary counts={counts} />}
-        description={
-          snapshot || logs
-            ? "Cuts ranked safest first. Hover a rating to see why."
-            : "Find the metrics, labels and log lines you pay for but don't use, and cut them safely."
-        }
-      />
-      <Stagger className="flex flex-col gap-4">
-        {!snapshot && !logs ? (
-          <Reveal>
-            <Connect />
-          </Reveal>
-        ) : null}
-        {/* Renders nothing (no gap) once setup is done or dismissed. */}
-        {snapshot || logs ? <SetupChecklist /> : null}
-        {snapshot ? (
-          <Reveal>
-            <MetricsSavings snapshot={snapshot} onCounts={setMetricCounts} />
-          </Reveal>
-        ) : null}
-        {logs ? (
-          <Reveal>
-            <LogsSavings snapshot={logs} onCounts={setLogCounts} />
-          </Reveal>
-        ) : null}
-        {snapshot || logs ? (
-          <Reveal>
-            <Learning />
-          </Reveal>
-        ) : null}
-      </Stagger>
-    </Page>
   )
 }

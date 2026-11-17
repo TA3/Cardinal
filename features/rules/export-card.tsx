@@ -678,7 +678,7 @@ export function useMetricsExport(stored: Rule[], override: ExportOutput | null):
   )
   const adaptive = React.useMemo(() => compileAdaptiveMetrics(rules), [rules])
   const emitted = React.useMemo(() => emittedRules(rules, format, plan.blocked, plan.held), [rules, format, plan.blocked, plan.held])
-  const metrics = React.useMemo(() => emitted.map((rule) => rule.selector.metric), [emitted])
+  const metrics = React.useMemo(() => emitted.flatMap((rule) => (rule.selector.metric === undefined ? [] : [rule.selector.metric])), [emitted])
   const { summaries } = useUsageSummaries(metrics, emitted.length > 0)
 
   const context = React.useMemo((): ReportContext => {

@@ -106,7 +106,32 @@ export function groupsByRelabel(rule: GroupValuesRule) {
   return rule.impact ? !rule.impact.mergesSeries : Boolean(rule.relabel)
 }
 
-export type Rule = DropMetricRule | DropLabelsRule | DropSeriesRule | KeepBucketsRule | GroupValuesRule
+/**
+ * A keep-list for one scrape job: only `metrics` stay, every other metric of
+ * the job is dropped, including ones a new exporter version adds later. The
+ * way to tame big collectors (node, windows, SNMP): keep what is used.
+ */
+export interface KeepMetricsRule extends Omit<RuleBase, "selector"> {
+  kind: "keep_metrics"
+  selector: { job: string; metric?: undefined }
+  metrics: string[]
+}
+
+/**
+ * Series Prometheus writes for every target (`up`, `scrape_*`): a keep-list
+ * always keeps them. RE2 syntax, fully anchored where it is used.
+ */
+export const ALWAYS_KEPT = "up|scrape_[a-z_]+"
+const ALWAYS_KEPT_RE = new RegExp(`^(?:${ALWAYS_KEPT})$`)
+
+/** True when a keep-list keeping `metrics` keeps `metric`. */
+export function isKept(metric: string, metrics: readonly string[]) {
+  return metrics.includes(metric) || ALWAYS_KEPT_RE.test(metric)
+}
+
+export type Rule = DropMetricRule |DropLabelsRule | DropSeriesRule | KeepBucketsRule | GroupValuesRule | KeepMetricsRule
+/** Rules that target one metric (everything but job-wide keep-lists). */
+export type MetricRule = Exclude<Rule, KeepMetricsRule>
 export type RuleKind = Rule["kind"]
 type Input<T extends Rule> = Omit<T, "id" | "createdAt" | "status"> & { status?: RuleStatus }
 export type RuleInput =
@@ -115,9 +140,10 @@ export type RuleInput =
   | Input<DropSeriesRule>
   | Input<KeepBucketsRule>
   | Input<GroupValuesRule>
+  | Input<KeepMetricsRule>
 
 type KeyedRule =
-  | Pick<DropMetricRule | DropLabelsRule | KeepBucketsRule, "kind" | "selector">
+  | Pick<DropMetricRule | DropLabelsRule | KeepBucketsRule | KeepMetricsRule, "kind" | "selector">
   | Pick<DropSeriesRule, "kind" | "selector" | "match">
   | Pick<GroupValuesRule, "kind" | "selector" | "label">
 
@@ -126,7 +152,7 @@ type KeyedRule =
  * differ. Series drops are also told apart by their value condition.
  */
 export function ruleKey(rule: KeyedRule) {
-  const base = [rule.kind, rule.selector.job ?? null, rule.selector.metric]
+  const base = [rule.kind, rule.selector.job ?? null, rule.selector.metric ?? null]
   if (rule.kind === "drop_series") base.push(rule.match.label, rule.match.regex)
   if (rule.kind === "group_values") base.push(rule.label)
   return JSON.stringify(base)
@@ -171,6 +197,9 @@ export function createRule(input: RuleInput): Rule {
   if (base.kind === "drop_series") {
     return { ...base, match: { label: base.match.label, regex: base.match.regex } }
   }
+  if (base.kind === "keep_metrics") {
+    return { ...base, metrics: sortUnique(base.metrics) }
+  }
   if (base.kind === "group_values") {
     const groups = base.groups.map((group) => ({ name: group.name, regex: group.regex }))
     return { ...base, groups, ...(base.rest ? { rest: base.rest } : { rest: undefined }) }
@@ -200,6 +229,10 @@ function covers(rule: Rule, other: Rule) {
     // Keeping fewer buckets drops more: a rule keeping a subset covers the other.
     return other.kind === "keep_buckets" && rule.buckets.every((bucket) => other.buckets.includes(bucket))
   }
+  if (rule.kind === "keep_metrics") {
+    // The same for keep-lists: keeping fewer metrics drops more.
+    return other.kind === "keep_metrics" && rule.metrics.every((metric) => other.metrics.includes(metric))
+  }
   if (other.kind !== "drop_labels") return false
   return other.labels.every((label) => rule.labels.includes(label))
 }
@@ -220,6 +253,9 @@ function fold(current: Rule, rule: Rule): Rule | null {
   }
   if (current.kind === "keep_buckets" && rule.kind === "keep_buckets") {
     return { ...current, buckets: normalizeBuckets(current.buckets.filter((bucket) => rule.buckets.includes(bucket))), impact: undefined }
+  }
+  if (current.kind === "keep_metrics" && rule.kind === "keep_metrics") {
+    return { ...current, metrics: current.metrics.filter((metric) => rule.metrics.includes(metric)), impact: undefined }
   }
   return null
 }
@@ -306,6 +342,11 @@ export function activateOrCreate(rules: Rule[], candidate: RuleInput): Rule[] {
     const buckets = normalizeBuckets(candidate.buckets)
     if (buckets.join() !== next.buckets.join()) next = { ...next, buckets, impact: undefined }
   }
+  if (next.kind === "keep_metrics" && candidate.kind === "keep_metrics") {
+    // A keep-list is replaced, never merged: it is the whole list.
+    const metrics = sortUnique(candidate.metrics)
+    if (metrics.join() !== next.metrics.join()) next = { ...next, metrics, impact: candidate.impact }
+  }
   return next === current ? rules : rules.map((rule, i) => (i === index ? next : rule))
 }
 
@@ -320,9 +361,13 @@ export function activeRules(rules: Rule[]) {
  * its labels.
  */
 export function shadowedBy(rule: Rule, rules: Rule[]): Rule | undefined {
+  if (rule.kind === "keep_metrics") return undefined
   const { metric, job } = rule.selector
   return rules.find((other) => {
-    if (other === rule || other.id === rule.id || other.status !== "active" || other.selector.metric !== metric) return false
+    if (other === rule || other.id === rule.id || other.status !== "active") return false
+    // A keep-list of the rule's job that doesn't keep the metric drops it anyway.
+    if (other.kind === "keep_metrics") return job !== undefined && other.selector.job === job && !isKept(metric, other.metrics)
+    if (other.selector.metric !== metric) return false
     const broader = other.selector.job === undefined && job !== undefined
     if (other.kind === "drop_metric") {
       return rule.kind === "drop_metric" ? broader : broader || other.selector.job === job

@@ -5,7 +5,7 @@ import { paths, rulesPath } from "@/app/paths"
 import { Frame } from "@/components/frame"
 import { Spinner } from "@/components/ui/spinner"
 
-// One line on a signal's overview pointing at Savings and Rules, instead of
+// One line on a signal's overview pointing at the Plan and Rules, instead of
 // repeating their lists here: Overview stays about the data.
 
 export function SavingsLine({
@@ -46,10 +46,10 @@ export function SavingsLine({
           </Link>
         ) : null}
         <Link
-          to={unchecked && !open ? `${paths.settings}#grafana` : paths.savings}
+          to={unchecked && !open ? `${paths.settings}#grafana` : paths.plan}
           className="ml-auto inline-flex items-center gap-1 rounded-sm font-medium text-brand-ink outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring/50"
         >
-          {unchecked && !open ? "Add usage" : "Open Savings"}
+          {unchecked && !open ? "Add usage" : "Open Plan"}
           <ArrowRightIcon className="size-3.5" />
         </Link>
       </div>

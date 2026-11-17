@@ -48,13 +48,13 @@ export function AcceptAllButton({
   trigger?: React.ReactNode
 }) {
   const [open, setOpen] = React.useState(false)
-  const metrics = React.useMemo(() => rules.map((rule) => rule.selector.metric), [rules])
+  const metrics = React.useMemo(() => rules.flatMap((rule) => (rule.selector.metric === undefined ? [] : [rule.selector.metric])), [rules])
   const { byMetric, isPending } = useUsageEvidence(metrics, open)
   // Label drops are judged per label: a dashboard reading the metric doesn't make every label of it used.
   const summaries = React.useMemo(() => {
     const result = new Map<string, EvidenceSummary>()
     for (const rule of rules) {
-      const summary = summarizeRule(rule, byMetric[rule.selector.metric])
+      const summary = summarizeRule(rule, rule.selector.metric === undefined ? undefined : byMetric[rule.selector.metric])
       if (summary) result.set(rule.id, summary)
     }
     return result
@@ -125,7 +125,7 @@ export function AcceptAllButton({
                           </ul>
                         ) : null}
                         {labels.map((label) => (
-                          <DashboardEvidenceLinks key={label ?? "metric"} evidence={byMetric[rule.selector.metric]} label={label} />
+                          <DashboardEvidenceLinks key={label ?? "metric"} evidence={rule.selector.metric === undefined ? undefined : byMetric[rule.selector.metric]} label={label} />
                         ))}
                       </li>
                     )

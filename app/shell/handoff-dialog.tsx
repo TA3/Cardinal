@@ -123,7 +123,7 @@ export function HandoffDialog() {
               apply(handoff)
               close()
               toast.success("Brought over", { description: connections.length ? "Enter your token to connect." : undefined })
-              navigate(handoff.open === "logs" ? `${paths.settings}#logs-connection` : handoff.open === "metrics" ? `${paths.settings}#connection` : paths.savings)
+              navigate(handoff.open === "logs" ? `${paths.settings}#logs-connection` : handoff.open === "metrics" ? `${paths.settings}#connection` : paths.plan)
             }}
           >
             Bring it over

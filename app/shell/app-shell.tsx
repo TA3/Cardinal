@@ -34,7 +34,14 @@ function FrozenOutlet() {
 function AnimatedOutlet() {
   const { pathname } = useLocation()
   return (
-    <AnimatePresence mode="wait" initial={false}>
+    <AnimatePresence
+      mode="wait"
+      initial={false}
+      // A new page starts at its top once the old one has faded out; links to a #section scroll there themselves.
+      onExitComplete={() => {
+        if (!window.location.hash) window.scrollTo({ top: 0 })
+      }}
+    >
       <motion.div
         key={pathname}
         initial={{ opacity: 0, filter: "blur(4px)", y: 6 }}

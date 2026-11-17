@@ -76,7 +76,21 @@ export interface RelabelGroupValues {
   rest?: string
 }
 
-export type RelabelStep = RelabelDrop | RelabelLabelClear | RelabelSeriesDrop | RelabelKeepBuckets | RelabelKeepValue | RelabelGroupValues
+/** A job's keep-list: every metric of `job` not in `metrics` (or always kept) is dropped. */
+export interface RelabelKeepMetrics {
+  kind: "keep_metrics"
+  job: string
+  metrics: string[]
+}
+
+export type RelabelStep =
+  | RelabelKeepMetrics
+  | RelabelDrop
+  | RelabelLabelClear
+  | RelabelSeriesDrop
+  | RelabelKeepBuckets
+  | RelabelKeepValue
+  | RelabelGroupValues
 type RelabelExtra = RelabelSeriesDrop | RelabelKeepBuckets | RelabelKeepValue | RelabelGroupValues
 
 /** A recording rule summing a metric without some labels; the raw metric is dropped from what's shipped. */
@@ -108,6 +122,8 @@ export interface BlockedRule {
 export const KEEP_BUCKET_MARK = "__tmp_cardinal_keep_le"
 /** The same trick for keeping one value of a label. */
 export const KEEP_VALUE_MARK = "__tmp_cardinal_keep_value"
+/** And for a job's keep-list of metrics. */
+export const KEEP_METRIC_MARK = "__tmp_cardinal_keep_metric"
 
 export interface RelabelSection {
   /** Scrape job this section belongs in; undefined = applies globally, "" = series without a job. */
@@ -134,11 +150,16 @@ export function planRelabel(rules: Rule[], options: RelabelOptions): RelabelPlan
   const groupings: CollectorGrouping[] = []
   const active = activeRules(rules)
 
+  const keeps: RelabelKeepMetrics[] = []
   const drops: Array<{ job?: string; metric: string }> = []
   const clears: Array<{ job?: string; metric: string; label: string }> = []
   const extras: RelabelExtra[] = []
 
   for (const rule of active) {
+    if (rule.kind === "keep_metrics") {
+      keeps.push({ kind: "keep_metrics", job: rule.selector.job, metrics: rule.metrics })
+      continue
+    }
     if (rule.kind === "drop_metric") {
       drops.push({ job: rule.selector.job, metric: rule.selector.metric })
       continue
@@ -203,18 +224,18 @@ export function planRelabel(rules: Rule[], options: RelabelOptions): RelabelPlan
   aggregations.sort((a, b) => a.metric.localeCompare(b.metric) || compareJobs(a.job, b.job))
 
   if (options.mode === "combined") {
-    return { sections: [{ steps: buildSteps(drops, clears, extras) }], warnings, blocked, held, aggregations, groupings }
+    return { sections: [{ steps: buildSteps(keeps, drops, clears, extras) }], warnings, blocked, held, aggregations, groupings }
   }
 
   // split-by-job: one section per scrape job. Rules without a job are placed
   // in every job known to emit the metric (or a global section when unknown).
   // Steps stay scoped to their job: every Alloy component forwards to the same
   // receiver, and a scoped Prometheus rule still round-trips losslessly.
-  const perJob = new Map<string | undefined, { drops: typeof drops; clears: typeof clears; extras: typeof extras }>()
+  const perJob = new Map<string | undefined, { keeps: typeof keeps; drops: typeof drops; clears: typeof clears; extras: typeof extras }>()
   const bucket = (job: string | undefined) => {
     let entry = perJob.get(job)
     if (!entry) {
-      entry = { drops: [], clears: [], extras: [] }
+      entry = { keeps: [], drops: [], clears: [], extras: [] }
       perJob.set(job, entry)
     }
     return entry
@@ -225,6 +246,7 @@ export function planRelabel(rules: Rule[], options: RelabelOptions): RelabelPlan
     return known?.length ? known : [undefined]
   }
 
+  for (const keep of keeps) bucket(keep.job).keeps.push(keep)
   for (const drop of drops) {
     for (const job of jobsFor(drop.job, drop.metric)) bucket(job).drops.push({ job, metric: drop.metric })
   }
@@ -237,7 +259,7 @@ export function planRelabel(rules: Rule[], options: RelabelOptions): RelabelPlan
 
   const sections = Array.from(perJob.entries())
     .sort(([a], [b]) => compareJobs(a, b))
-    .map(([job, entry]) => ({ job, steps: buildSteps(entry.drops, entry.clears, entry.extras) }))
+    .map(([job, entry]) => ({ job, steps: buildSteps(entry.keeps, entry.drops, entry.clears, entry.extras) }))
 
   return { sections, warnings, blocked, held, aggregations, groupings }
 }
@@ -251,16 +273,27 @@ function compareJobs(a: string | undefined, b: string | undefined) {
 }
 
 /**
- * Order matters: metric drops, then series drops and bucket keeps (which read
- * label values), then label clears last so they never hide a value an earlier
- * step matches on.
+ * Order matters: keep-lists and metric drops first (whatever they drop needs
+ * no other step), then series drops and bucket keeps (which read label
+ * values), then label clears last so they never hide a value an earlier step
+ * matches on.
  */
 function buildSteps(
+  keeps: RelabelKeepMetrics[],
   drops: Array<{ job?: string; metric: string }>,
   clears: Array<{ job?: string; metric: string; label: string }>,
   extras: RelabelExtra[] = []
 ): RelabelStep[] {
   const steps: RelabelStep[] = []
+  // One keep-list per job: two would keep only what both keep.
+  const keptByJob = new Map<string, string[]>()
+  for (const keep of keeps) {
+    const current = keptByJob.get(keep.job)
+    keptByJob.set(keep.job, current ? current.filter((metric) => keep.metrics.includes(metric)) : keep.metrics)
+  }
+  for (const job of Array.from(keptByJob.keys()).sort(compareJobs)) {
+    steps.push({ kind: "keep_metrics", job, metrics: sortUnique(keptByJob.get(job) ?? []) })
+  }
 
   const dropsByJob = new Map<string | undefined, string[]>()
   for (const { job, metric } of drops) {

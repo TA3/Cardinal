@@ -146,6 +146,12 @@ function RuleKindBadges({ rule }: { rule: Rule }) {
         </Badge>
       )
     }
+    case "keep_metrics":
+      return (
+        <Badge variant="outline" title={`Keeps ${rule.metrics.join(", ")}; every other metric of the job is dropped`}>
+          Keep {rule.metrics.length} metric{rule.metrics.length === 1 ? "" : "s"}, drop the rest
+        </Badge>
+      )
   }
 }
 
@@ -161,10 +167,12 @@ export function RuleDescription({
 }) {
   return (
     <div className="flex min-w-0 flex-col gap-1">
-      {hideMetric ? null : <span className="truncate font-mono text-sm">{rule.selector.metric}</span>}
+      {hideMetric ? null : (
+        <span className="truncate font-mono text-sm">{rule.kind === "keep_metrics" ? `job ${jobLabel(rule.selector.job)}` : rule.selector.metric}</span>
+      )}
       <div className="flex flex-wrap items-center gap-1">
         <RuleKindBadges rule={rule} />
-        <RuleScopeBadge rule={rule} />
+        {rule.kind === "keep_metrics" ? null : <RuleScopeBadge rule={rule} />}
         {supersededBy ? (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -197,7 +205,7 @@ export function RuleImpact({ rule, totalSeries, showCost = true }: { rule: Rule;
       {showCost ? <CostText series={saved} /> : null}
       {ago ? (
         <span className="text-[11px] text-muted-foreground/80" title={new Date(rule.impact.measuredAt).toLocaleString()}>
-          {rule.kind === "drop_metric" ? "snapshot" : "measured"} {ago}
+          {rule.kind === "drop_metric" || rule.kind === "keep_metrics" ? "snapshot" : "measured"} {ago}
           {rule.impact.window ? `, seen in ${rule.impact.window}` : ""}
         </span>
       ) : null}

@@ -7,6 +7,9 @@ import type { Rule } from "@/lib/core/rules"
 
 /** One line saying what a rule does, e.g. `Drop labels pod, uid from http_requests_total`. */
 export function describeRule(rule: Rule, code: (text: string) => string = (text) => text) {
+  if (rule.kind === "keep_metrics") {
+    return `Keep only ${rule.metrics.length} metric${rule.metrics.length === 1 ? "" : "s"} of job ${code(jobLabel(rule.selector.job))}, drop the rest`
+  }
   const metric = code(rule.selector.metric)
   switch (rule.kind) {
     case "drop_metric":
@@ -104,7 +107,7 @@ export function prDescription(rules: Rule[], context: ReportContext & { target: 
   const rows = rules.map((rule) => {
     const saved = ruleSavedSeries(rule)
     const cost = saved === null ? null : context.cost?.(saved)
-    const usage = context.usage?.[rule.selector.metric]
+    const usage = rule.selector.metric === undefined ? undefined : context.usage?.[rule.selector.metric]
     return [
       cell(describeRule(rule, md)),
       cell(scopeLabel(rule)),

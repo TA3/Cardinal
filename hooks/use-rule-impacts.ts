@@ -51,6 +51,8 @@ async function countSeries(connection: Connection, query: string, signal?: Abort
  * Both remove whole series, so they never merge any.
  */
 export async function measureRuleImpact(connection: Connection, rule: Rule, signal?: AbortSignal): Promise<RuleImpact> {
+  // Keep-lists drop whole metrics: counted from the snapshot, never queried.
+  if (rule.kind === "keep_metrics") throw new Error("A keep-list's impact comes from the snapshot")
   if (rule.kind === "group_values") return measureGroupingImpact(connection, rule, signal)
   if (rule.kind !== "drop_series" && rule.kind !== "keep_buckets") return measureImpact(connection, rule, signal)
   const sel: SeriesSelector = {
@@ -127,11 +129,11 @@ export function useRuleImpacts() {
     useAppStore.getState().invalidateImpacts()
   }, [snapshot?.capturedAt])
 
-  // Metric drops: read from the snapshot, never queried.
+  // Metric drops and keep-lists: read from the snapshot, never queried.
   React.useEffect(() => {
     const { setRuleImpact } = useAppStore.getState()
     for (const rule of rules) {
-      if (rule.kind !== "drop_metric" || rule.status === "rejected") continue
+      if ((rule.kind !== "drop_metric" && rule.kind !== "keep_metrics") || rule.status === "rejected") continue
       const impact = snapshotImpact(rule, snapshot)
       if (impact && !sameImpact(impact, rule.impact)) setRuleImpact(rule.id, impact)
     }
@@ -144,6 +146,7 @@ export function useRuleImpacts() {
     const pending = rules.filter(
       (rule) =>
         rule.kind !== "drop_metric" &&
+        rule.kind !== "keep_metrics" &&
         rule.status !== "rejected" &&
         !rule.impact &&
         !inFlight.current.has(workKey(rule, connKey)) &&

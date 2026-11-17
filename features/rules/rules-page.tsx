@@ -2,7 +2,7 @@ import * as React from "react"
 import { ArrowClockwiseIcon, ShieldCheckIcon, TrashIcon, XIcon } from "@phosphor-icons/react"
 import { Link, useLocation, useSearchParams } from "react-router"
 
-import { metricPath, paths } from "@/app/paths"
+import { jobPath, metricPath, paths } from "@/app/paths"
 import { useCost } from "@/components/cost-text"
 import { EmptyState } from "@/components/empty-state"
 import { AnimatedNumber } from "@/components/motion"
@@ -59,7 +59,7 @@ const EMPTY_COPY: Record<RuleStatus, { title: string; text: string }> = {
   rejected: { title: "Nothing rejected", text: "Rejected proposals stay here." } }
 
 function RulesTable({ rules, allRules, status, totalSeries }: { rules: Rule[]; allRules: Rule[]; status: RuleStatus; totalSeries: number }) {
-  const metrics = React.useMemo(() => rules.map((rule) => rule.selector.metric), [rules])
+  const metrics = React.useMemo(() => rules.flatMap((rule) => (rule.selector.metric === undefined ? [] : [rule.selector.metric])), [rules])
   const { summaries, isPending } = useUsageSummaries(metrics, status !== "rejected" && rules.length > 0)
   const { defaults } = useMergeDefaults(rules)
   const { adaptive } = useMetricsTarget()
@@ -96,8 +96,8 @@ function RulesTable({ rules, allRules, status, totalSeries }: { rules: Rule[]; a
           <TableRow key={rule.id}>
             <TableCell className="max-w-0 whitespace-normal sm:min-w-56">
               <Link
-                to={metricPath(rule.selector.metric)}
-                title={rule.selector.metric}
+                to={rule.kind === "keep_metrics" ? jobPath(rule.selector.job) : metricPath(rule.selector.metric)}
+                title={rule.selector.metric ?? rule.selector.job}
                 className="block rounded-lg hover:underline focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
               >
                 <RuleDescription rule={rule} supersededBy={rule.status === "active" ? shadowedBy(rule, allRules) : undefined} />
@@ -115,7 +115,7 @@ function RulesTable({ rules, allRules, status, totalSeries }: { rules: Rule[]; a
             </TableCell>
             {status !== "rejected" ? (
               <TableCell className="hidden sm:table-cell">
-                <UsedBadge subject="this metric" summary={summaries[rule.selector.metric]} pending={isPending} />
+                <UsedBadge subject="this metric" summary={rule.selector.metric === undefined ? undefined : summaries[rule.selector.metric]} pending={isPending} />
               </TableCell>
             ) : null}
             <TableCell className="hidden text-right sm:table-cell">

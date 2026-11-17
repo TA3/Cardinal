@@ -301,8 +301,8 @@ export function RuleMergeControl({ rule, suggested, className }: { rule: Rule; s
   const choice = labelRule.onMerge ?? suggested ?? null
   return (
     <MergeChoiceControl
-      metric={rule.selector.metric}
-      job={rule.selector.job}
+      metric={labelRule.selector.metric}
+      job={labelRule.selector.job}
       labels={labelRule.labels}
       decision={{ choice, keepValues: labelRule.keepValues }}
       onChange={onChange}

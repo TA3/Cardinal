@@ -365,6 +365,8 @@ export function ownerSnapshot(snapshot: Snapshot, owned: RuleOwnership): Snapsho
 
 /** Series of a rule's scope (its metric, in its job or all jobs) that the owner owns. */
 function ownedInScope(owned: RuleOwnership, rule: Rule) {
+  // Keep-lists are job-wide: not split by owner.
+  if (rule.kind === "keep_metrics") return 0
   const byJob = owned.cells.get(rule.selector.metric)
   if (!byJob) return 0
   if (rule.selector.job !== undefined) return byJob.get(rule.selector.job) ?? 0
@@ -382,7 +384,7 @@ export function ownerRules(rules: Rule[], snapshot: Snapshot, owned: RuleOwnersh
   return rules.flatMap((rule) => {
     const mine = ownedInScope(owned, rule)
     if (mine <= 0) return []
-    if (!rule.impact) return [rule]
+    if (!rule.impact || rule.kind === "keep_metrics") return [rule]
     const scope = snapshotSeries(snapshot, rule.selector.metric, rule.selector.job) ?? 0
     const fraction = scope > 0 ? Math.min(1, mine / scope) : 0
     return [
