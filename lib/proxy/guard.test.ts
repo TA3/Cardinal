@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
-import { isSameOrigin, issueProxyToken, verifyProxyToken } from "./guard"
-import { isPrivateHost } from "./proxy"
+import { isSameOrigin, issueProxyToken, verifyProxyToken } from "@/lib/proxy/guard"
+import { isPrivateHost } from "@/lib/sources/proxy-constants"
 
 describe("proxy guard", () => {
   it("requires same-origin fetch metadata or a matching Origin", () => {

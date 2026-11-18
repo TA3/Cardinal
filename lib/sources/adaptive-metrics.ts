@@ -4,7 +4,7 @@ import { send, sendJson, type Connection } from "@/lib/sources/transport"
 
 // Grafana Cloud Adaptive Metrics API. Lives on the hosted Prometheus host
 // without the /api/prom prefix and does not send CORS headers, so the UI always
-// reaches it through the Cardinal proxy.
+// reaches it in proxy mode, through the user's own Cardinal server.
 
 export { adaptiveMetricsBaseUrl }
 

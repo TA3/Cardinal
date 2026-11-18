@@ -7,7 +7,8 @@ import { send, sendJson, type Connection } from "@/lib/sources/transport"
 // https://grafana.com/docs/grafana-cloud/observe-and-act/adaptive-telemetry/adaptive-logs/manage-as-code/adaptive-logs-api/
 // It lives on the hosted Loki host (https://logs-prod-….grafana.net), takes
 // basic auth <instance id>:<token> with the adaptive-logs:admin scope, and
-// sends no CORS headers, so it always goes through the Cardinal proxy.
+// sends no CORS headers, so it always goes through the user's own Cardinal
+// server (proxy mode).
 // Only the endpoints on that page are used.
 
 export type { AdaptiveLogsExemption, AdaptiveLogsRecommendation }

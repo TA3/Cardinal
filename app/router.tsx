@@ -56,6 +56,7 @@ export const router = createBrowserRouter([
           { path: "attribution", lazy: () => import("@/features/attribution/attribution-page").then((m) => ({ Component: m.AttributionPage })) },
           { path: "agent", lazy: () => import("@/features/agent/agent-page").then((m) => ({ Component: m.AgentPage })) },
           { path: "settings", lazy: () => import("@/features/settings/settings-page").then((m) => ({ Component: m.SettingsPage })) },
+          { path: "self-host", lazy: () => import("@/features/self-host/own-server-page").then((m) => ({ Component: m.OwnServerPage })) },
 
           // Old URLs
           { path: "jobs", loader: legacyLoader, element: <LegacyRedirect /> },

@@ -2,17 +2,16 @@ import { createMcpHandler } from "agents/mcp/server"
 import { Hono, type Context } from "hono"
 
 import type { CreatedSession } from "@/lib/agent/protocol"
-import { PROXY_PREFIX, PROXY_TOKEN_PATH } from "@/lib/sources/proxy-constants"
-import { clientIp, isSameOrigin, issueProxyToken } from "./guard"
+import { clientIp, isSameOrigin } from "./guard"
 import { buildMcpServer } from "./mcp"
-import { handleProxy } from "./proxy"
 import { formatAgentToken, isSessionId, newSecret, newSessionId, parseAgentToken, sha256Hex } from "./tokens"
 
 export { CardinalSession } from "./session"
 
-// PROXY_SECRET is an optional secret (wrangler secret put / .dev.vars), so it
-// is not part of the generated Env.
-type Bindings = Env & { PROXY_SECRET?: string }
+// The hosted app has no proxy: backends are reached from the browser, or
+// through the user's own Cardinal server (see server/). This Worker only
+// serves the app and runs agent sessions.
+type Bindings = Env
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -29,18 +28,6 @@ async function guardPage(c: Context<{ Bindings: Bindings }>, limiter: RateLimit,
   if (!success) return c.json({ error: "Too many requests, slow down" }, 429)
   return null
 }
-
-app.all(`${PROXY_PREFIX}/*`, async (c) => {
-  const { success } = await c.env.PROXY_LIMITER.limit({ key: clientIp(c.req.raw) })
-  if (!success) return c.json({ error: "Too many proxy requests, slow down" }, 429)
-  return handleProxy(c.req.raw, c.env.PROXY_SECRET)
-})
-
-app.get(PROXY_TOKEN_PATH, async (c) => {
-  const denied = await guardPage(c, c.env.PROXY_LIMITER, "token")
-  if (denied) return denied
-  return c.json(await issueProxyToken(c.env.PROXY_SECRET, clientIp(c.req.raw)), 200, NO_STORE)
-})
 
 // A tab starts an agent session. The response carries both secrets exactly once.
 app.post("/api/sessions", async (c) => {

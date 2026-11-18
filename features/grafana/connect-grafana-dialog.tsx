@@ -28,7 +28,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 import { hostOf } from "@/features/grafana/via-grafana"
-import { privateHostHint, RouteField } from "@/features/settings/route-field"
+import { proxyModeHint, RouteField } from "@/features/settings/route-field"
 import { routeLabel, withAutoMode } from "@/features/settings/auto-mode"
 import { ProblemLine } from "@/features/settings/problem-line"
 import { diagnose, TEST_TIMEOUT_MS, type ConnectionProblem } from "@/features/settings/connection-check"
@@ -260,13 +260,12 @@ function SignalPicker({
   )
 }
 
-function ApplyLine({ signal, status, onRetry }: { signal: Signal; status: ApplyStatus; onRetry?: () => void }) {
+function ApplyLine({ signal, status }: { signal: Signal; status: ApplyStatus }) {
   const title = COPY[signal].title
   if (status.state === "error") {
     return (
       <ProblemLine
         problem={{ kind: "other", title: `${title} (${status.name}): ${status.title}`, detail: status.detail, help: status.help }}
-        onRetry={onRetry}
       />
     )
   }
@@ -465,17 +464,7 @@ function ConnectFlow({ onDone }: { onDone: () => void }) {
   }
 
   const detected = detection && drafts
-  const privateHint = privateHostHint(
-    (() => {
-      try {
-        return new URL(url.trim()).hostname
-      } catch {
-        return null
-      }
-    })(),
-    mode,
-    selfHosted
-  )
+  const privateHint = proxyModeHint(mode, selfHosted)
   const shownHint = manual ? privateHint : null
 
   return (
@@ -569,7 +558,7 @@ function ConnectFlow({ onDone }: { onDone: () => void }) {
                 </span>
               ) : null}
             </div>
-            {listing.error ? <ProblemLine problem={listing.error} onRetry={() => void list()} /> : null}
+            {listing.error ? <ProblemLine problem={listing.error} /> : null}
           </FieldGroup>
         </form>
 
@@ -618,7 +607,7 @@ function ConnectFlow({ onDone }: { onDone: () => void }) {
         ) : null}
         {(["metrics", "logs"] as const).map((signal) => {
           const status = statuses[signal]
-          return status ? <ApplyLine key={signal} signal={signal} status={status} onRetry={() => void apply()} /> : null
+          return status ? <ApplyLine key={signal} signal={signal} status={status} /> : null
         })}
       </div>
       <DialogFooter className="m-0 rounded-b-xl">

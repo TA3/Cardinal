@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { forwardProxyRequest, isHostAllowed } from "../lib/proxy/core"
+import { isHostAllowed } from "../lib/proxy/core"
 import { ConfigError, parseConfig, type ServerConfig } from "./config"
 import { AGENT_UNAVAILABLE, createServerHandler, isTrustedHost } from "./server"
 import { serveStatic } from "./static"
@@ -9,7 +9,7 @@ const APP = "http://localhost:9181"
 const SAME = { "Sec-Fetch-Site": "same-origin" }
 
 function config(patch: Partial<ServerConfig> = {}): ServerConfig {
-  return { port: 9181, host: "127.0.0.1", allowHosts: [], publicHosts: [], ...patch }
+  return { port: 9181, host: "127.0.0.1", allowHosts: [], publicHosts: [], allowOrigins: [], ...patch }
 }
 
 const assets = new Map<string, Blob>([
@@ -38,17 +38,6 @@ async function proxyToken(handle: ReturnType<typeof setup>["handle"], ip = "10.0
 }
 
 describe("shared proxy core", () => {
-  const request = (target: string) => new Request(`https://x${PROXY_PATH}`, { headers: { "X-Cardinal-Target": target } })
-  const ok = vi.fn(async () => new Response("{}", { headers: { "Content-Type": "application/json" } })) as unknown as typeof fetch
-
-  it("refuses private targets only when asked to (the Worker)", async () => {
-    const blocked = await forwardProxyRequest(request(PRIVATE_TARGET), { blockPrivate: true, fetch: ok })
-    expect(blocked.status).toBe(400)
-    expect(blocked.headers.get("X-Cardinal-Proxy-Error")).toBe("private")
-    const allowed = await forwardProxyRequest(request(PRIVATE_TARGET), { blockPrivate: false, fetch: ok })
-    expect(allowed.status).toBe(200)
-  })
-
   it("matches host allowlists by host, port and wildcard", () => {
     const url = (value: string) => new URL(value)
     expect(isHostAllowed(url("http://prom:9090"), [])).toBe(true)
@@ -64,7 +53,18 @@ describe("shared proxy core", () => {
 
 describe("server config", () => {
   it("defaults to loopback and port 9181", () => {
-    expect(parseConfig([], {})).toEqual({ port: 9181, host: "127.0.0.1", allowHosts: [], publicHosts: [], staticDir: undefined })
+    expect(parseConfig([], {})).toEqual({ port: 9181, host: "127.0.0.1", allowHosts: [], publicHosts: [], allowOrigins: [], staticDir: undefined })
+  })
+
+  it("reads the sites allowed to use the proxy, repeated or comma-separated, as origins", () => {
+    expect(parseConfig(["--allow-origin", "https://cardinal.ta3.dev/", "--allow-origin=http://localhost:5173,https://cardinal.ta3.dev"], {}).allowOrigins).toEqual([
+      "https://cardinal.ta3.dev",
+      "http://localhost:5173",
+    ])
+    expect(parseConfig([], { CARDINAL_ALLOW_ORIGINS: "https://Cardinal.TA3.dev" }).allowOrigins).toEqual(["https://cardinal.ta3.dev"])
+    for (const bad of ["cardinal.ta3.dev", "https://cardinal.ta3.dev/app", "ftp://x", "*"]) {
+      expect(() => parseConfig(["--allow-origin", bad], {})).toThrow(ConfigError)
+    }
   })
 
   it("reads flags over environment variables", () => {
@@ -108,6 +108,52 @@ describe("server access", () => {
       }
     }
     expect(upstream).not.toHaveBeenCalled()
+  })
+
+  it("lets sites named with --allow-origin use the proxy, with CORS, and nothing else", async () => {
+    const SITE = "https://cardinal.ta3.dev"
+    const { handle, upstream } = setup({ allowOrigins: [SITE] })
+    const cross = { Origin: SITE, "Sec-Fetch-Site": "cross-site" }
+
+    const preflight = await handle(
+      new Request(`${APP}${PROXY_PATH}`, {
+        method: "OPTIONS",
+        headers: { ...cross, "Access-Control-Request-Method": "GET", "Access-Control-Request-Private-Network": "true" },
+      })
+    )
+    expect(preflight.status).toBe(204)
+    expect(preflight.headers.get("Access-Control-Allow-Origin")).toBe(SITE)
+    expect(preflight.headers.get("Access-Control-Allow-Headers")).toContain("x-cardinal-proxy-token")
+    expect(preflight.headers.get("Access-Control-Allow-Private-Network")).toBe("true")
+
+    const info = await handle(new Request(`${APP}/api/server/info`, { headers: cross }))
+    expect(info.headers.get("Access-Control-Allow-Origin")).toBe(SITE)
+    expect(await info.json()).toMatchObject({ kind: "cardinal-server" })
+
+    const { token } = (await (await handle(new Request(`${APP}/api/proxy-token`, { headers: cross }), "127.0.0.1")).json()) as { token: string }
+    const response = await handle(
+      new Request(`${APP}${PROXY_PATH}`, { headers: { ...cross, "X-Cardinal-Proxy-Token": token, "X-Cardinal-Target": PRIVATE_TARGET } }),
+      "127.0.0.1"
+    )
+    expect(response.status).toBe(200)
+    expect(response.headers.get("Access-Control-Allow-Origin")).toBe(SITE)
+    expect(response.headers.get("Access-Control-Expose-Headers")).toBe("X-Cardinal-Proxy-Error")
+    expect(upstream).toHaveBeenCalledTimes(1)
+
+    // The proxy's own errors stay readable to the site.
+    const missing = await handle(new Request(`${APP}${PROXY_PATH}`, { headers: { ...cross, "X-Cardinal-Target": PRIVATE_TARGET } }), "127.0.0.1")
+    expect(missing.status).toBe(401)
+    expect(missing.headers.get("Access-Control-Allow-Origin")).toBe(SITE)
+
+    // Other sites, and other endpoints for the allowed one, are refused as before.
+    const other = await handle(new Request(`${APP}/api/proxy-token`, { headers: { Origin: "https://evil.example", "Sec-Fetch-Site": "cross-site" } }))
+    expect(other.status).toBe(403)
+    expect(other.headers.get("Access-Control-Allow-Origin")).toBeNull()
+    const sessions = await handle(new Request(`${APP}/api/sessions`, { method: "POST", headers: cross }))
+    expect(sessions.status).toBe(403)
+    // Still only under trusted host names (DNS rebinding).
+    const rebound = await handle(new Request("http://attacker.example:9181/api/proxy-token", { headers: cross }))
+    expect(rebound.status).toBe(403)
   })
 
   it("serves its own app like the Worker: a proxy token, then private hosts too", async () => {

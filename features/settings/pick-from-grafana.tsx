@@ -10,7 +10,6 @@ import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui
 import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
 import { TransportModeField } from "@/features/settings/route-field"
-import { explainGrafanaError } from "@/features/usage/grafana-section"
 import { grafanaKey } from "@/features/usage/grafana-store"
 import { datasourceProxyUrl, listDatasources, type DatasourceType, type GrafanaDatasource } from "@/lib/sources/grafana"
 import { HttpError, type AuthMode, type TransportMode } from "@/lib/sources/transport"
@@ -40,7 +39,6 @@ function hostOf(url: string | undefined) {
 }
 
 function problemText(error: unknown) {
-  if (error instanceof HttpError && error.proxyFailure === "private") return explainGrafanaError(error, "proxy")
   if (error instanceof HttpError && error.proxyFailure && error.proxyFailure !== "token") return error.message
   if (error instanceof HttpError) {
     if (error.status === 401 || error.status === 403)

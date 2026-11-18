@@ -22,6 +22,8 @@ export const paths = {
   attribution: "/attribution",
   agent: "/agent",
   settings: "/settings",
+  /** Running Cardinal yourself, and using it as the hosted app's proxy. */
+  ownServer: "/self-host",
 } as const
 
 export function jobPath(job: string) {

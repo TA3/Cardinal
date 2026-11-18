@@ -13,12 +13,6 @@
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["CardinalSession"] }],
   "ratelimits": [
-    // Per client IP: proxied backend calls and proxy-token requests.
-    {
-      "name": "PROXY_LIMITER",
-      "namespace_id": "1001",
-      "simple": { "limit": 600, "period": 60 }
-    },
     // Per client IP: agent session creation (POST /api/sessions).
     {
       "name": "SESSION_LIMITER",

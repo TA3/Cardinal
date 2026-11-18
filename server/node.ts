@@ -76,6 +76,7 @@ async function main() {
       `Proxy targets:   ${config.allowHosts.length ? config.allowHosts.join(", ") : "any host, private and loopback included"}`,
     ]
     if (config.publicHosts.length) lines.push(`Public hosts:    ${config.publicHosts.join(", ")}`)
+    if (config.allowOrigins.length) lines.push(`Proxy for:       ${config.allowOrigins.join(", ")}`)
     console.log(lines.join("\n"))
   })
 }

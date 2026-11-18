@@ -42,7 +42,7 @@ export function connectionKey(connection: Connection | null) {
 
 /**
  * The backend refused the token: 401 only (a 403 usually means a token without
- * the scope for one endpoint), and never the Cardinal proxy's own 401, which
+ * the scope for one endpoint), and never the Cardinal server's own 401, which
  * is about its short-lived session token, not the user's.
  */
 export function isAuthError(error: unknown) {

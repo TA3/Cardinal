@@ -4,6 +4,7 @@ import {
   DotsThreeVerticalIcon,
   ExportIcon,
   FileArrowDownIcon,
+  HardDrivesIcon,
   GearIcon,
   KeyboardIcon,
   LockSimpleIcon,
@@ -239,7 +240,7 @@ export function TopBar({
                   </DropdownMenuTrigger>
                 </TooltipTrigger>
                 <TooltipContent side="bottom" align="end">
-                  Report, Grafana, glossary, shortcuts and theme
+                  Report, Grafana, running it yourself, glossary, shortcuts and theme
                 </TooltipContent>
               </Tooltip>
               <DropdownMenuContent align="end" className="min-w-52">
@@ -255,6 +256,12 @@ export function TopBar({
                   <DropdownMenuItem onSelect={actions.openGrafanaConnect}>
                     <SquaresFourIcon />
                     Connect Grafana
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link to={paths.ownServer}>
+                      <HardDrivesIcon />
+                      Run Cardinal yourself
+                    </Link>
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />

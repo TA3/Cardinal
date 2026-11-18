@@ -20,7 +20,7 @@ interface Progress {
 }
 interface Transport {
   send(connection: Connection, request: { path: string }): Promise<Response>
-  configureProxyConsent(allowed: boolean): void
+  configureProxyServer(url: string): void
   authHeaders(connection: Connection): Record<string, string>
   inferAuthMode(fields: { baseUrl: string; instanceId?: string; token?: string; tenant?: string; tokenExpected?: boolean }): AuthMode
 }
@@ -34,34 +34,53 @@ const loadPrometheus = async () => (await import(/* @vite-ignore */ prometheusPa
 
 const base = { baseUrl: "https://prom.example", mode: "direct" as const }
 
-describe("proxy consent", () => {
-  it("sends nothing through the hosted proxy until the user allows it", async () => {
-    const { send, configureProxyConsent } = await loadTransport()
+describe("proxy mode", () => {
+  it("has no proxy on a page no Cardinal server serves, until the user's own server is set", async () => {
+    const { send, configureProxyServer } = await loadTransport()
     const urls: string[] = []
     const original = globalThis.fetch
     globalThis.fetch = (async (url: unknown) => {
       urls.push(String(url))
-      if (String(url).includes("/api/proxy-token")) return Response.json({ token: "t", expiresAt: "2999-01-01T00:00:00Z" })
-      // The hosted app has no self-hosted server info.
-      if (!String(url).includes("/api/proxy/")) return new Response("not found", { status: 404 })
-      return Response.json({ status: "success" })
+      if (String(url).startsWith("http://localhost:9181/api/proxy-token")) return Response.json({ token: "t", expiresAt: "2999-01-01T00:00:00Z" })
+      if (String(url).startsWith("http://localhost:9181/api/proxy/")) return Response.json({ status: "success" })
+      // The page's own origin answers no server info: no Cardinal server serves it.
+      return new Response("not found", { status: 404 })
     }) as typeof fetch
     try {
       const connection = { baseUrl: "https://prometheus-prod-01-eu-west-0.grafana.net/api/prom", mode: "proxy" as const, token: "secret" }
-      await expect(send(connection, { path: "/api/v1/labels" })).rejects.toMatchObject({ name: "ProxyConsentError" })
-      expect(urls.some((url) => url.includes("/api/proxy/"))).toBe(false)
+      await expect(send(connection, { path: "/api/v1/labels" })).rejects.toMatchObject({ name: "NoProxyServerError" })
+      expect(urls.some((url) => url.includes("/api/proxy"))).toBe(false)
 
-      configureProxyConsent(true)
+      configureProxyServer("http://localhost:9181/")
       const response = await send(connection, { path: "/api/v1/labels" })
       expect(response.ok).toBe(true)
-      expect(urls.some((url) => url.includes("/api/proxy/api/v1/labels"))).toBe(true)
+      expect(urls).toContain("http://localhost:9181/api/proxy/api/v1/labels")
     } finally {
-      configureProxyConsent(false)
+      configureProxyServer("")
       globalThis.fetch = original
     }
   })
 
-  it("never needs consent in direct mode", async () => {
+  it("says the user's server didn't answer when it can't be reached", async () => {
+    const { send, configureProxyServer } = await loadTransport()
+    const original = globalThis.fetch
+    globalThis.fetch = (async (url: unknown) => {
+      if (String(url).startsWith("http://localhost:9181")) throw new TypeError("Failed to fetch")
+      return new Response("not found", { status: 404 })
+    }) as typeof fetch
+    configureProxyServer("http://localhost:9181")
+    try {
+      await expect(send({ ...base, mode: "proxy" }, { path: "/api/v1/labels" })).rejects.toMatchObject({
+        name: "ProxyServerError",
+        server: "http://localhost:9181",
+      })
+    } finally {
+      configureProxyServer("")
+      globalThis.fetch = original
+    }
+  })
+
+  it("needs no server in direct mode", async () => {
     const { send } = await loadTransport()
     const original = globalThis.fetch
     globalThis.fetch = (async () => Response.json({ status: "success" })) as typeof fetch

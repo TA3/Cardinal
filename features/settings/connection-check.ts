@@ -1,12 +1,15 @@
 import { testLokiConnection } from "@/lib/sources/loki"
 import { isQueryLimitError, testConnection } from "@/lib/sources/prometheus"
 import { isPrivateHost } from "@/lib/sources/proxy-constants"
+import { proxyCommand } from "@/lib/core/own-server"
 import {
   CorsError,
+  hasProxyServer,
   HttpError,
   isGrafanaCloudHost,
+  NoProxyServerError,
   probeReachable,
-  ProxyConsentError,
+  ProxyServerError,
   ProxyTokenError,
   supportsLocalNetworkAccess,
 } from "@/lib/sources/transport"
@@ -25,8 +28,10 @@ export type ProblemKind =
   | "not-found"
   | "timeout"
   | "limit"
-  | "private-proxy"
-  | "proxy-consent"
+  /** Only the user's own Cardinal server reaches the backend, and this page has none. */
+  | "needs-server"
+  /** The Cardinal server set as this page's proxy didn't answer or refused this page. */
+  | "server"
   | "config"
   | "other"
 
@@ -38,11 +43,8 @@ export interface ConnectionProblem {
   snippet?: string
   /** A settings change that likely fixes it. */
   fix?: { label: string; patch: Partial<ConnectionSettings> }
-  /**
-   * "local": the way out is running Cardinal on that network (the binary or Docker).
-   * "proxy-consent": the hosted proxy would work, but the user hasn't allowed it.
-   */
-  help?: "local" | "proxy-consent"
+  /** "server": the way out is the user's own Cardinal server (run it, then open it or set it as this page's proxy). */
+  help?: "server"
 }
 
 export const TEST_TIMEOUT_MS = 10_000
@@ -69,9 +71,9 @@ function withApiProm(baseUrl: string) {
 }
 
 /**
- * Asks a public backend again through the proxy, without credentials, to learn
- * the real status: error pages (404s) rarely carry CORS headers, so in direct
- * mode a wrong path looks exactly like a CORS problem.
+ * Asks the backend again through the user's own Cardinal server, without
+ * credentials, to learn the real status: error pages (404s) rarely carry CORS
+ * headers, so in direct mode a wrong path looks exactly like a CORS problem.
  */
 async function statusViaProxy(baseUrl: string, api: BackendApi): Promise<number | null> {
   try {
@@ -87,18 +89,40 @@ async function statusViaProxy(baseUrl: string, api: BackendApi): Promise<number 
 /** Which API the connection is for: Prometheus (metrics) or Loki (logs). */
 export type BackendApi = "prometheus" | "loki"
 
-/** Only the hosted proxy reaches this backend, and the user hasn't allowed it yet. */
-export function proxyConsentProblem(target: string): ConnectionProblem {
-  const host = hostOf(target)
-  return {
-    kind: "proxy-consent",
-    title: isGrafanaCloudHost(target)
-      ? `Grafana Cloud blocks browser requests, so ${host} is only reachable through Cardinal's proxy`
-      : `${host} blocks browser requests, so it is only reachable through Cardinal's proxy`,
-    detail:
-      "The proxy forwards each request, with your token, from Cardinal's servers. Nothing is stored or logged, but it does pass through. To keep everything on your machine, run Cardinal locally instead.",
-    help: "proxy-consent",
+/** The page origin, as a Cardinal server's --allow-origin takes it. */
+function pageOrigin() {
+  return globalThis.location?.origin ?? "http://localhost:5173"
+}
+
+/**
+ * Problems with the user's own Cardinal server as the proxy: none set on a
+ * page no Cardinal server serves, or the one set didn't answer or refused
+ * this page. Null for anything else.
+ */
+export function ownServerProblem(error: unknown): ConnectionProblem | null {
+  if (error instanceof NoProxyServerError) {
+    const host = hostOf(error.target)
+    return {
+      kind: "needs-server",
+      title: isGrafanaCloudHost(error.target)
+        ? "Grafana Cloud blocks browser requests: reach it through your own Cardinal server"
+        : `${host} blocks browser requests: reach it through your own Cardinal server`,
+      detail:
+        "Cardinal's hosted app has no proxy. Run Cardinal on your machine with one command, then open it, or set it as this page's proxy. Your token and queries go from your machine straight to the backend.",
+      snippet: proxyCommand(pageOrigin()),
+      help: "server",
+    }
   }
+  if (error instanceof ProxyServerError) {
+    return {
+      kind: "server",
+      title: `Couldn't reach your Cardinal server at ${hostOf(error.server)}`,
+      detail: `Start it on this machine with the command below, which lets ${pageOrigin()} use it, then try again. If it runs, the browser may block the page from reaching it: Chrome asks once to allow this site to reach your device, and Safari can refuse http://localhost from an https page.`,
+      snippet: proxyCommand(pageOrigin()),
+      help: "server",
+    }
+  }
+  return null
 }
 
 export async function diagnose(error: unknown, draft: ConnectionSettings, api: BackendApi = "prometheus"): Promise<ConnectionProblem> {
@@ -106,7 +130,8 @@ export async function diagnose(error: unknown, draft: ConnectionSettings, api: B
   const origin = globalThis.location?.origin ?? "http://localhost:5173"
   const { server } = useServerStore.getState()
 
-  if (error instanceof ProxyConsentError) return proxyConsentProblem(error.target)
+  const serverProblem = ownServerProblem(error)
+  if (serverProblem) return serverProblem
 
   if (isTimeout(error)) {
     return {
@@ -124,20 +149,24 @@ export async function diagnose(error: unknown, draft: ConnectionSettings, api: B
       // handled below
     }
     const privateHost = target ? isPrivateHost(target.hostname) : false
-    if (target && globalThis.location?.protocol === "https:" && target.protocol === "http:" && privateHost && !supportsLocalNetworkAccess()) {
+    // The user's own Cardinal server: the one serving this page, or the one set as its proxy.
+    const ownServer = Boolean(server) || hasProxyServer()
+    const useServer = { label: server ? "Use this server" : "Use your server", patch: { mode: "proxy" as const } }
+    if (isGrafanaCloudHost(draft.baseUrl) && !ownServer) return ownServerProblem(new NoProxyServerError(draft.baseUrl))!
+    if (target && globalThis.location?.protocol === "https:" && target.protocol === "http:" && privateHost && !supportsLocalNetworkAccess() && !ownServer) {
       return {
         kind: "mixed-content",
         title: "This browser blocks http:// on your network from an https page",
-        detail: "Use Chrome 142 or later (it asks to allow local network access), or run Cardinal on your machine.",
-        help: "local",
+        detail: "Use Chrome 142 or later (it asks to allow local network access), or go through your own Cardinal server.",
+        help: "server",
       }
     }
     if (target && globalThis.location?.protocol === "https:" && target.protocol === "http:" && !privateHost) {
       return {
         kind: "mixed-content",
         title: "The browser blocks plain-HTTP backends from an HTTPS page",
-        detail: "Use an https:// URL for the backend, or route through the Cardinal proxy.",
-        fix: { label: "Use the proxy", patch: { mode: "proxy" } },
+        detail: "Use an https:// URL for the backend, or go through your own Cardinal server.",
+        ...(ownServer ? { fix: useServer } : { help: "server" as const }),
       }
     }
     if (!(await probeReachable(draft.baseUrl.trim()))) {
@@ -149,50 +178,43 @@ export async function diagnose(error: unknown, draft: ConnectionSettings, api: B
           : "The name doesn't resolve (DNS), the connection was refused, or the TLS certificate is invalid. Check the URL for typos.",
       }
     }
-    if (privateHost && server) {
+    if (ownServer) {
+      // Error pages (404s) rarely carry CORS headers: ask through the server whether the path is right.
+      const status = await statusViaProxy(draft.baseUrl, api)
+      if (status === 404) return diagnose(new HttpError(404, api === "loki" ? "/loki/api/v1/labels" : "/api/v1/query", "", { baseUrl: draft.baseUrl.trim() }), draft, api)
       return {
         kind: "cors",
         title: `${host} blocks browser requests (CORS)`,
-        detail: "This Cardinal server can reach hosts on its network, so it needs no CORS: route requests through it.",
-        fix: { label: "Use this server", patch: { mode: "proxy" } },
+        detail: `Your Cardinal server needs no CORS: route requests through it${status === 200 ? " (it reaches this backend)" : ""}.`,
+        fix: useServer,
       }
     }
-    if (privateHost) {
-      return {
-        kind: "cors",
-        title: `${host} is private: run Cardinal on your network, or allow this origin`,
-        help: "local",
-        detail:
-          "Either run Cardinal on your machine (it needs no CORS), or allow this origin on the backend: for Prometheus, start it with this flag; for Mimir, Thanos or a reverse proxy, send Access-Control-Allow-Origin for this origin and allow the Authorization and X-Scope-OrgID headers on OPTIONS preflights.",
-        snippet: corsFlag(origin),
-      }
-    }
-    const status = await statusViaProxy(draft.baseUrl, api)
-    if (status === 404) return diagnose(new HttpError(404, api === "loki" ? "/loki/api/v1/labels" : "/api/v1/query", "", { baseUrl: draft.baseUrl.trim() }), draft, api)
     return {
       kind: "cors",
       title: `${host} blocks browser requests (CORS)`,
+      help: "server",
       detail:
-        status === 200
-          ? "The backend doesn't allow requests from this origin, but it works through the Cardinal proxy. Turn the proxy on, or allow this origin on the backend (for Prometheus, the flag below)."
-          : "The backend doesn't allow requests from this origin. Route through the Cardinal proxy, or allow this origin on the backend (for Prometheus, the flag below).",
-      snippet: corsFlag(origin),
-      fix: { label: "Use the proxy", patch: { mode: "proxy" } },
+        api === "loki"
+          ? "Go through your own Cardinal server (it needs no CORS), or allow this origin in the proxy in front of Loki: send Access-Control-Allow-Origin for it and allow the Authorization and X-Scope-OrgID headers on OPTIONS preflights."
+          : "Go through your own Cardinal server (it needs no CORS), or allow this origin on the backend: for Prometheus, start it with the flag below; for Mimir, Thanos or a reverse proxy, send Access-Control-Allow-Origin for this origin and allow the Authorization and X-Scope-OrgID headers on OPTIONS preflights.",
+      ...(api === "loki" ? {} : { snippet: corsFlag(origin) }),
     }
   }
 
   if (error instanceof ProxyTokenError) {
-    return {
-      kind: "other",
-      title: `The Cardinal proxy refused this page (HTTP ${error.status})`,
-      detail:
-        error.status === 429
-          ? "Too many proxy requests from your IP. Wait a minute and try again."
-          : server
-            ? `This Cardinal server doesn't trust the name it was reached by (${globalThis.location?.hostname ?? "this host"}), to guard against DNS rebinding. Restart it with --public-hosts ${globalThis.location?.hostname ?? "<host>"} (or CARDINAL_PUBLIC_HOSTS).`
-            : "The proxy only serves Cardinal's own pages and could not confirm this one. Reload the page; if it keeps happening, use direct mode.",
-      fix: server ? undefined : { label: "Use direct mode", patch: { mode: "direct" } },
-    }
+    return server
+      ? {
+          kind: "other",
+          title: `This Cardinal server refused this page (HTTP ${error.status})`,
+          detail: `It doesn't trust the name it was reached by (${globalThis.location?.hostname ?? "this host"}), to guard against DNS rebinding. Restart it with --public-hosts ${globalThis.location?.hostname ?? "<host>"} (or CARDINAL_PUBLIC_HOSTS).`,
+        }
+      : {
+          kind: "server",
+          title: `Your Cardinal server refused this page (HTTP ${error.status})`,
+          detail: `Restart it with --allow-origin ${origin}, and reach it as localhost, an IP address or a name given with --public-hosts.`,
+          snippet: proxyCommand(origin),
+          help: "server",
+        }
   }
 
   if (error instanceof HttpError) {
@@ -200,21 +222,12 @@ export async function diagnose(error: unknown, draft: ConnectionSettings, api: B
       case "dns":
         return { kind: "dns", title: `${host} doesn't resolve`, detail: "DNS lookup failed. Check the host name for typos." }
       case "timeout":
-        return { kind: "timeout", title: `${host} did not answer in time`, detail: "The proxy gave up after 30 s. The backend may be down or overloaded." }
+        return { kind: "timeout", title: `${host} did not answer in time`, detail: "Your Cardinal server gave up after 30 s. The backend may be down or overloaded." }
       case "unreachable":
         return {
           kind: "unreachable",
           title: `Can't reach ${host}`,
-          detail: `The proxy couldn't connect: the name may not resolve (DNS), or the host refused the connection. ${error.message}`,
-        }
-      case "private":
-        return {
-          kind: "private-proxy",
-          title: `${host} is private: run Cardinal on your network, or call it directly`,
-          help: "local",
-          detail: `${host} is on a private network, which Cardinal's hosted proxy can't reach. Run Cardinal on your machine, or call it directly and allow this origin on the backend (for Prometheus, the flag below).`,
-          snippet: corsFlag(origin),
-          fix: { label: "Use direct mode", patch: { mode: "direct" } },
+          detail: `Your Cardinal server couldn't connect: the name may not resolve (DNS) from where it runs, or the host refused the connection. ${error.message}`,
         }
       case "host":
         return {

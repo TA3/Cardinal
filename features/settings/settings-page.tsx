@@ -4,7 +4,6 @@ import {
   CaretDownIcon,
   CaretRightIcon,
   ClipboardTextIcon,
-  CloudIcon,
   CurrencyDollarIcon,
   GearSixIcon,
   HardDrivesIcon,
@@ -15,7 +14,7 @@ import {
   ShieldCheckIcon,
   TrashIcon,
 } from "@phosphor-icons/react"
-import { useLocation, useNavigate } from "react-router"
+import { Link, useLocation, useNavigate } from "react-router"
 import { toast } from "sonner"
 
 import { paths } from "@/app/paths"
@@ -40,13 +39,13 @@ import { Field, FieldDescription, FieldLabel, FieldSeparator } from "@/component
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from "@/components/ui/input-group"
 import { Switch } from "@/components/ui/switch"
 import { DataSourceCard } from "@/features/settings/data-source-card"
+import { ProxyServerField } from "@/features/settings/proxy-server-field"
 import { LogsPriceField } from "@/features/settings/logs-connection-section"
 import { AttributionSection } from "@/features/attribution/attribution-settings"
 import { GrafanaSection } from "@/features/grafana/grafana-section"
 import { RuleDestinationSection } from "@/features/rules/destination"
 import { endAgentSession } from "@/hooks/use-agent-bridge"
 import { useAppStore } from "@/lib/store/app-store"
-import { useSelfHosted } from "@/lib/store/server-store"
 
 /** Grafana Cloud Pro list price for metrics, per 1,000 active series per month (first volume tier). */
 const GRAFANA_CLOUD_PRICE = 6.5
@@ -82,14 +81,9 @@ const PRIVACY_FACTS = [
     text: "The browser calls your backend itself. Cardinal's servers never see the requests or the token.",
   },
   {
-    icon: CloudIcon,
-    title: "Proxy mode",
-    text: "Only once you allow it: requests, with the token, pass through the Cardinal Worker to reach backends without CORS, such as Grafana Cloud. They are forwarded, never stored or logged.",
-  },
-  {
     icon: NetworkIcon,
-    title: "Run it on your machine",
-    text: "The cardinal binary or Docker image serves the app and its proxy from your machine, so backends on your network work and Cardinal's servers never see a request.",
+    title: "Proxy mode",
+    text: "Only through a Cardinal server you run: it serves the app and its proxy from your machine, or acts as this page's proxy. Backends without CORS, Grafana Cloud included, work, and Cardinal's hosted servers never see a request.",
   },
   {
     icon: RobotIcon,
@@ -98,31 +92,38 @@ const PRIVACY_FACTS = [
   },
 ]
 
+/** The user's own Cardinal server: what proxy mode goes through. The hosted app has no proxy of its own. */
+function OwnServerSection() {
+  return (
+    <Card id="proxy" className="scroll-mt-32">
+      <CardHeader>
+        <SectionTitle icon={HardDrivesIcon}>Your Cardinal server</SectionTitle>
+        <CardAction>
+          <Button asChild size="sm" variant="ghost">
+            <Link to={paths.ownServer}>How to run it</Link>
+          </Button>
+        </CardAction>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <p className="text-sm text-muted-foreground">
+          Backends that block browser requests, Grafana Cloud included, are reached through a Cardinal server you run on your machine. Your token
+          and queries go from there to the backend; Cardinal's hosted servers never see them.
+        </p>
+        <ProxyServerField />
+      </CardContent>
+    </Card>
+  )
+}
+
 function PrivacySection() {
   const share = useAppStore((state) => state.agentShareLabelValues)
   const setShare = useAppStore((state) => state.setAgentShareLabelValues)
-  const proxyConsent = useAppStore((state) => state.proxyConsent)
-  const setProxyConsent = useAppStore((state) => state.setProxyConsent)
-  const selfHosted = useSelfHosted()
   return (
     <Card id="privacy" className="scroll-mt-32">
       <CardHeader>
         <SectionTitle icon={ShieldCheckIcon}>Privacy</SectionTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        {selfHosted ? null : (
-          <Field orientation="horizontal">
-            <FieldLabel htmlFor="proxy-consent" className="gap-1">
-              Allow Cardinal's proxy
-              <InfoTip label="What does this change?">
-                Grafana Cloud and other backends without CORS can only be reached from this page through Cardinal's servers, which forward
-                each request with your token. Off: those requests are never sent. To keep everything on your machine, run Cardinal locally
-                or upload exported files instead.
-              </InfoTip>
-            </FieldLabel>
-            <Switch id="proxy-consent" checked={proxyConsent} onCheckedChange={setProxyConsent} />
-          </Field>
-        )}
         <Field orientation="horizontal">
           <FieldLabel htmlFor="share-label-values" className="gap-1">
             Share label values with agents
@@ -341,6 +342,7 @@ export function SettingsPage() {
       <GrafanaSection />
       <DataSourceCard signal="metrics" />
       <DataSourceCard signal="logs" />
+      <OwnServerSection />
       <PrivacySection />
       <SectionHeading>Savings</SectionHeading>
       <PricingSection />

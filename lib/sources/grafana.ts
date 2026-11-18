@@ -43,15 +43,15 @@ function transport(grafana: GrafanaConnection): Connection {
 }
 
 /**
- * Retries rate limits (the Cardinal proxy allows 600 requests a minute) and
- * gateway hiccups with a growing pause, so a large Grafana still scans fully.
+ * Retries rate limits and gateway hiccups with a growing pause, so a large
+ * Grafana still scans fully.
  */
 async function withRetry<T>(work: () => Promise<T>, signal?: AbortSignal, attempts = 5): Promise<T> {
   for (let attempt = 1; ; attempt += 1) {
     try {
       return await work()
     } catch (error) {
-      const retryable = error instanceof HttpError && [429, 502, 503, 504].includes(error.status) && error.proxyFailure !== "private"
+      const retryable = error instanceof HttpError && [429, 502, 503, 504].includes(error.status)
       if (!retryable || attempt >= attempts) throw error
       await new Promise<void>((resolve, reject) => {
         const timer = setTimeout(resolve, Math.min(20_000, 1_500 * 2 ** (attempt - 1)))

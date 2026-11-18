@@ -1,36 +1,42 @@
 import { SegmentedControl } from "@/components/segmented-control"
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
-import { isPrivateHost } from "@/lib/sources/proxy-constants"
-import type { TransportMode } from "@/lib/sources/transport"
+import { hasProxyServer, type TransportMode } from "@/lib/sources/transport"
+import { useAppStore } from "@/lib/store/app-store"
 import { useServerStore } from "@/lib/store/server-store"
 
 /**
- * The hint for a private or local backend in the chosen mode, or null. The
- * hosted proxy can't reach such hosts; a self-hosted server's proxy can.
+ * The hint for proxy mode on a page with no Cardinal server of the user's own
+ * to go through (the hosted app has no proxy), or null.
  */
-export function privateHostHint(hostname: string | null, mode: TransportMode, selfHosted: boolean) {
-  if (!hostname || !isPrivateHost(hostname) || mode !== "proxy" || selfHosted) return null
-  return `${hostname} is private, so the hosted proxy can't reach it: choose Direct if it allows this origin, or run Cardinal on your machine.`
+export function proxyModeHint(mode: TransportMode, selfHosted: boolean) {
+  if (mode !== "proxy" || selfHosted || hasProxyServer()) return null
+  return "This page has no proxy of its own: run Cardinal on your machine and set it under Settings → Your Cardinal server, or choose Direct."
 }
 
 /** One line on what a mode does. */
 function useModeDescription(value: TransportMode | "auto", picked?: TransportMode) {
   const selfHosted = useServerStore((state) => state.server !== null)
-  const proxyName = selfHosted ? "this server" : "Cardinal's proxy"
+  const proxyServer = useAppStore((state) => state.proxyServer)
+  const ownServer = selfHosted || proxyServer !== ""
+  const serverName = selfHosted ? "this server" : "your Cardinal server"
   if (value === "auto") {
-    const now = picked ? ` Now: ${picked === "proxy" ? proxyName : "direct"}.` : ""
-    return `Direct when the backend allows it, else through ${proxyName}.${now}`
+    const now = picked ? ` Now: ${picked === "proxy" ? serverName : "direct"}.` : ""
+    return ownServer
+      ? `Through ${serverName}, or direct when it can't reach the backend.${now}`
+      : `Direct from this browser: the backend must allow this origin (CORS). Set your Cardinal server for anything else.${now}`
   }
   if (value === "direct") return "The browser calls the backend, which must allow this origin (CORS)."
   return selfHosted
     ? "Through this Cardinal server, which reaches your network."
-    : "Through Cardinal's servers: public hosts only, asks first, nothing stored."
+    : proxyServer
+      ? `Through your Cardinal server at ${proxyServer}, which reaches your network.`
+      : "Through your own Cardinal server: run it, then set it under Settings → Your Cardinal server."
 }
 
 function modeOptions(selfHosted: boolean) {
   return [
     { value: "direct" as const, label: "Direct" },
-    { value: "proxy" as const, label: selfHosted ? "This server" : "Proxy" },
+    { value: "proxy" as const, label: selfHosted ? "This server" : "Your server" },
   ]
 }
 

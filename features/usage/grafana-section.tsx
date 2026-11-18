@@ -32,9 +32,9 @@ import { Progress } from "@/components/ui/progress"
 import { cancelGrafanaScan, grafanaConnection, importUsageFiles, startGrafanaScan, useGrafanaStore } from "@/features/usage/grafana-store"
 import { useNow } from "@/features/usage/use-dashboard-usage"
 import { formatAge, hostOf, type GrafanaUsageIndex } from "@/lib/core/grafana-usage"
-import { proxyConsentProblem, type ConnectionProblem } from "@/features/settings/connection-check"
+import { ownServerProblem, type ConnectionProblem } from "@/features/settings/connection-check"
 import { ProblemLine } from "@/features/settings/problem-line"
-import { CorsError, HttpError, ProxyConsentError, type TransportMode } from "@/lib/sources/transport"
+import { CorsError, HttpError, type TransportMode } from "@/lib/sources/transport"
 import { useAppStore } from "@/lib/store/app-store"
 
 export const GRAFANA_TIMEOUT_MS = 15_000
@@ -42,10 +42,7 @@ export const GRAFANA_TIMEOUT_MS = 15_000
 /** What went wrong with a Grafana request, in terms of what to change. */
 export function explainGrafanaError(error: unknown, mode: TransportMode) {
   if (error instanceof CorsError) {
-    return "Grafana blocks browser requests (no CORS headers by default): use Auto or Proxy for a public Grafana, or run Cardinal on your machine for one on your network."
-  }
-  if (error instanceof HttpError && error.proxyFailure === "private") {
-    return "The hosted proxy can't reach private hosts: run Cardinal on your machine, or use Direct if Grafana allows this origin (CORS)."
+    return "Grafana blocks browser requests (no CORS headers by default): go through your own Cardinal server, which needs no CORS."
   }
   if (error instanceof HttpError && error.proxyFailure && error.proxyFailure !== "token") return error.message
   if (error instanceof HttpError && (error.status === 401 || error.status === 403)) {
@@ -60,10 +57,9 @@ export function explainGrafanaError(error: unknown, mode: TransportMode) {
   return error instanceof Error ? error.message : String(error)
 }
 
-/** A failed Grafana request as a problem line; a proxy the user hasn't allowed gets the consent actions. */
+/** A failed Grafana request as a problem line; one that needs the user's own Cardinal server says how to get it. */
 export function grafanaProblem(error: unknown, mode: TransportMode, title: string): ConnectionProblem {
-  if (error instanceof ProxyConsentError) return proxyConsentProblem(error.target)
-  return { kind: "other", title, detail: explainGrafanaError(error, mode) }
+  return ownServerProblem(error) ?? { kind: "other", title, detail: explainGrafanaError(error, mode) }
 }
 
 function ScanProgressLine() {
@@ -152,7 +148,7 @@ export function GrafanaUsagePanel() {
   const connection = grafanaConnection(settings)
   const fileInput = React.useRef<HTMLInputElement>(null)
   const [confirmReplace, setConfirmReplace] = React.useState(false)
-  const [consent, setConsent] = React.useState<ConnectionProblem | null>(null)
+  const [serverProblem, setServerProblem] = React.useState<ConnectionProblem | null>(null)
   // Uploads replace the index; a full scan is worth a second thought.
   const pickFiles = () => (index?.source === "scan" ? setConfirmReplace(true) : fileInput.current?.click())
 
@@ -173,7 +169,7 @@ export function GrafanaUsagePanel() {
 
   async function scan() {
     setProblem(null)
-    setConsent(null)
+    setServerProblem(null)
     try {
       const result = await startGrafanaScan()
       toast.success(`Scanned ${result.stats.dashboards.toLocaleString()} dashboards`, {
@@ -183,8 +179,9 @@ export function GrafanaUsagePanel() {
       })
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return
-      if (error instanceof ProxyConsentError) {
-        setConsent(proxyConsentProblem(error.target))
+      const needsServer = ownServerProblem(error)
+      if (needsServer) {
+        setServerProblem(needsServer)
         useGrafanaStore.setState({ scanError: null })
         return
       }
@@ -253,7 +250,7 @@ export function GrafanaUsagePanel() {
           <AlertDescription>{problem ?? scanError}</AlertDescription>
         </Alert>
       ) : null}
-      {consent ? <ProblemLine problem={consent} onRetry={() => void scan()} /> : null}
+      {serverProblem ? <ProblemLine problem={serverProblem} /> : null}
       <AlertDialog open={confirmReplace} onOpenChange={setConfirmReplace}>
         <AlertDialogContent>
           <AlertDialogHeader>

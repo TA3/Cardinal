@@ -46,7 +46,7 @@ export async function fetchLokiRuleQueries(connection: Connection, signal?: Abor
 
 export function lokiRulesErrorText(error: unknown) {
   if (error instanceof HttpError && error.status === 403 && /not allowed through the proxy/i.test(error.detail)) {
-    return "the Cardinal proxy doesn't allow the rules API path"
+    return "your Cardinal server doesn't allow the rules API path"
   }
   if (error instanceof HttpError && (error.status === 404 || error.status === 501)) return "this Loki has no ruler API"
   return message(error)

@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { issueProxyToken } from "./guard"
-import { handleProxy, isAllowedPath } from "./proxy"
+import { isAllowedPath } from "@/lib/proxy/core"
 
 describe("proxy allowlist", () => {
   it("allows Prometheus and Loki reads", () => {
@@ -84,17 +83,5 @@ describe("proxy allowlist", () => {
   it("rejects encoded slashes and dot segments", () => {
     expect(isAllowedPath("GET", "/loki/api/v1/label/a%2F..%2F..%2Fx/values")).toBe(false)
     expect(isAllowedPath("GET", "/loki/api/v1/label/../values")).toBe(false)
-  })
-
-  it("refuses private hosts (the self-hosted server allows them)", async () => {
-    const { token } = await issueProxyToken("s", "unknown")
-    const response = await handleProxy(
-      new Request("https://cardinal.example/api/proxy/api/v1/query", {
-        headers: { "Sec-Fetch-Site": "same-origin", "X-Cardinal-Proxy-Token": token, "X-Cardinal-Target": "http://192.168.1.10:9090" },
-      }),
-      "s"
-    )
-    expect(response.status).toBe(400)
-    expect(response.headers.get("X-Cardinal-Proxy-Error")).toBe("private")
   })
 })

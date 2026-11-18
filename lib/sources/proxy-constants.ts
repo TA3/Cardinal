@@ -37,9 +37,9 @@ export function isLoopbackHost(hostname: string) {
 }
 
 /**
- * Hosts the proxy refuses to reach (loopback, private ranges, *.local, *.internal).
- * The hosted Worker refuses them; the self-hosted server allows them.
- * Shared with the UI so it can suggest direct mode or running Cardinal locally for these.
+ * Private and local hosts (loopback, private ranges, *.local, *.internal): only
+ * reachable from that network, so the UI says what the browser will do with
+ * them and suggests running Cardinal there.
  */
 export function isPrivateHost(hostname: string) {
   // "localhost." and "metadata.google.internal." resolve like their dotless forms.

@@ -78,6 +78,15 @@ npx @ta3/cardinal          # then open http://localhost:9181
 
 It listens on 127.0.0.1 only. Run \`npx @ta3/cardinal --help\` for options. Needs Node 20 or later.
 
+To keep using https://cardinal.ta3.dev with this as its proxy (Grafana Cloud and backends without CORS work
+from there too), start it with:
+
+\`\`\`bash
+npx @ta3/cardinal --allow-origin https://cardinal.ta3.dev
+\`\`\`
+
+then set http://localhost:9181 under **Settings → Your Cardinal server** on cardinal.ta3.dev.
+
 More: https://github.com/TA3/cardinal
 
 License: AGPL-3.0-only (see LICENSE).

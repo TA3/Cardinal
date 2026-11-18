@@ -13,7 +13,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 import { diagnose, TEST_TIMEOUT_MS, type ConnectionProblem } from "@/features/settings/connection-check"
 import { PickFromGrafana, type PickedDatasource } from "@/features/settings/pick-from-grafana"
-import { privateHostHint, RouteField } from "@/features/settings/route-field"
+import { proxyModeHint, RouteField } from "@/features/settings/route-field"
 import { routeLabel, withAutoMode } from "@/features/settings/auto-mode"
 import { LocalBackendNotice } from "@/features/settings/local-handoff"
 import { ProblemLine } from "@/features/settings/problem-line"
@@ -55,14 +55,6 @@ const GRAFANA_SCOPES = [
 function connectionFields(draft: ConnectionSettings) {
   const { baseUrl, authMode, instanceId, token, tenant, mode, modeManual, rememberToken, topN } = draft
   return { baseUrl: baseUrl.trim(), authMode, instanceId, token, tenant, mode, modeManual, rememberToken, topN }
-}
-
-function hostnameOf(url: string) {
-  try {
-    return new URL(url.trim()).hostname
-  } catch {
-    return null
-  }
 }
 
 function PasswordInput(props: React.ComponentProps<typeof Input>) {
@@ -156,11 +148,10 @@ export function ConnectionForm({
     setCheck(null)
   }
 
-  const hostname = hostnameOf(draft.baseUrl)
   const cloud = isGrafanaCloudHost(draft.baseUrl)
   const selfHosted = useSelfHosted()
   const manual = draft.modeManual ? draft.mode : null
-  const privateHint = manual ? privateHostHint(hostname, draft.mode, selfHosted) : null
+  const privateHint = manual ? proxyModeHint(draft.mode, selfHosted) : null
   const pending = phase !== "idle"
 
   /** Tests the draft in the manual mode, or each auto mode in turn; returns the settings that worked. */
@@ -187,9 +178,7 @@ export function ConnectionForm({
     return settings
   }
 
-  const lastRun = React.useRef(false)
   async function run(analyze: boolean) {
-    lastRun.current = analyze
     const api = signal === "logs" ? "loki" : "prometheus"
     setProblem(null)
     setCheck(null)
@@ -382,7 +371,7 @@ export function ConnectionForm({
           </p>
         ) : null}
 
-        {problem ? <ProblemLine problem={problem} onFix={applyFix} onRetry={() => void run(lastRun.current)} /> : null}
+        {problem ? <ProblemLine problem={problem} onFix={applyFix} /> : null}
         {check && !problem ? <CheckResult result={check} route={routeLabel(draft.mode, selfHosted)} /> : null}
         {phase === "analyzing" ? <SnapshotProgressLine signal={signal} /> : null}
 

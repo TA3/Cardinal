@@ -13,9 +13,10 @@ import {
 } from "@/lib/sources/proxy-constants"
 
 // The only place the transport modes differ. Direct mode calls the backend
-// from the browser (needs CORS); proxy mode goes through the server that
-// serves this page at /api/proxy (the Cardinal Worker, or a self-hosted
-// `cardinal` server), which forwards credentials without storing them.
+// from the browser (needs CORS); proxy mode goes through the user's own
+// `cardinal` server at /api/proxy: the one serving this page, or, on the
+// hosted app (which has no proxy), the one set as its proxy. It forwards
+// credentials without storing them.
 
 export type TransportMode = "direct" | "proxy"
 
@@ -61,18 +62,17 @@ export class CorsError extends Error {
   }
 }
 
-/** Why the Cardinal proxy itself failed, from its X-Cardinal-Proxy-Error header. */
+/** Why the Cardinal server's proxy itself failed, from its X-Cardinal-Proxy-Error header. */
 export type ProxyFailure =
   | "token"
   | "dns"
   | "timeout"
   | "unreachable"
-  | "private"
   | "path"
   | "redirect"
-  /** Self-hosted server only: a target outside --allow-hosts. */
+  /** A target outside --allow-hosts. */
   | "host"
-  /** Self-hosted server only: reached under a host name it doesn't trust (--public-hosts). */
+  /** Reached under a host name it doesn't trust (--public-hosts). */
   | "public-host"
 
 function authHint(status: number, auth: AuthMode, detail: string) {
@@ -106,7 +106,7 @@ export class HttpError extends Error {
     const auth = options.auth ?? "none"
     super(
       options.proxyFailure && options.proxyFailure !== "token"
-        ? detailMessage(detail) || `The Cardinal proxy failed (HTTP ${status})`
+        ? detailMessage(detail) || `Your Cardinal server failed (HTTP ${status})`
         : status === 401 || status === 403
           ? `Authentication failed (HTTP ${status}). ${authHint(status, auth, detail)}`
           : status === 404
@@ -215,46 +215,61 @@ function appOrigin() {
   return globalThis.location?.origin ?? "http://localhost"
 }
 
-// Proxy mode needs a short-lived token from the Worker. One fetch is shared by
+// Proxy mode needs a short-lived token from the server. One fetch is shared by
 // concurrent requests, and it is refreshed a minute before expiry or on 401.
 export class ProxyTokenError extends Error {
   constructor(readonly status: number) {
-    super(`Could not get a Cardinal proxy token (HTTP ${status})`)
+    super(`Your Cardinal server refused a proxy token (HTTP ${status})`)
     this.name = "ProxyTokenError"
   }
 }
 
-let proxyToken: { token: string; expiresAt: number } | null = null
-let proxyTokenRequest: Promise<string> | null = null
+let proxyToken: { origin: string; token: string; expiresAt: number } | null = null
+let proxyTokenRequest: { origin: string; promise: Promise<string> } | null = null
 
-async function fetchProxyToken() {
-  const response = await fetch(new URL(PROXY_TOKEN_PATH, appOrigin()), { cache: "no-store", headers: { [CLIENT_HEADER]: "1" } })
+async function fetchProxyToken(origin: string) {
+  const url = new URL(PROXY_TOKEN_PATH, origin)
+  const response = await fetch(url, localNetworkInit(url, { cache: "no-store", headers: { [CLIENT_HEADER]: "1" } }))
   if (!response.ok) throw new ProxyTokenError(response.status)
   const body = (await response.json()) as { token: string; expiresAt: string }
-  proxyToken = { token: body.token, expiresAt: new Date(body.expiresAt).getTime() }
+  proxyToken = { origin, token: body.token, expiresAt: new Date(body.expiresAt).getTime() }
   return body.token
 }
 
-function getProxyToken(force = false): Promise<string> {
-  if (!force && proxyToken && proxyToken.expiresAt - Date.now() > 60_000) return Promise.resolve(proxyToken.token)
+function getProxyToken(origin: string, force = false): Promise<string> {
+  if (!force && proxyToken?.origin === origin && proxyToken.expiresAt - Date.now() > 60_000) return Promise.resolve(proxyToken.token)
   if (force) proxyToken = null
-  proxyTokenRequest ??= fetchProxyToken().finally(() => {
-    proxyTokenRequest = null
-  })
-  return proxyTokenRequest
+  if (proxyTokenRequest?.origin !== origin) {
+    const promise: Promise<string> = fetchProxyToken(origin).finally(() => {
+      if (proxyTokenRequest?.promise === promise) proxyTokenRequest = null
+    })
+    proxyTokenRequest = { origin, promise }
+  }
+  return proxyTokenRequest.promise
 }
 
 /**
- * Proxy mode on the hosted app was not allowed: the request would have carried
- * the backend's credentials and queries through Cardinal's Worker. A
- * self-hosted server's proxy needs no consent, since it is the user's own.
+ * Proxy mode with no Cardinal server of the user's own to go through: the
+ * hosted app has no proxy. Run `cardinal` on your machine, then open it, or
+ * set it as this page's proxy.
  */
-export class ProxyConsentError extends Error {
+export class NoProxyServerError extends Error {
   constructor(readonly target: string) {
     super(
-      `Reaching ${hostLabel(target)} needs Cardinal's proxy, which passes your token and queries through Cardinal's servers. Allow it in Settings → Privacy, or run Cardinal on your own machine.`
+      `Reaching ${hostLabel(target)} needs your own Cardinal server: run it on your machine, then open it there or set it as this page's proxy.`
     )
-    this.name = "ProxyConsentError"
+    this.name = "NoProxyServerError"
+  }
+}
+
+/** The Cardinal server set as this page's proxy didn't answer, or doesn't let this page use it (no --allow-origin). */
+export class ProxyServerError extends Error {
+  constructor(
+    readonly server: string,
+    cause?: unknown
+  ) {
+    super(`Couldn't reach your Cardinal server at ${server}. Is it running, started with --allow-origin ${appOrigin()}?`, { cause })
+    this.name = "ProxyServerError"
   }
 }
 
@@ -266,10 +281,32 @@ function hostLabel(url: string) {
   }
 }
 
-let proxyConsent = false
-/** Set by the app store from the user's choice in Settings → Privacy. */
-export function configureProxyConsent(allowed: boolean) {
-  proxyConsent = allowed
+/** A Cardinal server's address as an origin (http://host:port), or null when it isn't one. */
+export function proxyServerOrigin(url: string): string | null {
+  try {
+    const parsed = new URL(url.trim())
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.origin : null
+  } catch {
+    return null
+  }
+}
+
+let proxyServer: string | null = null
+/** Set by the app store: the user's Cardinal server, the proxy for a page no Cardinal server serves. */
+export function configureProxyServer(url: string) {
+  proxyServer = proxyServerOrigin(url)
+}
+
+/** A Cardinal server is set as this page's proxy. */
+export function hasProxyServer() {
+  return proxyServer !== null
+}
+
+/** Where proxy requests go: the Cardinal server serving this page, else the one set as its proxy. */
+async function proxyOrigin(target: string): Promise<{ origin: string; remote: boolean }> {
+  if (await selfHostedServer()) return { origin: appOrigin(), remote: false }
+  if (proxyServer) return { origin: proxyServer, remote: true }
+  throw new NoProxyServerError(target)
 }
 
 let selfHostedCheck: Promise<ServerInfo | null> | null = null
@@ -308,6 +345,23 @@ function isAbort(error: unknown) {
   return error instanceof DOMException && (error.name === "AbortError" || error.name === "TimeoutError")
 }
 
+/** Asks a Cardinal server whether this page may use it as its proxy: its info, or why not. */
+export async function checkProxyServer(url: string, signal?: AbortSignal): Promise<ServerInfo> {
+  const origin = proxyServerOrigin(url)
+  if (!origin) throw new Error("Enter the server's address, like http://localhost:9181.")
+  const target = new URL(SERVER_INFO_PATH, origin)
+  let response: Response
+  try {
+    response = await fetch(target, localNetworkInit(target, { headers: { [CLIENT_HEADER]: "1" }, cache: "no-store", signal }))
+  } catch (error) {
+    if (isAbort(error)) throw error
+    throw new ProxyServerError(origin, error)
+  }
+  const body: unknown = response.ok ? await response.json().catch(() => null) : null
+  if (!isServerInfo(body)) throw new Error(`${origin} answered, but not as a Cardinal server.`)
+  return body
+}
+
 /** The self-hosted server's info when it serves this page; null on the hosted app or in dev. Network errors throw. */
 async function fetchServerInfo(signal?: AbortSignal): Promise<ServerInfo | null> {
   const response = await fetch(new URL(SERVER_INFO_PATH, appOrigin()), { headers: { [CLIENT_HEADER]: "1" }, cache: "no-store", signal })
@@ -317,13 +371,13 @@ async function fetchServerInfo(signal?: AbortSignal): Promise<ServerInfo | null>
 
 export async function send(connection: Connection, request: HttpRequest): Promise<Response> {
   const baseUrl = normalizeBaseUrl(connection.baseUrl)
-  if (connection.mode === "proxy" && !proxyConsent && !(await selfHostedServer())) throw new ProxyConsentError(baseUrl)
+  const proxy = connection.mode === "proxy" ? await proxyOrigin(baseUrl) : null
   const headers: Record<string, string> = { ...authHeaders(connection), ...request.headers }
   if (request.body !== undefined) headers["Content-Type"] = "application/json"
 
   let url: URL
-  if (connection.mode === "proxy") {
-    url = new URL(`${PROXY_PREFIX}${request.path}`, appOrigin())
+  if (proxy) {
+    url = new URL(`${PROXY_PREFIX}${request.path}`, proxy.origin)
     headers[PROXY_TARGET_HEADER] = baseUrl
     headers[CLIENT_HEADER] = "1"
   } else {
@@ -332,7 +386,7 @@ export async function send(connection: Connection, request: HttpRequest): Promis
   appendQuery(url, request.query)
 
   const attempt = async (refreshToken: boolean) => {
-    if (connection.mode === "proxy") headers[PROXY_TOKEN_HEADER] = await getProxyToken(refreshToken)
+    if (proxy) headers[PROXY_TOKEN_HEADER] = await getProxyToken(proxy.origin, refreshToken)
     const init: RequestInit = {
       method: request.method ?? "GET",
       headers,
@@ -340,7 +394,8 @@ export async function send(connection: Connection, request: HttpRequest): Promis
       cache: "no-store",
       signal: request.signal,
     }
-    return fetch(url, connection.mode === "direct" ? localNetworkInit(url, init) : init)
+    // A backend, or the user's server, on the local network from an https page.
+    return fetch(url, localNetworkInit(url, init))
   }
 
   let response: Response
@@ -354,13 +409,14 @@ export async function send(connection: Connection, request: HttpRequest): Promis
   } catch (error) {
     if (isAbort(error)) throw error
     if (error instanceof ProxyTokenError) throw error
-    if (connection.mode === "direct") throw new CorsError(`${baseUrl}${request.path}`, error)
-    throw new Error(`Network error: could not reach the Cardinal proxy (${String(error)})`, { cause: error })
+    if (!proxy) throw new CorsError(`${baseUrl}${request.path}`, error)
+    if (proxy.remote) throw new ProxyServerError(proxy.origin, error)
+    throw new Error(`Network error: could not reach the Cardinal server (${String(error)})`, { cause: error })
   }
 
   if (!response.ok) {
     const text = await response.text().catch(() => "")
-    const proxyFailure = connection.mode !== "direct" ? (response.headers.get(PROXY_ERROR_HEADER) as ProxyFailure | null) : null
+    const proxyFailure = proxy ? (response.headers.get(PROXY_ERROR_HEADER) as ProxyFailure | null) : null
     throw new HttpError(response.status, request.path, text.slice(0, 300), {
       auth: connection.auth ?? inferAuthMode(connection),
       baseUrl,

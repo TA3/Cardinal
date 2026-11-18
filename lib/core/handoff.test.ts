@@ -77,13 +77,13 @@ describe("handoff to a local Cardinal", () => {
 })
 
 describe("advice for private backends from the hosted page", () => {
-  const base = { pageHttps: true, privateHost: true, plainHttp: true, selfHosted: false, localNetworkAccess: false }
+  const base = { pageHttps: true, privateHost: true, plainHttp: true, ownServer: false, localNetworkAccess: false }
   it("says what the browser will do before anyone tries", () => {
     expect(localBackendAdvice(base)).toBe("blocked")
     expect(localBackendAdvice({ ...base, localNetworkAccess: true })).toBe("local-network")
     expect(localBackendAdvice({ ...base, plainHttp: false })).toBe("cors")
     expect(localBackendAdvice({ ...base, privateHost: false })).toBeNull()
     expect(localBackendAdvice({ ...base, pageHttps: false })).toBeNull()
-    expect(localBackendAdvice({ ...base, selfHosted: true })).toBeNull()
+    expect(localBackendAdvice({ ...base, ownServer: true })).toBeNull()
   })
 })

@@ -36,12 +36,11 @@ Pick how much you share; each option works on its own.
 | Option | You give Cardinal | Cardinal's servers see |
 | --- | --- | --- |
 | **No credentials** | One query result you paste, and dashboard or rule files you upload | Nothing |
-| **[Run it on your machine](#run-it-on-your-machine)** | Credentials, kept on your machine | Nothing |
 | **Direct** | Credentials, kept in your browser | Nothing: the browser calls your backend, which must allow CORS |
-| **Cardinal's proxy** | Credentials, kept in your browser | Each request and its token in transit, never stored or logged |
+| **[Your own Cardinal server](#run-it-on-your-machine)** | Credentials, kept on your machine | Nothing: it serves the app, or is the proxy for cardinal.ta3.dev |
 
-Grafana Cloud doesn't allow browser requests, so from cardinal.ta3.dev it needs the proxy. Cardinal asks before
-using it; you can turn it off in **Settings → Privacy**.
+The hosted app has no proxy. Backends that don't allow browser requests, Grafana Cloud included, are reached
+through a Cardinal server you run: open the app it serves, or keep using cardinal.ta3.dev with it as the proxy.
 
 **No credentials.** Run `count by (job, __name__) ({__name__=~".+"})` as an instant query wherever you already
 have access (Grafana Explore, `curl`, `promtool`) and paste the result under **Settings → Metrics → Paste a result**.
@@ -63,19 +62,13 @@ bun run test
 bun run deploy     # build and deploy to Cloudflare
 ```
 
-For production, set a secret that signs proxy tokens:
-
-```bash
-openssl rand -hex 32 | bunx wrangler secret put PROXY_SECRET
-```
-
-Locally, put it in `.dev.vars` together with `PUBLIC_HOSTNAMES=localhost,127.0.0.1`. Set `PUBLIC_HOSTNAMES` and
-`routes` in `wrangler.jsonc` to your own domain.
+Locally, put `PUBLIC_HOSTNAMES=localhost,127.0.0.1` in `.dev.vars`. Set `PUBLIC_HOSTNAMES` and `routes` in
+`wrangler.jsonc` to your own domain.
 
 ## Run it on your machine
 
 Cardinal runs locally as the whole app plus its proxy. It listens on `127.0.0.1` only, and your browser talks to
-it instead of a Cardinal server, so backends on your network work without CORS.
+it instead of a Cardinal server, so backends on your network and backends without CORS work.
 
 ```bash
 npx @ta3/cardinal          # then open http://localhost:9181
@@ -90,20 +83,34 @@ curl -fsSL https://github.com/TA3/cardinal/releases/latest/download/install.sh |
 cardinal
 ```
 
-Already working on cardinal.ta3.dev? **Continue on your machine** (shown when you enter an address on your network)
-opens the local app with your URLs, rules and prices carried over. Tokens never are.
+Already working on cardinal.ta3.dev? **Continue on your machine** opens the local app with your URLs, rules and
+prices carried over. Tokens never are.
+
+### Use it as cardinal.ta3.dev's proxy
+
+To keep using the hosted app, let it use your server as its proxy:
+
+```bash
+npx @ta3/cardinal --allow-origin https://cardinal.ta3.dev
+```
+
+Then set `http://localhost:9181` under **Settings → Your Cardinal server** (or **⋮ → Run Cardinal yourself**).
+Proxy-mode requests then go from the page to your server and from there to the backend; Cardinal's servers
+never see them. Only the sites you name may use it, and only while it runs. Chrome asks once to let the site
+reach apps on your device. Safari can block `http://localhost` from an https page; open the local app instead.
 
 ## Self-host
 
-The container serves the app and a proxy that, unlike the hosted one, reaches private and loopback hosts, so
-Prometheus, Loki and Grafana on your network work without CORS.
+The container serves the app and its proxy, which reaches private and loopback hosts, so Prometheus, Loki and
+Grafana on your network work without CORS.
 
 ```bash
-docker run -p 9181:9181 ghcr.io/ta3/cardinal
+docker run -p 127.0.0.1:9181:9181 ghcr.io/ta3/cardinal
 ```
 
-Limit what it may reach with `--allow-hosts`. Only the app it serves can use its proxy, but anyone who can open
-that app can, so keep it on a trusted network or behind auth. Agent sessions need the hosted app.
+Limit what it may reach with `--allow-hosts`, and let other sites use it as their proxy with `--allow-origin`.
+Only the app it serves (and those sites) can use its proxy, but anyone who can open that app can, so keep it on a
+trusted network or behind auth, and name its host with `--public-hosts`. Agent sessions need the hosted app.
 
 ## Connect an agent
 
@@ -133,8 +140,9 @@ creates duplicate samples.
 <br />
 
 - The React app is served as static assets from the Worker.
-- `/api/proxy/*` forwards read-only API calls to backends without CORS. It refuses private hosts, only allows known
-  paths, is rate limited, and needs a short-lived token from `/api/proxy-token`.
+- The hosted Worker has no proxy. The self-hosted server's `/api/proxy/*` forwards read-only API calls for the
+  app it serves (and sites named with `--allow-origin`): it only allows known paths and needs a short-lived token
+  from `/api/proxy-token`.
 - `/mcp` and `/api/sessions` run agent sessions. Each session is a Durable Object holding a WebSocket to your tab, which
   runs every query with its own connection, so the Worker and the agent never see your credentials.
 

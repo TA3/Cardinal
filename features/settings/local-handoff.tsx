@@ -1,10 +1,12 @@
 import { ArrowSquareOutIcon, InfoIcon } from "@phosphor-icons/react"
+import { Link } from "react-router"
 
+import { paths } from "@/app/paths"
 import { CodeBlock } from "@/components/code-block"
 import { Button } from "@/components/ui/button"
 import { corsFlag } from "@/features/settings/connection-check"
-import { RUN_LOCALLY_DOCS } from "@/features/settings/problem-line"
 import { handoffUrl, type HandoffConnection } from "@/lib/core/handoff"
+import { proxyCommand } from "@/lib/core/own-server"
 import type { Signal } from "@/lib/core/signals"
 import { localBackendAdvice } from "@/lib/core/transport-plan"
 import { isPrivateHost } from "@/lib/sources/proxy-constants"
@@ -14,10 +16,8 @@ import { useSelfHosted } from "@/lib/store/server-store"
 
 // A backend on the user's network, from the hosted (https) page: say what the
 // browser will do before they try, and offer the way that always works, the
-// local `cardinal` server, with everything carried over (lib/core/handoff).
-
-/** Needs Node 20+; the install page has binaries and Docker for everyone else. */
-export const INSTALL_COMMAND = "npx @ta3/cardinal"
+// local `cardinal` server: open it with everything carried over
+// (lib/core/handoff), or set it as this page's proxy.
 
 /** Opens the local app with this browser's work and, if given, the connection being typed. Tokens stay here. */
 export function ContinueLocallyButton({
@@ -65,13 +65,14 @@ function hostname(url: string) {
 /** Shown under the URL field when the hosted page is about to call a backend on a private network. */
 export function LocalBackendNotice({ signal, draft }: { signal: Signal; draft: HandoffConnection }) {
   const selfHosted = useSelfHosted()
+  const proxyServer = useAppStore((state) => state.proxyServer)
   const target = hostname(draft.baseUrl)
   const advice = target
     ? localBackendAdvice({
         pageHttps: globalThis.location?.protocol === "https:",
         privateHost: isPrivateHost(target.hostname),
         plainHttp: target.protocol === "http:",
-        selfHosted,
+        ownServer: selfHosted || proxyServer !== "",
         localNetworkAccess: supportsLocalNetworkAccess(),
       })
     : null
@@ -88,7 +89,7 @@ export function LocalBackendNotice({ signal, draft }: { signal: Signal; draft: H
             <>
               <span className="font-medium">This browser won&apos;t reach http:// on your network from this page.</span>{" "}
               <span className="text-muted-foreground">
-                Safari and Firefox block it. Run Cardinal on your machine and continue there: it reaches {target.host} without CORS. {carried}
+                Safari and Firefox block it. Run Cardinal on your machine: it reaches {target.host} without CORS. Continue there, or keep this page and set your server as its proxy. {carried}
               </span>
             </>
           ) : (
@@ -99,20 +100,20 @@ export function LocalBackendNotice({ signal, draft }: { signal: Signal; draft: H
               </span>{" "}
               <span className="text-muted-foreground">
                 {signal === "metrics"
-                  ? "For Prometheus, start it with the flag below. Or skip CORS by running Cardinal on your machine."
-                  : "For Loki, allow this origin in the proxy in front of it. Or skip CORS by running Cardinal on your machine."}
+                  ? "For Prometheus, start it with the flag below. Or skip CORS: run Cardinal on your machine and use it as this page's proxy."
+                  : "For Loki, allow this origin in the proxy in front of it. Or skip CORS: run Cardinal on your machine and use it as this page's proxy."}
               </span>
             </>
           )}
         </span>
       </p>
       {advice !== "blocked" && signal === "metrics" ? <CodeBlock code={corsFlag(origin)} /> : null}
-      {advice === "blocked" ? <CodeBlock code={INSTALL_COMMAND} /> : null}
+      {advice === "blocked" ? <CodeBlock code={proxyCommand(origin)} /> : null}
       <div className="flex flex-wrap items-center gap-2">
         <ContinueLocallyButton signal={signal} draft={draft} variant={advice === "blocked" ? "default" : "outline"} />
-        <a href={RUN_LOCALLY_DOCS} target="_blank" rel="noreferrer" className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline">
-          {advice === "blocked" ? "No Node? Other ways to install" : "How to run it locally"}
-        </a>
+        <Link to={paths.ownServer} className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline">
+          {advice === "blocked" ? "Use it as this page's proxy, or install without Node" : "How to run it yourself"}
+        </Link>
       </div>
     </div>
   )

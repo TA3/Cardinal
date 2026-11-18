@@ -23,7 +23,7 @@ import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 import { hostOf } from "@/features/grafana/via-grafana"
-import { privateHostHint, RouteField } from "@/features/settings/route-field"
+import { proxyModeHint, RouteField } from "@/features/settings/route-field"
 import { routeLabel, withAutoMode } from "@/features/settings/auto-mode"
 import { ProblemLine } from "@/features/settings/problem-line"
 import { grafanaConnection } from "@/features/usage/grafana-store"
@@ -35,14 +35,6 @@ import { useSelfHosted } from "@/lib/store/server-store"
 import { cn } from "@/lib/utils"
 
 const SERVICE_ACCOUNT_DOCS = "https://grafana.com/docs/grafana/latest/administration/service-accounts/"
-
-function hostnameOf(url: string) {
-  try {
-    return url.trim() ? new URL(url.trim()).hostname : null
-  } catch {
-    return null
-  }
-}
 
 /**
  * Settings → Grafana: the one home for the Grafana URL and token. Connect
@@ -73,10 +65,9 @@ export function GrafanaSection() {
     setCheck(null)
     setProblem(null)
   }
-  const hostname = hostnameOf(settings.baseUrl)
   const selfHosted = useSelfHosted()
   const manual = settings.modeManual ? settings.mode : null
-  const privateHint = manual ? privateHostHint(hostname, settings.mode, selfHosted) : null
+  const privateHint = manual ? proxyModeHint(settings.mode, selfHosted) : null
 
   async function test() {
     if (!connection) return
@@ -184,7 +175,7 @@ export function GrafanaSection() {
                   {privateHint ?? "Direct needs Grafana to allow this origin (CORS), e.g. in a reverse proxy."}
                 </p>
               ) : null}
-              {problem ? <ProblemLine problem={problem} onRetry={() => void test()} /> : null}
+              {problem ? <ProblemLine problem={problem} /> : null}
               {check ? (
                 <p className="flex items-center gap-1.5 text-sm text-brand-ink" role="status">
                   <CheckCircleIcon className="size-4" weight="fill" />

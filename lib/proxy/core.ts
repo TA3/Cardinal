@@ -1,8 +1,9 @@
-import { isPrivateHost, PROXY_ERROR_HEADER, PROXY_PREFIX, PROXY_TARGET_HEADER } from "@/lib/sources/proxy-constants"
+import { PROXY_ERROR_HEADER, PROXY_PREFIX, PROXY_TARGET_HEADER } from "@/lib/sources/proxy-constants"
 
-// The forwarding half of Cardinal's proxy, shared by the hosted Worker
-// (worker/proxy.ts) and the self-hosted server (server/). Callers authenticate
-// the request first; this checks the target and path and forwards it. Only
+// The forwarding half of the self-hosted server's proxy (server/). Callers
+// authenticate the request first (lib/proxy/guard); this checks the target
+// and path and forwards it. Private and loopback targets are fine: the server
+// runs on the user's own machine or network. Only
 // read-style observability APIs, the Adaptive Metrics and Adaptive Logs APIs
 // and Grafana's dashboard create endpoint are reachable. Nothing is stored.
 
@@ -85,8 +86,6 @@ export function isHostAllowed(target: URL, allowHosts: readonly string[]) {
 }
 
 export interface ForwardOptions {
-  /** Refuse loopback and private targets. The hosted Worker does; the self-hosted server doesn't. */
-  blockPrivate: boolean
   /** Optional target allowlist (see isHostAllowed). */
   allowHosts?: readonly string[]
   /** For tests. */
@@ -106,9 +105,6 @@ export async function forwardProxyRequest(request: Request, options: ForwardOpti
   }
   if (target.protocol !== "https:" && target.protocol !== "http:") return proxyError(400, "Target must be http(s)")
   if (target.username || target.password) return proxyError(400, "Credentials in the target URL are not allowed")
-  if (options.blockPrivate && isPrivateHost(target.hostname)) {
-    return proxyError(400, "Private and loopback hosts cannot be proxied. Use direct mode for backends on your network.", "private")
-  }
   if (!isHostAllowed(target, options.allowHosts ?? [])) {
     return proxyError(403, `${target.host} is not in this server's host allowlist (--allow-hosts)`, "host")
   }

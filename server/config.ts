@@ -7,6 +7,8 @@ export interface ServerConfig {
   allowHosts: string[]
   /** Host names this server is reached by, besides localhost and IP addresses (DNS rebinding guard). */
   publicHosts: string[]
+  /** Other sites (origins) that may use this server as their proxy, e.g. the hosted app. */
+  allowOrigins: string[]
   /** Serve the app from this directory instead of the embedded copy. */
   staticDir?: string
 }
@@ -21,11 +23,26 @@ Options (environment variable in brackets):
   --host <addr>         Address to bind, default 127.0.0.1 (0.0.0.0 in Docker) [CARDINAL_HOST]
   --allow-hosts <list>  Only proxy to these hosts: host, host:port or *.domain, comma-separated [CARDINAL_ALLOW_HOSTS]
   --public-hosts <list> Host names the server is reached by, besides localhost and IPs [CARDINAL_PUBLIC_HOSTS]
+  --allow-origin <list> Sites that may use this server as their proxy, e.g. https://cardinal.ta3.dev [CARDINAL_ALLOW_ORIGINS]
   --static <dir>        Serve the app from a directory instead of the embedded build
   --version             Print the version
   --help                Show this help`
 
 export class ConfigError extends Error {}
+
+/** `https://host[:port]`, as browsers send it in Origin. Throws ConfigError on anything else. */
+function origin(value: string) {
+  let url: URL
+  try {
+    url = new URL(value)
+  } catch {
+    throw new ConfigError(`Invalid origin: ${value} (expected e.g. https://cardinal.ta3.dev)`)
+  }
+  if (!["http:", "https:"].includes(url.protocol) || url.pathname !== "/" || url.search || url.hash || url.username) {
+    throw new ConfigError(`Invalid origin: ${value} (scheme, host and port only, e.g. https://cardinal.ta3.dev)`)
+  }
+  return url.origin
+}
 
 function list(value: string | undefined) {
   return (value ?? "")
@@ -42,7 +59,7 @@ export function parseConfig(argv: readonly string[], env: Record<string, string 
     const match = arg.match(/^--([a-z-]+)(?:=(.*))?$/)
     if (!match) throw new ConfigError(`Unknown argument: ${arg}`)
     const [, name, inline] = match
-    if (!["port", "host", "allow-hosts", "public-hosts", "static"].includes(name)) throw new ConfigError(`Unknown option: --${name}`)
+    if (!["port", "host", "allow-hosts", "public-hosts", "allow-origin", "static"].includes(name)) throw new ConfigError(`Unknown option: --${name}`)
     const value = inline ?? argv[++index]
     if (value === undefined) throw new ConfigError(`--${name} needs a value`)
     flags.set(name, [...(flags.get(name) ?? []), value])
@@ -58,6 +75,8 @@ export function parseConfig(argv: readonly string[], env: Record<string, string 
     host: flag("host") ?? env.CARDINAL_HOST ?? "127.0.0.1",
     allowHosts: list(flag("allow-hosts") ?? env.CARDINAL_ALLOW_HOSTS),
     publicHosts: list(flag("public-hosts") ?? env.CARDINAL_PUBLIC_HOSTS).map((host) => host.toLowerCase()),
+    // Repeatable, unlike the other lists: each --allow-origin adds sites.
+    allowOrigins: Array.from(new Set(list(flags.get("allow-origin")?.join(",") ?? env.CARDINAL_ALLOW_ORIGINS).map(origin))),
     staticDir: flag("static"),
   }
 }

@@ -1,6 +1,15 @@
-import { forwardProxyRequest, proxyError } from "../lib/proxy/core"
-import { PROXY_ERROR_HEADER, PROXY_PREFIX, PROXY_TOKEN_HEADER, PROXY_TOKEN_PATH, SERVER_INFO_PATH, type ServerInfo } from "../lib/sources/proxy-constants"
-import { isSameOrigin, issueProxyToken, verifyProxyToken } from "../worker/guard"
+import { FORWARDED_REQUEST_HEADERS, forwardProxyRequest, proxyError } from "../lib/proxy/core"
+import {
+  CLIENT_HEADER,
+  PROXY_ERROR_HEADER,
+  PROXY_PREFIX,
+  PROXY_TARGET_HEADER,
+  PROXY_TOKEN_HEADER,
+  PROXY_TOKEN_PATH,
+  SERVER_INFO_PATH,
+  type ServerInfo,
+} from "../lib/sources/proxy-constants"
+import { isSameOrigin, issueProxyToken, verifyProxyToken } from "../lib/proxy/guard"
 import type { ServerConfig } from "./config"
 import { serveStatic, type Assets } from "./static"
 
@@ -9,7 +18,10 @@ import { serveStatic, type Assets } from "./static"
 // serves may use the proxy: requests must be same-origin and carry a proxy
 // token, and the Host must be localhost, an IP, a non-public name (.local,
 // .lan, single-label…) or listed in --public-hosts, so a DNS-rebinding page
-// posing as this origin can't use it. Other origins get no CORS headers.
+// posing as this origin can't use it. Other origins get no CORS headers,
+// except sites named with --allow-origin (the hosted app, say): they may use
+// the proxy as this page does, so their pages keep credentials and queries on
+// this machine too.
 
 export const AGENT_UNAVAILABLE =
   "Agent sessions need the hosted app at https://cardinal.ta3.dev; this server keeps your credentials and queries on your own machine."
@@ -45,6 +57,35 @@ export interface HandlerOptions {
 
 export type ServerHandler = (request: Request, clientIp?: string) => Promise<Response>
 
+/** What an allowed site may call: whether this is a Cardinal server, a proxy token and the proxy. */
+function crossOriginPath(path: string) {
+  return path === SERVER_INFO_PATH || path === PROXY_TOKEN_PATH || path.startsWith(`${PROXY_PREFIX}/`)
+}
+
+const CORS_REQUEST_HEADERS = [...FORWARDED_REQUEST_HEADERS, PROXY_TARGET_HEADER, PROXY_TOKEN_HEADER, CLIENT_HEADER].map((name) => name.toLowerCase()).join(", ")
+
+function preflight(request: Request, origin: string) {
+  const headers = new Headers({
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE",
+    "Access-Control-Allow-Headers": CORS_REQUEST_HEADERS,
+    "Access-Control-Max-Age": "600",
+    Vary: "Origin",
+  })
+  // Chrome's Private Network Access preflight, for a public page calling this machine.
+  if (request.headers.get("Access-Control-Request-Private-Network") === "true") headers.set("Access-Control-Allow-Private-Network", "true")
+  return new Response(null, { status: 204, headers })
+}
+
+function withCors(response: Response, origin: string) {
+  const headers = new Headers(response.headers)
+  headers.set("Access-Control-Allow-Origin", origin)
+  headers.append("Vary", "Origin")
+  // Lets the page tell this proxy's own failures apart from the backend's.
+  headers.set("Access-Control-Expose-Headers", PROXY_ERROR_HEADER)
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers })
+}
+
 export function createServerHandler(options: HandlerOptions): ServerHandler {
   const { config, assets, version } = options
   const proxySecret = options.proxySecret ?? crypto.randomUUID()
@@ -77,7 +118,7 @@ export function createServerHandler(options: HandlerOptions): ServerHandler {
       if (!(await verifyProxyToken(proxySecret, request.headers.get(PROXY_TOKEN_HEADER) ?? "", ip))) {
         return proxyError(401, "Missing or expired proxy token", "token")
       }
-      return forwardProxyRequest(request, { blockPrivate: false, allowHosts: config.allowHosts, fetch: options.fetch })
+      return forwardProxyRequest(request, { allowHosts: config.allowHosts, fetch: options.fetch })
     }
 
     return json({ error: "Not found" }, 404)
@@ -87,6 +128,12 @@ export function createServerHandler(options: HandlerOptions): ServerHandler {
     const path = new URL(request.url).pathname
     if (path === "/healthz") return new Response("ok", { headers: { "Content-Type": "text/plain", "Cache-Control": "no-store" } })
     if (!path.startsWith("/api/") && path !== "/mcp" && !path.startsWith("/mcp/")) return serveStatic(request, assets)
+    const origin = request.headers.get("Origin")
+    const allowed = origin !== null && config.allowOrigins.includes(origin) && crossOriginPath(path) ? origin : null
+    if (allowed) {
+      if (request.method === "OPTIONS") return untrustedHost(request) ?? preflight(request, allowed)
+      return withCors(await route(request, clientIp), allowed)
+    }
     // Only the app this server serves: other origins, scripts and curl are refused.
     if (!isSameOrigin(request)) return json({ error: "Only the Cardinal app served here can use this server" }, 403)
     return route(request, clientIp)
