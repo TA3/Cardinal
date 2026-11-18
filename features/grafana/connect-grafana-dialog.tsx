@@ -46,7 +46,7 @@ import {
 } from "@/lib/core/grafana-connect"
 import type { Signal } from "@/lib/core/signals"
 import { listDatasources } from "@/lib/sources/grafana"
-import type { TransportMode } from "@/lib/sources/transport"
+import { sameHost, type TransportMode } from "@/lib/sources/transport"
 import { fetchLogsSnapshot, testLokiConnection } from "@/lib/sources/loki"
 import { fetchSnapshot, testConnection } from "@/lib/sources/prometheus"
 import { currentConnection, useAppStore, type ConnectionSettings } from "@/lib/store/app-store"
@@ -310,6 +310,8 @@ function ConnectFlow({ onDone }: { onDone: () => void }) {
   const [manual, setManual] = React.useState(Boolean(saved.modeManual))
   const selfHosted = useSelfHosted()
   const [remember, setRemember] = React.useState(saved.rememberToken)
+  // Set in Settings → Grafana, for this Grafana only.
+  const tlsSkipVerify = Boolean(saved.tlsSkipVerify) && sameHost(url, saved.baseUrl)
   const [listing, setListing] = React.useState<{ status: "idle" | "loading" | "done"; latencyMs?: number; error?: ConnectionProblem }>({ status: "idle" })
   const [detection, setDetection] = React.useState<GrafanaDetection | null>(null)
   const [drafts, setDrafts] = React.useState<Record<Signal, ChoiceDraft> | null>(null)
@@ -334,7 +336,7 @@ function ConnectFlow({ onDone }: { onDone: () => void }) {
     const started = performance.now()
     try {
       const result = await withAutoMode(url, manual ? mode : null, (next) =>
-        listDatasources({ baseUrl: url.trim(), token, mode: next }, AbortSignal.timeout(GRAFANA_TIMEOUT_MS))
+        listDatasources({ baseUrl: url.trim(), token, mode: next, tlsSkipVerify }, AbortSignal.timeout(GRAFANA_TIMEOUT_MS))
       )
       if (!result.ok) {
         setListing({ status: "idle", error: listError(result.error, result.mode, token) })
@@ -413,6 +415,7 @@ function ConnectFlow({ onDone }: { onDone: () => void }) {
       token,
       mode,
       rememberToken: remember,
+      tlsSkipVerify,
       scan,
       choices: { metrics: toChoice(drafts.metrics), logs: toChoice(drafts.logs) },
     })
@@ -426,6 +429,7 @@ function ConnectFlow({ onDone }: { onDone: () => void }) {
       mode,
       modeManual: manual,
       rememberToken: remember,
+      tlsSkipVerify,
       choices: { ...(url.trim() === saved.baseUrl.trim() ? saved.choices : {}), ...plan.remember },
     })
     try {

@@ -1,5 +1,10 @@
 export const PROXY_PREFIX = "/api/proxy"
 export const PROXY_TARGET_HEADER = "X-Cardinal-Target"
+/**
+ * "1" when the connection skips the backend's certificate check (self-signed
+ * backends). Only a Cardinal server can, so it only rides on proxied requests.
+ */
+export const PROXY_SKIP_VERIFY_HEADER = "X-Cardinal-Skip-TLS-Verify"
 /** Short-lived token from PROXY_TOKEN_PATH, required on every proxied request. */
 export const PROXY_TOKEN_HEADER = "X-Cardinal-Proxy-Token"
 export const PROXY_TOKEN_PATH = "/api/proxy-token"

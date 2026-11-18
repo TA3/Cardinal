@@ -30,9 +30,9 @@ export function grafanaKey(baseUrl: string) {
   return baseUrl.trim().replace(/\/+$/, "")
 }
 
-export function grafanaConnection(settings: Pick<GrafanaSettings, "baseUrl" | "token" | "mode">): GrafanaConnection | null {
+export function grafanaConnection(settings: Pick<GrafanaSettings, "baseUrl" | "token" | "mode" | "tlsSkipVerify">): GrafanaConnection | null {
   const baseUrl = grafanaKey(settings.baseUrl)
-  return baseUrl ? { baseUrl, token: settings.token, mode: settings.mode } : null
+  return baseUrl ? { baseUrl, token: settings.token, mode: settings.mode, tlsSkipVerify: settings.tlsSkipVerify } : null
 }
 
 /** The Grafana connection's settings, outside React. */

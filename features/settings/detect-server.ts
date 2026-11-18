@@ -1,4 +1,4 @@
-import { selfHostedServer } from "@/lib/sources/transport"
+import { localAccessState, selfHostedServer } from "@/lib/sources/transport"
 import { useAppStore } from "@/lib/store/app-store"
 import { useServerStore } from "@/lib/store/server-store"
 
@@ -8,6 +8,8 @@ import { useServerStore } from "@/lib/store/server-store"
  * default to proxy mode.
  */
 export async function detectServer() {
+  // Learns whether the browser has Local Network Access, for the advice shown before connecting.
+  void localAccessState()
   const server = await selfHostedServer()
   useServerStore.getState().setServer(server)
   if (!server) return

@@ -12,6 +12,7 @@ interface Connection {
   instanceId?: string
   token?: string
   tenant?: string
+  tlsSkipVerify?: boolean
 }
 interface Progress {
   done: number
@@ -74,6 +75,28 @@ describe("proxy mode", () => {
         name: "ProxyServerError",
         server: "http://localhost:9181",
       })
+    } finally {
+      configureProxyServer("")
+      globalThis.fetch = original
+    }
+  })
+
+  it("asks the server to skip the certificate check only for proxied requests of connections set to", async () => {
+    const { send, configureProxyServer } = await loadTransport()
+    const seen: Array<{ url: string; skip: string | null }> = []
+    const original = globalThis.fetch
+    globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+      seen.push({ url: String(url), skip: new Headers(init?.headers).get("X-Cardinal-Skip-TLS-Verify") })
+      if (String(url).includes("/api/proxy-token")) return Response.json({ token: "t", expiresAt: "2999-01-01T00:00:00Z" })
+      return Response.json({ status: "success" })
+    }) as typeof fetch
+    configureProxyServer("http://localhost:9181")
+    try {
+      await send({ ...base, mode: "proxy", tlsSkipVerify: true }, { path: "/api/v1/labels" })
+      await send({ ...base, mode: "proxy" }, { path: "/api/v1/labels" })
+      await send({ ...base, mode: "direct", tlsSkipVerify: true }, { path: "/api/v1/labels" })
+      const queries = seen.filter(({ url }) => !url.includes("/api/proxy-token"))
+      expect(queries.map(({ skip }) => skip)).toEqual(["1", null, null])
     } finally {
       configureProxyServer("")
       globalThis.fetch = original

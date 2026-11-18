@@ -96,8 +96,37 @@ npx @ta3/cardinal --allow-origin https://cardinal.ta3.dev
 
 Then set `http://localhost:9181` under **Settings → Your Cardinal server** (or **⋮ → Run Cardinal yourself**).
 Proxy-mode requests then go from the page to your server and from there to the backend; Cardinal's servers
-never see them. Only the sites you name may use it, and only while it runs. Chrome asks once to let the site
-reach apps on your device. Safari can block `http://localhost` from an https page; open the local app instead.
+never see them. Only the sites you name may use it, and only while it runs. Chrome, Edge and Firefox ask once to
+let the site reach apps on your device.
+
+Safari blocks `http://localhost` from https pages outright. Serve it over HTTPS with a certificate your Mac trusts,
+then use `https://localhost:9181` as the address:
+
+```bash
+npx @ta3/cardinal --allow-origin https://cardinal.ta3.dev --tls-cert cert.pem --tls-key key.pem
+```
+
+### Options
+
+| Option | |
+| --- | --- |
+| `--allow-origin <site>` | Lets a site use it as its proxy. Repeat it for more. |
+| `--allow-hosts <list>` | Only proxies to these backends: `host`, `host:port` or `*.domain`. |
+| `--tls-cert <file>`, `--tls-key <file>` | Serves HTTPS with your certificate (PEM). |
+| `--proxy-via <url>` | Reaches every backend through an HTTP proxy. Without it, `HTTPS_PROXY` and `NO_PROXY` apply. |
+| `--proxy-ca <file>` | Trusts your internal CA for backends, as well as the usual ones. |
+| `--proxy-timeout <s>` | Seconds to wait for a backend: 30 by default, at most 240. |
+| `--debug` | Logs every API request: path, backend, status, time and why it failed. Never headers or credentials. |
+| `--port <n>`, `--host <addr>` | Where it listens: 9181 on 127.0.0.1 by default. |
+| `--public-hosts <list>` | Host names it is reached by, besides localhost and IP addresses. |
+| `--open` | Opens the app in your browser once it starts. |
+
+Most have an environment variable too (`CARDINAL_DEBUG=1`, `CARDINAL_PROXY_VIA=…`); `cardinal --help` lists them.
+Without `--debug` it still says when it turns a site or host name away, and which flag would let it in.
+
+A backend with a self-signed certificate: turn on **Skip certificate check** for that connection, under **Advanced**
+in its settings. Only that connection skips it, through your Cardinal server; every other backend, Grafana Cloud
+included, is still checked.
 
 ## Self-host
 

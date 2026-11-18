@@ -32,7 +32,7 @@ import { Progress } from "@/components/ui/progress"
 import { cancelGrafanaScan, grafanaConnection, importUsageFiles, startGrafanaScan, useGrafanaStore } from "@/features/usage/grafana-store"
 import { useNow } from "@/features/usage/use-dashboard-usage"
 import { formatAge, hostOf, type GrafanaUsageIndex } from "@/lib/core/grafana-usage"
-import { ownServerProblem, type ConnectionProblem } from "@/features/settings/connection-check"
+import { ownServerProblem, tlsProblem, type ConnectionProblem } from "@/features/settings/connection-check"
 import { ProblemLine } from "@/features/settings/problem-line"
 import { CorsError, HttpError, type TransportMode } from "@/lib/sources/transport"
 import { useAppStore } from "@/lib/store/app-store"
@@ -59,7 +59,7 @@ export function explainGrafanaError(error: unknown, mode: TransportMode) {
 
 /** A failed Grafana request as a problem line; one that needs the user's own Cardinal server says how to get it. */
 export function grafanaProblem(error: unknown, mode: TransportMode, title: string): ConnectionProblem {
-  return ownServerProblem(error) ?? { kind: "other", title, detail: explainGrafanaError(error, mode) }
+  return ownServerProblem(error) ?? tlsProblem(error, "Grafana") ?? { kind: "other", title, detail: explainGrafanaError(error, mode) }
 }
 
 function ScanProgressLine() {

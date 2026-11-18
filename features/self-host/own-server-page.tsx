@@ -1,5 +1,5 @@
 import * as React from "react"
-import { ArrowSquareOutIcon, GlobeIcon, HardDrivesIcon, PlugsConnectedIcon, TerminalWindowIcon } from "@phosphor-icons/react"
+import { ArrowSquareOutIcon, GlobeIcon, HardDrivesIcon, PlugsConnectedIcon, SlidersHorizontalIcon, TerminalWindowIcon } from "@phosphor-icons/react"
 
 import { CodeBlock } from "@/components/code-block"
 import { Frame, FrameHeader, FrameWell } from "@/components/frame"
@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ContinueLocallyButton } from "@/features/settings/local-handoff"
 import { ProxyServerField } from "@/features/settings/proxy-server-field"
-import { INSTALL_SCRIPT, LOCAL_APP_URL, RELEASES_URL, startCommand, type InstallMethod } from "@/lib/core/own-server"
+import { INSTALL_SCRIPT, LOCAL_APP_URL, LOCAL_HTTPS_URL, RELEASES_URL, SERVER_OPTIONS, startCommand, type InstallMethod } from "@/lib/core/own-server"
 import { useAppStore } from "@/lib/store/app-store"
 import { useServerStore } from "@/lib/store/server-store"
 
@@ -104,6 +104,12 @@ export function OwnServerPage() {
             <FrameWell className="flex flex-col gap-3">
               <p className="text-sm text-muted-foreground">
                 This page sends each request to your server, which forwards it to the backend. Started with the flag above, it answers here.
+                Chrome, Edge and Firefox ask once to let this site reach apps on your device: allow it.
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Safari blocks https pages from calling http://localhost. Add{" "}
+                <code className="font-mono text-foreground">--tls-cert &lt;file&gt; --tls-key &lt;file&gt;</code> with a certificate your Mac
+                trusts, then use <code className="font-mono text-foreground">{LOCAL_HTTPS_URL}</code>.
               </p>
               <ProxyServerField id="own-server-address" />
             </FrameWell>
@@ -112,16 +118,36 @@ export function OwnServerPage() {
       </div>
 
       <Frame>
+        <FrameHeader icon={SlidersHorizontalIcon} title="Options" meta="cardinal --help lists them all" />
+        <FrameWell>
+          <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-[auto_1fr]">
+            {SERVER_OPTIONS.map((option) => (
+              <div key={option.flag} className="contents">
+                <dt>
+                  <code className="font-mono text-xs text-foreground">{option.flag}</code>
+                </dt>
+                <dd className="-mt-2 text-muted-foreground sm:mt-0">{option.what}</dd>
+              </div>
+            ))}
+          </dl>
+          <p className="mt-4 text-xs text-muted-foreground">
+            Most have an environment variable too, like <code className="font-mono text-foreground">CARDINAL_DEBUG=1</code>, handy in Docker.
+          </p>
+        </FrameWell>
+      </Frame>
+
+      <Frame>
         <FrameHeader title="Good to know" />
         <FrameWell>
           <ul className="flex list-disc flex-col gap-1.5 pl-4 text-sm text-muted-foreground">
             <li>It listens on 127.0.0.1. With --allow-origin, only that site may use its proxy, and only while it runs.</li>
             <li>
-              Chrome asks once to let this site reach apps on your device: allow it. Safari can refuse http://localhost from an https page;
-              open the local app instead.
+              A backend with a self-signed certificate? Turn on Skip certificate check for that connection, under Advanced. Only it skips
+              the check; Grafana Cloud and the rest stay checked.
             </li>
             <li>
-              Limit what it may reach with <code className="font-mono text-foreground">--allow-hosts prometheus.internal,loki.internal</code>.
+              Something not working? It says in its terminal when it turns a site away, and which flag would let it in.{" "}
+              <code className="font-mono text-foreground">--debug</code> shows every request.
             </li>
             <li>
               To share one with your team, run the Docker image on a server behind your own auth and name its host with --public-hosts: anyone

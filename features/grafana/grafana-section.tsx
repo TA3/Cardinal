@@ -26,10 +26,12 @@ import { hostOf } from "@/features/grafana/via-grafana"
 import { proxyModeHint, RouteField } from "@/features/settings/route-field"
 import { routeLabel, withAutoMode } from "@/features/settings/auto-mode"
 import { ProblemLine } from "@/features/settings/problem-line"
+import { SkipVerifyField } from "@/features/settings/skip-verify-field"
 import { grafanaConnection } from "@/features/usage/grafana-store"
 import type { ConnectionProblem } from "@/features/settings/connection-check"
 import { GRAFANA_TIMEOUT_MS, grafanaProblem, GrafanaUsagePanel } from "@/features/usage/grafana-section"
 import { testGrafana, type GrafanaCheck } from "@/lib/sources/grafana"
+import { sameHost } from "@/lib/sources/transport"
 import { useAppStore } from "@/lib/store/app-store"
 import { useSelfHosted } from "@/lib/store/server-store"
 import { cn } from "@/lib/utils"
@@ -53,7 +55,7 @@ export function GrafanaSection() {
   const connection = grafanaConnection(settings)
   const used = Boolean(connection) || linked
   const [open, setOpen] = React.useState(used || hash === "#grafana")
-  const [advanced, setAdvanced] = React.useState(Boolean(settings.modeManual))
+  const [advanced, setAdvanced] = React.useState(Boolean(settings.modeManual || settings.tlsSkipVerify))
   const [lastHash, setLastHash] = React.useState(hash)
   if (hash !== lastHash) {
     setLastHash(hash)
@@ -61,7 +63,9 @@ export function GrafanaSection() {
   }
 
   const set = (patch: Partial<typeof settings>) => {
-    update(patch)
+    // A skipped certificate check is for this Grafana: another host starts checked again.
+    const moved = patch.baseUrl !== undefined && settings.tlsSkipVerify && !sameHost(patch.baseUrl, settings.baseUrl)
+    update(moved ? { ...patch, tlsSkipVerify: false } : patch)
     setCheck(null)
     setProblem(null)
   }
@@ -159,13 +163,20 @@ export function GrafanaSection() {
                   <CaretRightIcon className="size-3 transition-transform group-data-[state=open]/adv:rotate-90 motion-reduce:transition-none" />
                   Advanced
                   {manual ? <span className="font-normal">· {manual}</span> : null}
+                  {settings.tlsSkipVerify ? <span className="font-normal">· certificate not checked</span> : null}
                 </CollapsibleTrigger>
-                <CollapsibleContent className="pt-3">
+                <CollapsibleContent className="flex flex-col gap-4 pt-3">
                   <RouteField
                     id="grafana-mode"
                     value={manual ?? "auto"}
                     picked={manual || !connection ? undefined : settings.mode}
                     onChange={(mode) => set(mode === "auto" ? { modeManual: false } : { mode, modeManual: true })}
+                  />
+                  <SkipVerifyField
+                    id="grafana-skip-verify"
+                    baseUrl={settings.baseUrl}
+                    checked={Boolean(settings.tlsSkipVerify)}
+                    onCheckedChange={(checked) => set({ tlsSkipVerify: checked })}
                   />
                 </CollapsibleContent>
               </Collapsible>
@@ -175,7 +186,16 @@ export function GrafanaSection() {
                   {privateHint ?? "Direct needs Grafana to allow this origin (CORS), e.g. in a reverse proxy."}
                 </p>
               ) : null}
-              {problem ? <ProblemLine problem={problem} /> : null}
+              {problem ? (
+                <ProblemLine
+                  problem={problem}
+                  onFix={(patch) => {
+                    if (!patch.tlsSkipVerify) return
+                    set({ tlsSkipVerify: true })
+                    setAdvanced(true)
+                  }}
+                />
+              ) : null}
               {check ? (
                 <p className="flex items-center gap-1.5 text-sm text-brand-ink" role="status">
                   <CheckCircleIcon className="size-4" weight="fill" />

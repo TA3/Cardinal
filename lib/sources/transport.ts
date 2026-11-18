@@ -2,6 +2,7 @@ import {
   CLIENT_HEADER,
   PROXY_ERROR_HEADER,
   PROXY_PREFIX,
+  PROXY_SKIP_VERIFY_HEADER,
   PROXY_TARGET_HEADER,
   PROXY_TOKEN_HEADER,
   PROXY_TOKEN_PATH,
@@ -37,6 +38,8 @@ export interface Connection {
   /** Mimir / Cortex tenant, sent as X-Scope-OrgID. */
   tenant?: string
   mode: TransportMode
+  /** Don't check the backend's certificate (self-signed). Only the user's Cardinal server can, so only in proxy mode. */
+  tlsSkipVerify?: boolean
 }
 
 export interface HttpRequest {
@@ -68,6 +71,8 @@ export type ProxyFailure =
   | "dns"
   | "timeout"
   | "unreachable"
+  /** The backend's certificate isn't trusted (--proxy-ca, or the connection's Skip certificate check). */
+  | "tls"
   | "path"
   | "redirect"
   /** A target outside --allow-hosts. */
@@ -262,15 +267,27 @@ export class NoProxyServerError extends Error {
   }
 }
 
-/** The Cardinal server set as this page's proxy didn't answer, or doesn't let this page use it (no --allow-origin). */
+/**
+ * The Cardinal server set as this page's proxy didn't answer, doesn't let this
+ * page use it (no --allow-origin), or the browser kept the page from reaching
+ * it: `access` is the browser's local network permission at the time.
+ */
 export class ProxyServerError extends Error {
   constructor(
     readonly server: string,
-    cause?: unknown
+    cause?: unknown,
+    readonly access: LocalAccessState = "unsupported"
   ) {
     super(`Couldn't reach your Cardinal server at ${server}. Is it running, started with --allow-origin ${appOrigin()}?`, { cause })
     this.name = "ProxyServerError"
   }
+}
+
+/** A ProxyServerError for `server`, with the browser's permission to reach it. */
+async function proxyServerError(server: string, cause: unknown) {
+  const host = new URL(server).hostname
+  const space = isLoopbackHost(host) ? "loopback" : isPrivateHost(host) ? "local" : null
+  return new ProxyServerError(server, cause, space ? await localAccessState(space) : "granted")
 }
 
 function hostLabel(url: string) {
@@ -323,23 +340,45 @@ export function selfHostedServer() {
   return selfHostedCheck
 }
 
-/** Chrome's Local Network Access (Chrome 142+) adds `targetAddressSpace` to fetch. */
-function supportsLocalNetworkAccess() {
-  return typeof Request !== "undefined" && "targetAddressSpace" in Request.prototype
+/**
+ * Whether this page may reach the user's machine (loopback) or local network,
+ * from Chrome's Local Network Access (142+): "prompt" until the user answers
+ * the browser's prompt, "unsupported" where the browser has none (Safari,
+ * which blocks http://localhost from https pages outright).
+ */
+export type LocalAccessState = "granted" | "denied" | "prompt" | "unsupported"
+
+let localAccessSupported: boolean | null = null
+
+export async function localAccessState(space: "loopback" | "local" = "loopback"): Promise<LocalAccessState> {
+  if (typeof navigator === "undefined" || !navigator.permissions) return "unsupported"
+  try {
+    // Never "local-network-access": the old name crashes older Chrome versions.
+    const status = await navigator.permissions.query({ name: `${space}-network` as PermissionName })
+    localAccessSupported = true
+    return status.state
+  } catch {
+    localAccessSupported = false
+    return "unsupported"
+  }
 }
 
-export { supportsLocalNetworkAccess }
+/** Chrome's Local Network Access (Chrome 142+), as last seen by localAccessState (asked once at startup). */
+export function supportsLocalNetworkAccess() {
+  return localAccessSupported ?? (typeof Request !== "undefined" && "targetAddressSpace" in Request.prototype)
+}
 
 /**
- * Fetch options for a plain-http host on the local network (a backend in
- * direct mode). An HTTPS page may call one only when the fetch says
- * so: Local Network Access exempts it from mixed-content blocking and asks the
- * user once. Loopback is always allowed.
+ * Fetch options for a plain-http host on this machine or the local network
+ * (a backend in direct mode, or the user's Cardinal server) from an https
+ * page. Chrome requires the fetch to name the address space: that exempts it
+ * from mixed-content blocking and asks the user once. Other browsers ignore it.
  */
 function localNetworkInit(target: URL, init: RequestInit): RequestInit {
-  if (globalThis.location?.protocol !== "https:" || target.protocol !== "http:" || isLoopbackHost(target.hostname)) return init
-  if (!isPrivateHost(target.hostname)) return init
-  return { ...init, targetAddressSpace: "local" } as RequestInit
+  if (globalThis.location?.protocol !== "https:" || target.protocol !== "http:") return init
+  if (isLoopbackHost(target.hostname)) return { ...init, targetAddressSpace: "loopback" } as RequestInit
+  if (isPrivateHost(target.hostname)) return { ...init, targetAddressSpace: "local" } as RequestInit
+  return init
 }
 function isAbort(error: unknown) {
   return error instanceof DOMException && (error.name === "AbortError" || error.name === "TimeoutError")
@@ -355,7 +394,7 @@ export async function checkProxyServer(url: string, signal?: AbortSignal): Promi
     response = await fetch(target, localNetworkInit(target, { headers: { [CLIENT_HEADER]: "1" }, cache: "no-store", signal }))
   } catch (error) {
     if (isAbort(error)) throw error
-    throw new ProxyServerError(origin, error)
+    throw await proxyServerError(origin, error)
   }
   const body: unknown = response.ok ? await response.json().catch(() => null) : null
   if (!isServerInfo(body)) throw new Error(`${origin} answered, but not as a Cardinal server.`)
@@ -369,6 +408,15 @@ async function fetchServerInfo(signal?: AbortSignal): Promise<ServerInfo | null>
   return isServerInfo(body) ? body : null
 }
 
+/** Whether two base URLs name the same host and port; a skipped certificate check doesn't carry over to another backend. */
+export function sameHost(a: string, b: string) {
+  try {
+    return new URL(normalizeBaseUrl(a)).host === new URL(normalizeBaseUrl(b)).host
+  } catch {
+    return false
+  }
+}
+
 export async function send(connection: Connection, request: HttpRequest): Promise<Response> {
   const baseUrl = normalizeBaseUrl(connection.baseUrl)
   const proxy = connection.mode === "proxy" ? await proxyOrigin(baseUrl) : null
@@ -380,6 +428,7 @@ export async function send(connection: Connection, request: HttpRequest): Promis
     url = new URL(`${PROXY_PREFIX}${request.path}`, proxy.origin)
     headers[PROXY_TARGET_HEADER] = baseUrl
     headers[CLIENT_HEADER] = "1"
+    if (connection.tlsSkipVerify) headers[PROXY_SKIP_VERIFY_HEADER] = "1"
   } else {
     url = new URL(`${baseUrl}${request.path}`)
   }
@@ -410,7 +459,7 @@ export async function send(connection: Connection, request: HttpRequest): Promis
     if (isAbort(error)) throw error
     if (error instanceof ProxyTokenError) throw error
     if (!proxy) throw new CorsError(`${baseUrl}${request.path}`, error)
-    if (proxy.remote) throw new ProxyServerError(proxy.origin, error)
+    if (proxy.remote) throw await proxyServerError(proxy.origin, error)
     throw new Error(`Network error: could not reach the Cardinal server (${String(error)})`, { cause: error })
   }
 

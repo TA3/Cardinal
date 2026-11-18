@@ -172,6 +172,8 @@ export interface PlannedConnection {
   tenant: string
   mode: TransportMode
   rememberToken: boolean
+  /** Through Grafana's data source proxy it is Grafana's certificate: skipped when Grafana's is. Never for Grafana Cloud. */
+  tlsSkipVerify: boolean
 }
 
 /** Which data source a signal is connected through, kept so the connection form can say "via Grafana". */
@@ -209,6 +211,8 @@ export function connectGrafana(
     token: string
     mode: TransportMode
     rememberToken: boolean
+    /** Grafana's certificate isn't checked (Settings → Grafana). */
+    tlsSkipVerify?: boolean
     choices: Partial<Record<Signal, SignalChoice>>
     scan: boolean
   }
@@ -254,6 +258,7 @@ export function connectGrafana(
           tenant: "",
           mode: "proxy",
           rememberToken: options.rememberToken,
+          tlsSkipVerify: false,
         },
         link: { grafanaUrl: detection.grafanaUrl, uid: candidate.uid, name: candidate.name, baseUrl, via: "cloud" },
       })
@@ -269,6 +274,7 @@ export function connectGrafana(
         tenant: "",
         mode: options.mode,
         rememberToken: options.rememberToken,
+        tlsSkipVerify: Boolean(options.tlsSkipVerify),
       },
       link: { grafanaUrl: detection.grafanaUrl, uid: candidate.uid, name: candidate.name, baseUrl: candidate.proxyUrl, via: "grafana" },
     })

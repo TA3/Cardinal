@@ -9,7 +9,7 @@ const APP = "http://localhost:9181"
 const SAME = { "Sec-Fetch-Site": "same-origin" }
 
 function config(patch: Partial<ServerConfig> = {}): ServerConfig {
-  return { port: 9181, host: "127.0.0.1", allowHosts: [], publicHosts: [], allowOrigins: [], ...patch }
+  return { ...parseConfig([], {}), ...patch }
 }
 
 const assets = new Map<string, Blob>([
@@ -25,8 +25,16 @@ function setup(patch: Partial<ServerConfig> = {}) {
     void init
     return Response.json({ status: "success", data: { url: String(input) } })
   })
-  const handle = createServerHandler({ config: config(patch), assets, version: "1.2.3", proxySecret: "secret", fetch: upstream as unknown as typeof fetch })
-  return { handle, upstream }
+  const log = { warn: vi.fn<(message: string) => void>(), debug: vi.fn<(message: string) => void>() }
+  const handle = createServerHandler({
+    config: config(patch),
+    assets,
+    version: "1.2.3",
+    proxySecret: "secret",
+    fetch: upstream as unknown as typeof fetch,
+    log: patch.debug ? log : { warn: log.warn },
+  })
+  return { handle, upstream, log }
 }
 
 const PROXY_PATH = "/api/proxy/api/v1/query?query=up"
@@ -53,7 +61,37 @@ describe("shared proxy core", () => {
 
 describe("server config", () => {
   it("defaults to loopback and port 9181", () => {
-    expect(parseConfig([], {})).toEqual({ port: 9181, host: "127.0.0.1", allowHosts: [], publicHosts: [], allowOrigins: [], staticDir: undefined })
+    expect(parseConfig([], {})).toEqual({
+      port: 9181,
+      host: "127.0.0.1",
+      allowHosts: [],
+      publicHosts: [],
+      allowOrigins: [],
+      staticDir: undefined,
+      proxyTimeout: 30,
+      debug: false,
+      open: false,
+    })
+  })
+
+  it("takes switches with no value, or true and false", () => {
+    expect(parseConfig(["--debug", "--open", "--port", "1"], {})).toMatchObject({ debug: true, open: true, port: 1 })
+    expect(parseConfig(["--debug=false"], { CARDINAL_DEBUG: "1" }).debug).toBe(false)
+    expect(parseConfig([], { CARDINAL_DEBUG: "true", CARDINAL_OPEN: "yes" })).toMatchObject({ debug: true, open: true })
+    expect(() => parseConfig(["--debug=maybe"], {})).toThrow(ConfigError)
+  })
+
+  it("reads how the proxy reaches backends", () => {
+    expect(parseConfig(["--proxy-timeout", "120", "--proxy-via", "http://user:pass@proxy.corp:3128/", "--proxy-ca", "corp.pem"], {})).toMatchObject({
+      proxyTimeout: 120,
+      proxyVia: "http://user:pass@proxy.corp:3128",
+      proxyCa: "corp.pem",
+    })
+    // Skipping certificate checks is per connection, in the app.
+    expect(() => parseConfig(["--proxy-insecure"], {})).toThrow(ConfigError)
+    expect(parseConfig([], { CARDINAL_PROXY_VIA: "http://proxy:8080", CARDINAL_PROXY_TIMEOUT: "5" })).toMatchObject({ proxyVia: "http://proxy:8080", proxyTimeout: 5 })
+    for (const bad of ["0", "241", "soon"]) expect(() => parseConfig(["--proxy-timeout", bad], {})).toThrow(ConfigError)
+    for (const bad of ["proxy:3128", "socks5://proxy:1080"]) expect(() => parseConfig(["--proxy-via", bad], {})).toThrow(ConfigError)
   })
 
   it("reads the sites allowed to use the proxy, repeated or comma-separated, as origins", () => {
@@ -65,6 +103,13 @@ describe("server config", () => {
     for (const bad of ["cardinal.ta3.dev", "https://cardinal.ta3.dev/app", "ftp://x", "*"]) {
       expect(() => parseConfig(["--allow-origin", bad], {})).toThrow(ConfigError)
     }
+  })
+
+  it("serves HTTPS only with both a certificate and its key", () => {
+    expect(parseConfig(["--tls-cert", "a.pem", "--tls-key", "a-key.pem"], {}).tls).toEqual({ cert: "a.pem", key: "a-key.pem" })
+    expect(parseConfig([], { CARDINAL_TLS_CERT: "c.pem", CARDINAL_TLS_KEY: "k.pem" }).tls).toEqual({ cert: "c.pem", key: "k.pem" })
+    expect(parseConfig([], {}).tls).toBeUndefined()
+    expect(() => parseConfig(["--tls-cert", "a.pem"], {})).toThrow(ConfigError)
   })
 
   it("reads flags over environment variables", () => {
@@ -110,6 +155,96 @@ describe("server access", () => {
     expect(upstream).not.toHaveBeenCalled()
   })
 
+  it("says once which flag would let a refused site or host name in", async () => {
+    const { handle, log } = setup()
+    for (let i = 0; i < 3; i++) {
+      await handle(new Request(`${APP}/api/proxy-token`, { headers: { Origin: "https://cardinal.ta3.dev", "Sec-Fetch-Site": "cross-site" } }))
+      await handle(new Request("http://cardinal.example.com/api/proxy-token", { headers: SAME }))
+    }
+    expect(log.warn.mock.calls.map(([message]) => message)).toEqual([
+      "Turned away https://cardinal.ta3.dev. To let it use this server as its proxy, start it with --allow-origin https://cardinal.ta3.dev.",
+      "Turned away requests for cardinal.example.com. If this server is reached by that name, start it with --public-hosts cardinal.example.com.",
+    ])
+    // Not a site trying to use the proxy: nothing to say.
+    await handle(new Request(`${APP}/api/sessions`, { headers: { Origin: "https://evil.example", "Sec-Fetch-Site": "cross-site" } }))
+    expect(log.warn).toHaveBeenCalledTimes(2)
+  })
+
+  it("logs each API request with --debug: backend, status and why it failed, never the query or credentials", async () => {
+    const { handle, log, upstream } = setup({ debug: true })
+    const token = await proxyToken(handle)
+    const headers = { ...SAME, "X-Cardinal-Proxy-Token": token, "X-Cardinal-Target": "http://127.0.0.1:9090/prom/", Authorization: "Bearer secret-token" }
+    await handle(new Request(`${APP}${PROXY_PATH}`, { headers }), "10.0.0.5")
+    upstream.mockResolvedValueOnce(Response.json({ status: "error", error: "parse error at char 3" }, { status: 400 }))
+    await handle(new Request(`${APP}${PROXY_PATH}`, { headers }), "10.0.0.5")
+    await handle(new Request(`${APP}/api/proxy/api/v1/admin/tsdb/delete_series`, { method: "POST", headers }), "10.0.0.5")
+    await vi.waitFor(() => expect(log.debug).toHaveBeenCalledTimes(4))
+    const lines = log.debug.mock.calls.map(([message]) => message.replace(/ \d+ms/, " Nms"))
+    expect(lines).toEqual([
+      "GET /api/proxy-token 200 Nms",
+      "GET http://127.0.0.1:9090/prom/api/v1/query 200 Nms",
+      "GET http://127.0.0.1:9090/prom/api/v1/query 400 Nms: parse error at char 3",
+      "POST http://127.0.0.1:9090/prom/api/v1/admin/tsdb/delete_series 403 Nms: [path] Path not allowed through the proxy: POST /api/v1/admin/tsdb/delete_series",
+    ])
+    expect(lines.join("\n")).not.toMatch(/secret-token|query=up/)
+  })
+
+  it("skips the certificate check only for https backends of connections that ask", async () => {
+    const skipping = vi.fn(async () => Response.json({ status: "success", data: { skipped: true } }))
+    const upstream = vi.fn(async () => Response.json({ status: "success", data: {} }))
+    const log = { warn: vi.fn(), debug: vi.fn<(message: string) => void>() }
+    const handle = createServerHandler({
+      config: config({ debug: true }),
+      assets,
+      version: "1.2.3",
+      proxySecret: "secret",
+      fetch: upstream as unknown as typeof fetch,
+      fetchSkippingVerify: skipping as unknown as typeof fetch,
+      log,
+    })
+    const token = await proxyToken(handle)
+    const call = (target: string, skip: boolean) =>
+      handle(
+        new Request(`${APP}${PROXY_PATH}`, {
+          headers: { ...SAME, "X-Cardinal-Proxy-Token": token, "X-Cardinal-Target": target, ...(skip ? { "X-Cardinal-Skip-TLS-Verify": "1" } : {}) },
+        }),
+        "10.0.0.5"
+      )
+    await call("https://prom.lan", true)
+    expect(skipping).toHaveBeenCalledTimes(1)
+    await call("https://prom.lan", false)
+    await call("http://prom.lan", true)
+    expect(skipping).toHaveBeenCalledTimes(1)
+    expect(upstream).toHaveBeenCalledTimes(2)
+    await vi.waitFor(() => expect(log.debug.mock.calls.some(([line]) => line.includes("https://prom.lan/api/v1/query (certificate not checked) 200"))).toBe(true))
+
+    // A server built without one says so rather than checking quietly.
+    const { handle: plain } = setup()
+    const refused = await plain(
+      new Request(`${APP}${PROXY_PATH}`, {
+        headers: { ...SAME, "X-Cardinal-Proxy-Token": await proxyToken(plain), "X-Cardinal-Target": "https://prom.lan", "X-Cardinal-Skip-TLS-Verify": "1" },
+      }),
+      "10.0.0.5"
+    )
+    expect(refused.status).toBe(501)
+    expect(refused.headers.get("X-Cardinal-Proxy-Error")).toBe("tls")
+  })
+
+  it("waits for a backend as long as --proxy-timeout says", async () => {
+    const { handle, upstream } = setup({ proxyTimeout: 1 })
+    upstream.mockImplementationOnce(
+      (_input, init) => new Promise((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal?.reason)))
+    )
+    const token = await proxyToken(handle)
+    const started = Date.now()
+    const response = await handle(
+      new Request(`${APP}${PROXY_PATH}`, { headers: { ...SAME, "X-Cardinal-Proxy-Token": token, "X-Cardinal-Target": PRIVATE_TARGET } }),
+      "10.0.0.5"
+    )
+    expect(response.status).toBe(504)
+    expect(Date.now() - started).toBeGreaterThanOrEqual(900)
+  })
+
   it("lets sites named with --allow-origin use the proxy, with CORS, and nothing else", async () => {
     const SITE = "https://cardinal.ta3.dev"
     const { handle, upstream } = setup({ allowOrigins: [SITE] })
@@ -124,6 +259,7 @@ describe("server access", () => {
     expect(preflight.status).toBe(204)
     expect(preflight.headers.get("Access-Control-Allow-Origin")).toBe(SITE)
     expect(preflight.headers.get("Access-Control-Allow-Headers")).toContain("x-cardinal-proxy-token")
+    expect(preflight.headers.get("Access-Control-Allow-Headers")).toContain("x-cardinal-skip-tls-verify")
     expect(preflight.headers.get("Access-Control-Allow-Private-Network")).toBe("true")
 
     const info = await handle(new Request(`${APP}/api/server/info`, { headers: cross }))

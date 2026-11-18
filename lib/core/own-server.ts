@@ -34,3 +34,18 @@ export function startCommand(method: InstallMethod, origin?: string) {
 export function proxyCommand(origin: string) {
   return startCommand("npx", origin)
 }
+
+export const LOCAL_HTTPS_URL = "https://localhost:9181"
+
+/** The server's options worth knowing, for the self-host page; `cardinal --help` lists them all. */
+export const SERVER_OPTIONS: ReadonlyArray<{ flag: string; what: string }> = [
+  { flag: "--allow-origin <site>", what: "Lets a site, like this one, use it as its proxy. Repeat it for more." },
+  { flag: "--allow-hosts <list>", what: "Only proxies to these backends: host, host:port or *.domain." },
+  { flag: "--tls-cert <file> --tls-key <file>", what: "Serves HTTPS with your certificate. Safari needs it to let an https page in." },
+  { flag: "--proxy-via <url>", what: "Reaches backends through your HTTP proxy. HTTPS_PROXY and NO_PROXY work too." },
+  { flag: "--proxy-ca <file>", what: "Trusts your internal CA for backends, as well as the usual ones." },
+  { flag: "--proxy-timeout <s>", what: "Waits longer for slow queries: 30 s by default, at most 240." },
+  { flag: "--debug", what: "Logs every request: path, backend, status, time and why it failed. Never credentials." },
+  { flag: "--port <n>", what: "Listens on another port than 9181." },
+  { flag: "--open", what: "Opens the app in your browser once it starts." },
+]

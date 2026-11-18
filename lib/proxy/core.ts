@@ -1,4 +1,4 @@
-import { PROXY_ERROR_HEADER, PROXY_PREFIX, PROXY_TARGET_HEADER } from "@/lib/sources/proxy-constants"
+import { PROXY_ERROR_HEADER, PROXY_PREFIX, PROXY_SKIP_VERIFY_HEADER, PROXY_TARGET_HEADER } from "@/lib/sources/proxy-constants"
 
 // The forwarding half of the self-hosted server's proxy (server/). Callers
 // authenticate the request first (lib/proxy/guard); this checks the target
@@ -56,13 +56,43 @@ export function proxyError(status: number, message: string, kind?: string) {
   return response
 }
 
-/** Best-effort reason a fetch to the backend failed: "dns", "timeout" or "unreachable". */
+/** A failed fetch and its causes: Node's fetch says only "fetch failed" and keeps the reason in `cause`. */
+function causesOf(error: unknown) {
+  const chain: unknown[] = []
+  for (let current = error; current && chain.length < 4; current = (current as { cause?: unknown }).cause) chain.push(current)
+  return chain
+}
+
+function describeError(error: unknown) {
+  const code = (error as { code?: unknown }).code
+  // Node adds runtime advice after a semicolon ("try running Node.js with --use-system-ca"): Cardinal's flags are the fix here.
+  const message = (error instanceof Error ? error.message : String(error)).split(";")[0]
+  return typeof code === "string" && !message.includes(code) ? `${message} (${code})` : message
+}
+
+/** The innermost reason, e.g. "self-signed certificate (DEPTH_ZERO_SELF_SIGNED_CERT)". */
+function causeOf(error: unknown) {
+  return describeError(causesOf(error).at(-1))
+}
+
+/** Best-effort reason a fetch to the backend failed: "dns", "timeout", "tls" or "unreachable". */
 function unreachableKind(cause: unknown) {
-  const text = String(cause)
+  const text = causesOf(cause).map(describeError).join(" ")
   if (cause instanceof DOMException && (cause.name === "TimeoutError" || cause.name === "AbortError")) return "timeout"
   if (/timed? ?out/i.test(text)) return "timeout"
   if (/dns|ENOTFOUND|resolve|getaddrinfo|name not known/i.test(text)) return "dns"
+  if (/CERT|certificate|self[- ]signed|UNABLE_TO_VERIFY|altname/i.test(text)) return "tls"
   return "unreachable"
+}
+
+/** What went wrong reaching `target`, with the flag that helps where there is one. */
+function unreachableMessage(kind: string, target: URL, cause: unknown, timeoutMs: number) {
+  const why = causeOf(cause)
+  if (kind === "timeout") return `${target.origin} didn't answer within ${Math.round(timeoutMs / 1000)} s; start Cardinal with --proxy-timeout <s> to wait longer`
+  if (kind === "tls") {
+    return `${target.origin}'s certificate isn't trusted (${why}). If your own CA signed it, start Cardinal with --proxy-ca <file>; if it's self-signed, turn on Skip certificate check for this connection, under Advanced`
+  }
+  return `Could not reach ${target.origin}: ${why}`
 }
 
 /**
@@ -88,8 +118,17 @@ export function isHostAllowed(target: URL, allowHosts: readonly string[]) {
 export interface ForwardOptions {
   /** Optional target allowlist (see isHostAllowed). */
   allowHosts?: readonly string[]
-  /** For tests. */
+  /** How long to wait for the backend, default 30 s. */
+  timeoutMs?: number
+  /** Reaches the backend; the server's own (through an HTTP proxy, say) or one for tests. */
   fetch?: typeof fetch
+  /** Reaches the backend without checking its certificate, for a connection that asks (PROXY_SKIP_VERIFY_HEADER). */
+  fetchSkippingVerify?: typeof fetch
+}
+
+/** The connection asks not to check this https backend's certificate (a self-signed one). */
+export function skipsVerify(request: Request, target: URL) {
+  return target.protocol === "https:" && request.headers.get(PROXY_SKIP_VERIFY_HEADER) === "1"
 }
 
 /** Checks the target and path of an authenticated `/api/proxy/*` request and forwards it. */
@@ -124,19 +163,25 @@ export async function forwardProxyRequest(request: Request, options: ForwardOpti
     if (value) headers.set(name, value)
   }
 
+  const timeoutMs = options.timeoutMs ?? 30_000
+  let send = options.fetch ?? fetch
+  if (skipsVerify(request, target)) {
+    if (!options.fetchSkippingVerify) return proxyError(501, "This Cardinal server can't skip certificate checks", "tls")
+    send = options.fetchSkippingVerify
+  }
   let response: Response
   try {
-    response = await (options.fetch ?? fetch)(upstream, {
+    response = await send(upstream, {
       method: request.method,
       headers,
       // Buffered rather than streamed: bodies are small (queries, rule lists), and Node's fetch refuses a stream without `duplex`.
       body: request.method === "GET" || request.method === "HEAD" ? undefined : await request.arrayBuffer(),
       redirect: "manual",
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(timeoutMs),
     })
   } catch (cause) {
     const kind = unreachableKind(cause)
-    return proxyError(kind === "timeout" ? 504 : 502, `Could not reach ${target.origin}: ${String(cause)}`, kind)
+    return proxyError(kind === "timeout" ? 504 : 502, unreachableMessage(kind, target, cause, timeoutMs), kind)
   }
 
   // Cloudflare answers 530 (error 1016) when the backend's hostname has no DNS record.

@@ -1,4 +1,4 @@
-import { ArrowRightIcon, CopyIcon, WarningCircleIcon } from "@phosphor-icons/react"
+import { ArrowRightIcon, ArrowSquareOutIcon, CopyIcon, WarningCircleIcon } from "@phosphor-icons/react"
 import { Link } from "react-router"
 import { toast } from "sonner"
 
@@ -28,7 +28,7 @@ export function ProblemLine({
   onFix,
   className,
 }: {
-  problem: Pick<ConnectionProblem, "kind" | "title" | "detail" | "snippet" | "fix" | "help">
+  problem: Pick<ConnectionProblem, "kind" | "title" | "detail" | "snippet" | "fix" | "help" | "link">
   onFix?: (patch: Partial<ConnectionSettings>) => void
   className?: string
 }) {
@@ -64,6 +64,14 @@ export function ProblemLine({
         {problem.fix && onFix ? (
           <Button type="button" size="xs" variant="outline" onClick={() => onFix(problem.fix!.patch)}>
             {problem.fix.label}
+          </Button>
+        ) : null}
+        {problem.link ? (
+          <Button asChild size="xs" variant="outline">
+            <a href={problem.link.href} target="_blank" rel="noreferrer">
+              {problem.link.label}
+              <ArrowSquareOutIcon data-icon="inline-end" />
+            </a>
           </Button>
         ) : null}
         {problem.help === "server" ? <OwnServerLink /> : null}

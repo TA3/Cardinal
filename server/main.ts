@@ -1,8 +1,10 @@
-import { readdirSync, statSync } from "node:fs"
+import { readdirSync, readFileSync, statSync } from "node:fs"
 import path from "node:path"
+import { rootCertificates } from "node:tls"
 
 import packageJson from "../package.json"
-import { ConfigError, DEFAULT_PORT, parseConfig, USAGE } from "./config"
+import { appUrl, banner, createLog, exitOnSignals, openBrowser } from "./cli"
+import { ConfigError, DEFAULT_PORT, parseConfig, USAGE, type ServerConfig } from "./config"
 import { createServerHandler } from "./server"
 import type { Assets } from "./static"
 
@@ -24,12 +26,27 @@ function assetsFromDirectory(root: string): Assets {
 
 async function healthcheck() {
   const port = Number(process.env.CARDINAL_PORT) || DEFAULT_PORT
+  const scheme = process.env.CARDINAL_TLS_CERT ? "https" : "http"
   try {
-    const response = await fetch(`http://127.0.0.1:${port}/healthz`, { signal: AbortSignal.timeout(3_000) })
+    // Over HTTPS the certificate names localhost, not 127.0.0.1: only liveness matters here.
+    const response = await fetch(`${scheme}://127.0.0.1:${port}/healthz`, { signal: AbortSignal.timeout(3_000), tls: { rejectUnauthorized: false } })
     process.exit(response.ok ? 0 : 1)
   } catch {
     process.exit(1)
   }
+}
+
+/**
+ * How the proxy reaches backends, for --proxy-via and --proxy-ca, and without
+ * checking certificates for connections set to skip it. Bun's own fetch
+ * already follows HTTPS_PROXY and NO_PROXY.
+ */
+function backendFetch(config: ServerConfig, ca: string | undefined, skipVerify = false): typeof fetch | undefined {
+  if (!config.proxyVia && !ca && !skipVerify) return undefined
+  // A CA of one's own replaces the built-in ones unless they come along: public backends would fail.
+  const tls = skipVerify ? { rejectUnauthorized: false } : ca ? { ca: [...rootCertificates, ca] } : undefined
+  const proxy = config.proxyVia
+  return ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, { ...init, ...(tls ? { tls } : {}), ...(proxy ? { proxy } : {}) })) as typeof fetch
 }
 
 export interface StartOptions {
@@ -66,24 +83,49 @@ export async function start(options: StartOptions = {}) {
     console.warn(`No app build found${staticDir ? ` in ${staticDir}` : ""}; run \`bun run build\` first. The proxy still works.`)
   }
 
-  const handle = createServerHandler({ config, assets, version })
-  const server = Bun.serve({
-    port: config.port,
-    hostname: config.host,
-    // Upstream requests may take up to 30 s (lib/proxy/core).
-    idleTimeout: 60,
-    fetch: (request, server) => handle(request, server.requestIP(request)?.address),
-  })
+  let tls: { cert: string; key: string } | undefined
+  let ca: string | undefined
+  try {
+    tls = config.tls && { cert: readFileSync(config.tls.cert, "utf8"), key: readFileSync(config.tls.key, "utf8") }
+  } catch (error) {
+    console.error(`Can't read the TLS certificate or key: ${error instanceof Error ? error.message : String(error)}`)
+    process.exit(2)
+  }
+  try {
+    ca = config.proxyCa ? readFileSync(config.proxyCa, "utf8") : undefined
+  } catch (error) {
+    console.error(`Can't read the CA for backends (--proxy-ca): ${error instanceof Error ? error.message : String(error)}`)
+    process.exit(2)
+  }
 
-  const shown = config.host === "0.0.0.0" || config.host === "::" ? "localhost" : config.host.includes(":") ? `[${config.host}]` : config.host
-  const lines = [
-    `Cardinal ${version} on http://${shown}:${server.port}`,
-    "",
-    `Proxy targets:   ${config.allowHosts.length ? config.allowHosts.join(", ") : "any host, private and loopback included"}`,
-  ]
-  if (config.publicHosts.length) lines.push(`Public hosts:    ${config.publicHosts.join(", ")}`)
-  if (config.allowOrigins.length) lines.push(`Proxy for:       ${config.allowOrigins.join(", ")}`)
-  console.log(lines.join("\n"))
+  const handle = createServerHandler({
+    config,
+    assets,
+    version,
+    fetch: backendFetch(config, ca),
+    fetchSkippingVerify: backendFetch(config, ca, true),
+    log: createLog(config),
+  })
+  let server
+  try {
+    server = Bun.serve({
+      port: config.port,
+      hostname: config.host,
+      tls,
+      // Longer than the proxy waits for a backend (--proxy-timeout); Bun allows at most 255 s.
+      idleTimeout: Math.min(255, config.proxyTimeout + 30),
+      fetch: (request, server) => handle(request, server.requestIP(request)?.address),
+    })
+  } catch (error) {
+    const inUse = (error as { code?: string }).code === "EADDRINUSE"
+    console.error(inUse ? `Port ${config.port} is in use. Start with --port <n>.` : error instanceof Error ? error.message : String(error))
+    process.exit(1)
+  }
+
+  const url = appUrl(config, server.port ?? config.port)
+  console.log(banner(config, version, url, process.env))
+  exitOnSignals(() => void server.stop(true))
+  if (config.open) openBrowser(url)
   return server
 }
 

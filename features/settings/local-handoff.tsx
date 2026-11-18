@@ -5,7 +5,7 @@ import { paths } from "@/app/paths"
 import { CodeBlock } from "@/components/code-block"
 import { Button } from "@/components/ui/button"
 import { corsFlag } from "@/features/settings/connection-check"
-import { handoffUrl, type HandoffConnection } from "@/lib/core/handoff"
+import { handoffUrl, LOCAL_APP_URL, type HandoffConnection } from "@/lib/core/handoff"
 import { proxyCommand } from "@/lib/core/own-server"
 import type { Signal } from "@/lib/core/signals"
 import { localBackendAdvice } from "@/lib/core/transport-plan"
@@ -33,6 +33,8 @@ export function ContinueLocallyButton({
     const state = useAppStore.getState()
     const saved = (settings: { baseUrl: string; instanceId: string; tenant: string }) =>
       settings.baseUrl.trim() ? { baseUrl: settings.baseUrl, instanceId: settings.instanceId, tenant: settings.tenant } : undefined
+    // The user's server as set for this page (it may serve https), else the default address.
+    const base = state.proxyServer || LOCAL_APP_URL
     const url = handoffUrl({
       metrics: signal === "metrics" && draft ? draft : saved(state.settings),
       logs: signal === "logs" && draft ? draft : saved(state.logsSettings),
@@ -43,7 +45,7 @@ export function ContinueLocallyButton({
       autopilot: state.autopilot,
       attribution: state.attribution,
       open: signal,
-    })
+    }, base)
     window.open(url, "_blank", "noopener")
   }
   return (

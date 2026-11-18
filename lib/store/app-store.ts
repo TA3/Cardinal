@@ -63,6 +63,8 @@ export interface ConnectionSettings {
   modeManual?: boolean
   /** When false the token is kept in memory only. */
   rememberToken: boolean
+  /** Skip the backend's certificate check, for a self-signed one: through the user's Cardinal server only. */
+  tlsSkipVerify?: boolean
   topN: number
   /** Price per 1,000 active series per month, for cost estimates. Unset until the user enters one. */
   pricePer1kSeries?: number
@@ -90,6 +92,8 @@ export interface GrafanaSettings {
   /** The user picked `mode`; otherwise Connect Grafana chooses it (lib/core/transport-plan). */
   modeManual?: boolean
   rememberToken: boolean
+  /** Skip Grafana's certificate check, for a self-signed one: through the user's Cardinal server only. */
+  tlsSkipVerify?: boolean
   /** Data source picked per signal on the last Connect Grafana run (null = don't use Grafana for it). Reset when the URL changes. */
   choices: RememberedChoices
 }
@@ -1128,6 +1132,7 @@ export function currentConnection(from: ConnectionSettings | Signal = "metrics")
     token: settings.token || undefined,
     tenant: settings.tenant?.trim() || undefined,
     mode: settings.mode,
+    tlsSkipVerify: settings.tlsSkipVerify || undefined,
   }
 }
 

@@ -14,13 +14,14 @@ import { Switch } from "@/components/ui/switch"
 import { diagnose, TEST_TIMEOUT_MS, type ConnectionProblem } from "@/features/settings/connection-check"
 import { PickFromGrafana, type PickedDatasource } from "@/features/settings/pick-from-grafana"
 import { proxyModeHint, RouteField } from "@/features/settings/route-field"
+import { SkipVerifyField } from "@/features/settings/skip-verify-field"
 import { routeLabel, withAutoMode } from "@/features/settings/auto-mode"
 import { LocalBackendNotice } from "@/features/settings/local-handoff"
 import { ProblemLine } from "@/features/settings/problem-line"
 import type { Signal } from "@/lib/core/signals"
 import { fetchLogsSnapshot, testLokiConnection, type LokiCheck } from "@/lib/sources/loki"
 import { fetchSnapshot, testConnection, type ConnectionCheck } from "@/lib/sources/prometheus"
-import { inferAuthMode, isGrafanaCloudHost, type AuthMode } from "@/lib/sources/transport"
+import { inferAuthMode, isGrafanaCloudHost, sameHost, type AuthMode } from "@/lib/sources/transport"
 import { currentConnection, useAppStore, type ConnectionSettings } from "@/lib/store/app-store"
 import { useSelfHosted } from "@/lib/store/server-store"
 
@@ -53,8 +54,8 @@ const GRAFANA_SCOPES = [
 
 /** Fields the form owns; everything else in settings (pricing, …) is kept as saved. */
 function connectionFields(draft: ConnectionSettings) {
-  const { baseUrl, authMode, instanceId, token, tenant, mode, modeManual, rememberToken, topN } = draft
-  return { baseUrl: baseUrl.trim(), authMode, instanceId, token, tenant, mode, modeManual, rememberToken, topN }
+  const { baseUrl, authMode, instanceId, token, tenant, mode, modeManual, rememberToken, tlsSkipVerify, topN } = draft
+  return { baseUrl: baseUrl.trim(), authMode, instanceId, token, tenant, mode, modeManual, rememberToken, tlsSkipVerify, topN }
 }
 
 function PasswordInput(props: React.ComponentProps<typeof Input>) {
@@ -138,11 +139,13 @@ export function ConnectionForm({
   const [phase, setPhase] = React.useState<"idle" | "testing" | "analyzing">("idle")
   const [problem, setProblem] = React.useState<ConnectionProblem | null>(null)
   const [check, setCheck] = React.useState<Check | null>(null)
-  const [advanced, setAdvanced] = React.useState(Boolean(saved.modeManual || saved.tenant?.trim()))
+  const [advanced, setAdvanced] = React.useState(Boolean(saved.modeManual || saved.tenant?.trim() || saved.tlsSkipVerify))
   // How credentials are sent follows from the fields filled in (inferAuthMode), so the form never asks.
   const set = (patch: Partial<ConnectionSettings>) => {
     setDraft((current) => {
       const next = { ...current, ...patch }
+      // A skipped certificate check is for one backend: another host starts checked again.
+      if ("baseUrl" in patch && next.tlsSkipVerify && !sameHost(next.baseUrl, current.baseUrl)) next.tlsSkipVerify = false
       return "baseUrl" in patch || "instanceId" in patch || "token" in patch || "tenant" in patch ? { ...next, authMode: inferAuthMode(next) } : next
     })
     setCheck(null)
@@ -235,7 +238,7 @@ export function ConnectionForm({
 
   function applyFix(patch: Partial<ConnectionSettings>) {
     set(patch.mode ? { ...patch, modeManual: true } : patch)
-    if (patch.mode) setAdvanced(true)
+    if (patch.mode || patch.tlsSkipVerify) setAdvanced(true)
     setProblem(null)
   }
 
@@ -344,6 +347,7 @@ export function ConnectionForm({
             <CaretRightIcon className="size-3 transition-transform group-data-[state=open]/adv:rotate-90 motion-reduce:transition-none" />
             Advanced
             {manual ? <span className="font-normal">· {manual === "proxy" && selfHosted ? "this server" : manual}</span> : null}
+            {draft.tlsSkipVerify ? <span className="font-normal">· certificate not checked</span> : null}
           </CollapsibleTrigger>
           <CollapsibleContent className="flex flex-col gap-4 pt-3">
             <Field>
@@ -360,6 +364,12 @@ export function ConnectionForm({
               value={manual ?? "auto"}
               picked={manual ? undefined : check || saved.baseUrl.trim() === draft.baseUrl.trim() ? draft.mode : undefined}
               onChange={(mode) => set(mode === "auto" ? { modeManual: false } : { mode, modeManual: true })}
+            />
+            <SkipVerifyField
+              id={id("skip-verify")}
+              baseUrl={draft.baseUrl}
+              checked={Boolean(draft.tlsSkipVerify)}
+              onCheckedChange={(checked) => set({ tlsSkipVerify: checked })}
             />
           </CollapsibleContent>
         </Collapsible>

@@ -12,6 +12,8 @@ export interface GrafanaConnection {
   /** Service account token; empty for anonymous access. */
   token?: string
   mode: TransportMode
+  /** Skip Grafana's certificate check (self-signed), through the user's Cardinal server. */
+  tlsSkipVerify?: boolean
 }
 
 export interface GrafanaScanProgress {
@@ -39,7 +41,13 @@ const DEFAULT_CONCURRENCY = 6
 
 function transport(grafana: GrafanaConnection): Connection {
   const token = grafana.token?.trim()
-  return { baseUrl: normalizeBaseUrl(grafana.baseUrl), auth: token ? "bearer" : "none", token: token || undefined, mode: grafana.mode }
+  return {
+    baseUrl: normalizeBaseUrl(grafana.baseUrl),
+    auth: token ? "bearer" : "none",
+    token: token || undefined,
+    mode: grafana.mode,
+    tlsSkipVerify: grafana.tlsSkipVerify || undefined,
+  }
 }
 
 /**

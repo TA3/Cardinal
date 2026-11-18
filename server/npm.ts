@@ -85,7 +85,13 @@ from there too), start it with:
 npx @ta3/cardinal --allow-origin https://cardinal.ta3.dev
 \`\`\`
 
-then set http://localhost:9181 under **Settings → Your Cardinal server** on cardinal.ta3.dev.
+then set http://localhost:9181 under **Settings → Your Cardinal server** on cardinal.ta3.dev. Safari blocks
+http://localhost from https pages: add \`--tls-cert cert.pem --tls-key key.pem\` and use https://localhost:9181.
+
+Useful options: \`--debug\` logs every request, \`--proxy-via <url>\` reaches backends through an HTTP proxy
+(HTTPS_PROXY works too), \`--proxy-ca <file>\` trusts an internal CA, \`--proxy-timeout <s>\` waits longer for
+slow queries and \`--open\` opens the app. Proxying through HTTPS_PROXY or \`--proxy-via\` needs a Node that
+has \`--use-env-proxy\`, like current Node 24.
 
 More: https://github.com/TA3/cardinal
 

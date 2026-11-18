@@ -49,6 +49,7 @@ describe("detectGrafanaDatasources / connectGrafana", () => {
           tenant: "",
           mode: "proxy",
           rememberToken: false,
+          tlsSkipVerify: false,
         },
         link: {
           grafanaUrl: "https://play.grafana.org",
@@ -75,7 +76,10 @@ describe("detectGrafanaDatasources / connectGrafana", () => {
     expect(detectGrafanaDatasources({ grafanaUrl: "https://g.example.com", datasources, remembered: { metrics: "gone" } }).metrics.preselected).toBe("a-prom")
 
     const plan = connectGrafana(first, { ...base, token: " glsa_x ", rememberToken: true, choices: { metrics: { use: "grafana", uid: "b-prom" } } })
-    expect(plan.signals[0].connection).toMatchObject({ authMode: "bearer", token: "glsa_x", rememberToken: true })
+    expect(plan.signals[0].connection).toMatchObject({ authMode: "bearer", token: "glsa_x", rememberToken: true, tlsSkipVerify: false })
+    // Through Grafana's data source proxy it is Grafana's certificate: skipped with Grafana's.
+    const skipping = connectGrafana(first, { ...base, tlsSkipVerify: true, choices: { metrics: { use: "grafana", uid: "b-prom" } } })
+    expect(skipping.signals[0].connection.tlsSkipVerify).toBe(true)
     expect(plan.remember).toEqual({ metrics: "b-prom" })
   })
 

@@ -45,9 +45,27 @@ export interface ConnectionProblem {
   fix?: { label: string; patch: Partial<ConnectionSettings> }
   /** "server": the way out is the user's own Cardinal server (run it, then open it or set it as this page's proxy). */
   help?: "server"
+  /** A page that works around it, e.g. the local app the user's server serves. */
+  link?: { label: string; href: string }
 }
 
 export const TEST_TIMEOUT_MS = 10_000
+
+/** A self-signed certificate or an unknown issuer, which skipping the check is for; not an expired or misnamed one. */
+function selfSigned(message: string) {
+  return /self[- ]signed|UNABLE_TO_VERIFY_LEAF|UNABLE_TO_GET_ISSUER|unable to (verify|get local issuer)/i.test(message)
+}
+
+/** The user's Cardinal server didn't trust the certificate of `name` (a backend's host, or "Grafana"). */
+export function tlsProblem(error: unknown, name: string): ConnectionProblem | null {
+  if (!(error instanceof HttpError) || error.proxyFailure !== "tls") return null
+  return {
+    kind: "other",
+    title: `${name}'s certificate isn't trusted`,
+    detail: error.message,
+    ...(selfSigned(error.message) ? { fix: { label: "Skip the check", patch: { tlsSkipVerify: true } } } : {}),
+  }
+}
 
 function hostOf(url: string) {
   try {
@@ -89,6 +107,12 @@ async function statusViaProxy(baseUrl: string, api: BackendApi): Promise<number 
 /** Which API the connection is for: Prometheus (metrics) or Loki (logs). */
 export type BackendApi = "prometheus" | "loki"
 
+/** Safari (WebKit without Chrome's or Firefox's engines), which blocks loopback from https pages outright. */
+function isSafari() {
+  const agent = globalThis.navigator?.userAgent ?? ""
+  return /Safari\//.test(agent) && !/Chrome\/|Chromium\/|CriOS\/|Edg\/|Firefox\/|FxiOS\//.test(agent)
+}
+
 /** The page origin, as a Cardinal server's --allow-origin takes it. */
 function pageOrigin() {
   return globalThis.location?.origin ?? "http://localhost:5173"
@@ -114,11 +138,36 @@ export function ownServerProblem(error: unknown): ConnectionProblem | null {
     }
   }
   if (error instanceof ProxyServerError) {
+    const host = hostOf(error.server)
+    const open = { label: `Open ${host}`, href: error.server }
+    if (error.access === "denied") {
+      return {
+        kind: "server",
+        title: `Your browser doesn't let this page reach ${host}`,
+        detail: `Allow ${hostOf(pageOrigin())} to reach apps on this device (local network access) in the browser's site settings, then try again. Or open the app your server serves, which needs no permission.`,
+        link: open,
+        help: "server",
+      }
+    }
+    const safari = error.access === "unsupported" && isSafari()
+    if (safari && new URL(error.server).protocol === "http:") {
+      return {
+        kind: "server",
+        title: `Safari doesn't let https pages reach ${host}`,
+        detail:
+          "Safari blocks http://localhost from https pages, with no way to allow it. Open the app your server serves instead, or start it with --tls-cert and --tls-key (a certificate this Mac trusts) and use its https:// address.",
+        link: open,
+        help: "server",
+      }
+    }
     return {
       kind: "server",
-      title: `Couldn't reach your Cardinal server at ${hostOf(error.server)}`,
-      detail: `Start it on this machine with the command below, which lets ${pageOrigin()} use it, then try again. If it runs, the browser may block the page from reaching it: Chrome asks once to allow this site to reach your device, and Safari can refuse http://localhost from an https page.`,
+      title: `Couldn't reach your Cardinal server at ${host}`,
+      detail: `Start it on this machine with the command below, which lets ${pageOrigin()} use it, then try again. If it runs and still fails, its terminal says why (add --debug for every request), or open the app it serves instead${
+        error.access === "prompt" ? ". The browser may also be asking to let this site reach your device" : ""
+      }.`,
       snippet: proxyCommand(pageOrigin()),
+      link: open,
       help: "server",
     }
   }
@@ -222,7 +271,13 @@ export async function diagnose(error: unknown, draft: ConnectionSettings, api: B
       case "dns":
         return { kind: "dns", title: `${host} doesn't resolve`, detail: "DNS lookup failed. Check the host name for typos." }
       case "timeout":
-        return { kind: "timeout", title: `${host} did not answer in time`, detail: "Your Cardinal server gave up after 30 s. The backend may be down or overloaded." }
+        return {
+          kind: "timeout",
+          title: `${host} did not answer in time`,
+          detail: "Your Cardinal server gave up waiting. The backend may be down or overloaded; for slow queries, start the server with --proxy-timeout 120.",
+        }
+      case "tls":
+        return tlsProblem(error, host)!
       case "unreachable":
         return {
           kind: "unreachable",
