@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { addJobLabelDrops, buildJobWork, jobLabelPlan, removableJobLabel } from "@/lib/core/job-work"
+import { addJobLabelDrops, buildJobWork, buildMetricWork, jobLabelPlan, removableJobLabel } from "@/lib/core/job-work"
 import { queries } from "@/lib/core/promql"
 import { createRule, type DropLabelsRule } from "@/lib/core/rules"
 
@@ -13,6 +13,21 @@ const metrics = [
 const impact = (seriesBefore: number, seriesAfter: number) => ({ seriesBefore, seriesAfter, exact: true, mergesSeries: seriesAfter < seriesBefore, measuredAt: "2026-11-17T00:00:00Z" })
 
 describe("job work", () => {
+  it("takes every job's rules for a metric across jobs, and drops it whole only for every job", () => {
+    const rules = [
+      createRule({ kind: "drop_metric", selector: { metric: "node_cpu_seconds_total", job: "other" }, origin: "user", impact: impact(200, 0) }),
+      createRule({ kind: "drop_labels", selector: { metric: "node_cpu_seconds_total", job: "node" }, labels: ["cpu"], origin: "user", impact: impact(500, 50) }),
+      createRule({ kind: "drop_labels", selector: { metric: "go_gc_duration_seconds" }, labels: ["quantile"], origin: "user" }),
+    ]
+    expect(buildMetricWork({ metric: "node_cpu_seconds_total", seriesCount: 700, rules })).toMatchObject({ state: "cut", savedSeries: 650, unmeasured: false })
+    expect(buildMetricWork({ metric: "go_gc_duration_seconds", seriesCount: 100, rules })).toMatchObject({ state: "cut", savedSeries: 0, unmeasured: true })
+    expect(buildMetricWork({ metric: "node_filesystem_size_bytes", seriesCount: 80, rules })).toMatchObject({ state: "open", rules: [] })
+    // In one job's view, another job's drop doesn't count.
+    expect(buildMetricWork({ metric: "node_cpu_seconds_total", seriesCount: 500, rules, job: "node" })).toMatchObject({ state: "cut", savedSeries: 450 })
+    const everywhere = [createRule({ kind: "drop_metric", selector: { metric: "go_gc_duration_seconds" }, origin: "user" })]
+    expect(buildMetricWork({ metric: "go_gc_duration_seconds", seriesCount: 100, rules: everywhere })).toMatchObject({ state: "dropped", savedSeries: 100 })
+  })
+
   it("marks each metric open, cut, dropped or kept, and sums what the job saves", () => {
     const rules = [
       createRule({ kind: "drop_metric", selector: { metric: "go_gc_duration_seconds", job: "node" }, origin: "user" }),

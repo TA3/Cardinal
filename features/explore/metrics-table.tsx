@@ -91,6 +91,7 @@ export function MetricsTable({
   stickyHeader = false,
   groupHistograms = false,
   keyboard = false,
+  onOpen,
 }: {
   rows: MetricRow[]
   showJob?: boolean
@@ -106,8 +107,11 @@ export function MetricsTable({
   groupHistograms?: boolean
   /** j / k / Enter / x row shortcuts; enable on one table per page. */
   keyboard?: boolean
+  /** Opens a metric in place (the metric dialog); without it rows go to the metric's page. */
+  onOpen?: (metric: string) => void
 }) {
   const navigate = useNavigate()
+  const open = (metric: string) => (onOpen ? onOpen(metric) : navigate(metricPath(metric)))
   const rules = useAppStore((state) => state.rules)
   const { selectedLabelsByMetric } = React.useMemo(() => selectionView(rules, job), [rules, job])
   const proposed = React.useMemo(
@@ -166,7 +170,7 @@ export function MetricsTable({
     onOpen: (index) => {
       const entry = visible[index]
       if (entry?.type === "family") toggleFamily(entry.base)
-      else if (entry) navigate(metricPath(entry.row.metric))
+      else if (entry) open(entry.row.metric)
     },
     onToggle: (index) => {
       const entry = visible[index]
@@ -187,7 +191,7 @@ export function MetricsTable({
         style={{ animationDelay: `${Math.min(index, 20) * 18}ms` }}
         data-state={isDropped ? "selected" : undefined}
         onClick={(event) => {
-          if (!fromControl(event)) navigate(metricPath(row.metric))
+          if (!fromControl(event)) open(row.metric)
         }}
       >
         <TableCell className="max-w-0 min-w-48">
@@ -195,6 +199,12 @@ export function MetricsTable({
             <Link
               to={metricPath(row.metric)}
               title={row.metric}
+              onClick={(event) => {
+                // A plain click opens it in place; a modified one keeps the link's own behaviour (new tab).
+                if (!onOpen || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return
+                event.preventDefault()
+                onOpen(row.metric)
+              }}
               className="truncate rounded-sm font-mono text-xs hover:underline focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
             >
               {row.metric}

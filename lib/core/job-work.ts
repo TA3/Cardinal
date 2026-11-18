@@ -107,6 +107,52 @@ export function buildJobWork({
   }
 }
 
+/**
+ * One metric in a view: of one job (as in buildJobWork), or across every job
+ * when `job` is undefined. Across jobs every rule for the metric counts, each
+ * by its own measured saving; only a drop for every job drops it whole.
+ */
+export function buildMetricWork({
+  metric,
+  seriesCount,
+  rules,
+  job,
+  kept = false,
+}: {
+  metric: string
+  /** Series of the metric in the view: the job's, or all of them. */
+  seriesCount: number
+  rules: readonly Rule[]
+  job?: string
+  /** Kept as it is on purpose (one job's view only). */
+  kept?: boolean
+}): MetricWork {
+  if (job !== undefined) return buildJobWork({ job, metrics: [{ metric, seriesCount }], rules, kept: kept ? [metric] : [] }).metrics[0]
+  const applying = rules.filter(
+    (rule): rule is MetricRule => rule.status === "active" && rule.kind !== "keep_metrics" && rule.selector.metric === metric
+  )
+  const droppedWhole = applying.some((rule) => rule.kind === "drop_metric" && rule.selector.job === undefined)
+  let saved = 0
+  let pending = false
+  if (droppedWhole) saved = seriesCount
+  else {
+    for (const rule of applying) {
+      if (!rule.impact) pending = true
+      else saved += Math.max(0, rule.impact.seriesBefore - rule.impact.seriesAfter)
+    }
+    saved = Math.min(seriesCount, Math.round(saved))
+  }
+  return {
+    metric,
+    seriesCount,
+    rules: applying,
+    byKeepList: false,
+    savedSeries: saved,
+    unmeasured: pending,
+    state: droppedWhole ? "dropped" : applying.length ? "cut" : "open",
+  }
+}
+
 /** Series of one metric of a job before and after a label is removed from the whole job. */
 export interface JobLabelRow {
   metric: string

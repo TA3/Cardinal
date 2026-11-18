@@ -42,7 +42,16 @@ describe("value groups", () => {
     expect(regexProblem(regex)).toBeNull()
     expect(values.every((value) => fullMatch(regex, value))).toBe(true)
     expect(literalValues(regex)).toEqual(values)
-    const yaml = renderPrometheus(planRelabel([{ ...rule(), label: "query", groups: [{ name: "pgquery", regex }], rest: undefined, impact: { seriesBefore: 2, seriesAfter: 1, exact: true, mergesSeries: false, window: "1h", measuredAt: "" } }], { mode: "combined" }))
+    const grouped = createRule({
+      kind: "group_values",
+      selector: { metric: "pg_stat_statements_calls" },
+      label: "query",
+      groups: [{ name: "pgquery", regex }],
+      aggregation: "sum",
+      origin: "user",
+      impact: { seriesBefore: 2, seriesAfter: 1, exact: true, mergesSeries: false, window: "1h", measuredAt: "" },
+    })
+    const yaml = renderPrometheus(planRelabel([grouped], { mode: "combined" }))
     expect(yaml).toContain("x0A")
   })
 

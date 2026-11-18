@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 import type { DropScope } from "@/features/explore/drop-scope"
+import { MetricWorkDialog } from "@/features/explore/metric-work-dialog"
 import { MetricsTable } from "@/features/explore/metrics-table"
 import { ExploreViews } from "@/features/explore/explore-views"
 import { connectionKey, useConnection } from "@/hooks/use-cardinality"
@@ -67,6 +68,8 @@ function MetricsExplorer({ snapshot }: { snapshot: Snapshot }) {
   const rules = useAppStore((state) => state.rules)
   const deferredQuery = React.useDeferredValue(query)
   const [dropScope, setDropScope] = React.useState<DropScope>("job")
+  // The metric open in the dialog, as a position in the list it was opened from.
+  const [open, setOpen] = React.useState<{ queue: string[]; index: number } | null>(null)
 
   const update = (patch: Record<string, string | null>) =>
     setParams(
@@ -181,6 +184,10 @@ function MetricsExplorer({ snapshot }: { snapshot: Snapshot }) {
               stickyHeader
               groupHistograms={grouped}
               keyboard
+              onOpen={(metric) => {
+                const queue = rows.map((row) => row.metric)
+                setOpen({ queue, index: Math.max(0, queue.indexOf(metric)) })
+              }}
             />
           ) : (
             <EmptyState
@@ -197,6 +204,13 @@ function MetricsExplorer({ snapshot }: { snapshot: Snapshot }) {
           )}
         </CardContent>
       </Card>
+      <MetricWorkDialog
+        job={job ?? undefined}
+        queue={open?.queue ?? []}
+        index={open?.index ?? null}
+        onIndex={(index) => setOpen((current) => (current ? { ...current, index } : current))}
+        onClose={() => setOpen(null)}
+      />
     </Page>
   )
 }
